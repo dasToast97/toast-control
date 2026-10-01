@@ -167,8 +167,17 @@ end
 local layoutChanged=false
 local setup=role=="turtle" and (clean or not existing or requested)
 if role=="turtle" and not setup then
-    write((job=="farm" and "Feldmasse" or "Minenmasse").." aendern? (j/n) [n]: ")
+    write("Name oder "..(job=="farm" and "Feldmasse" or "Minenmasse").." aendern? (j/n) [n]: ")
     setup=read():lower()=="j"
+end
+-- Name abfragen: Turtles beim Einrichten, Zentrale/Pocket bei neuer Installation.
+if setup or (role~="turtle" and role~="repeater" and (clean or not existing)) then
+    local current=c.name or c.label or ""
+    if current=="" then current=os.getComputerLabel and os.getComputerLabel() or "" end
+    write("Name"..(current~="" and " ["..current.."]" or " (leer = keiner)")..": ")
+    local v=read()
+    if v~="" then c.name=common.label(v) else c.name=current end
+    c.label=c.name;configChanged=true
 end
 if setup then
     print("")

@@ -1,6 +1,11 @@
 # Toast Control 2.3 – Stabilität, Reset, sparsamer Fahrweg & eigene Maße
 
-## Neu in 2.3: Maße beim Installieren einstellen
+## Neu in 2.3: Namen und Maße beim Installieren einstellen
+
+**Namen:** In `/toast.config.lua` steht oben `name = "..."`. Der Installer fragt
+danach. Der Name erscheint an Zentrale und Pocket und wird auch im Spiel als
+Computer-Name gesetzt. An der Zentrale können Namen unter
+`devices = { [5] = { job = "farm", name = "Weizen Nord" } }` überschrieben werden.
 
 Auf einer Turtle fragt der Installer nach der Aufgabe gleich die passenden Maße ab
 (Enter = Wert in Klammern behalten). Die Turtle steht dabei an ihrer Basis und
@@ -16,8 +21,6 @@ schaut nach vorne aufs Feld bzw. in die Mine.
 
 Später ändern: Installer erneut ausführen oder `edit /toast.config.lua`
 (`farm.width/length/side`, `mine.length/height/tunnels/gap/side`).
-
-## Neu in 2.2: Energiesparender Mining-Fahrweg
 
 ## Neu in 2.2: Energiesparender Mining-Fahrweg
 

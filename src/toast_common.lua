@@ -47,7 +47,8 @@ function M.load(c)
     local used={[c.controllerId]=true};local count=0
     for id,d in pairs(c.devices) do
         assert(M.id(id) and not used[id] and type(d)=="table" and (M.job(d.job) or d.job=="auto"),"devices: ungueltige ID oder job.")
-        assert(d.label==nil or type(d.label)=="string","devices.label: Text verwenden.")
+        if d.name~=nil then d.label=d.name end
+        assert(d.label==nil or type(d.label)=="string","devices.name: Text in Anfuehrungszeichen verwenden.")
         used[id]=true;count=count+1
     end
     local pc=0
@@ -64,7 +65,12 @@ function M.load(c)
     assert(M.number(n.commandTimeout)>=1 and M.number(n.commandTimeout)<=15,"commandTimeout: 1 bis 15.")
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
-    c.label=M.label(c.label)
+    -- "name" ist der neue, gut sichtbare Eintrag; "label" bleibt fuer alte Configs gueltig.
+    if c.name~=nil then
+        assert(type(c.name)=="string","name: Text in Anfuehrungszeichen, z.B. name = \"Mine Nord\"")
+        c.label=c.name
+    end
+    c.label=M.label(c.label);c.name=c.label
     return c
 end
 function M.workerConfig(c)

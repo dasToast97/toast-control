@@ -4,12 +4,13 @@ return {
     role = "auto",
     job = "auto",                     -- Turtle: farm oder mining
     controllerId = 4,
-    label = "",                      -- eigener Turtle-Name
+    name = "",                       -- NAME dieses Geraets, z.B. "Weizen Nord" (Zentrale, Pocket, Turtle)
     autoDiscover = true,              -- Zentrale lernt meldende Turtles
     autoPairPockets = true,           -- neue Toast-Pockets automatisch anmelden
     devices = {                      -- optional: feste/offline bekannte Geraete
-        -- [5] = { job = "farm", label = "Weizen Nord" },
-        -- [12] = { job = "mining", label = "Mine Nord" },
+        -- Nur an der Zentrale: Namen hier ueberschreiben den Namen der Turtle.
+        -- [5] = { job = "farm", name = "Weizen Nord" },
+        -- [12] = { job = "mining", name = "Mine Nord" },
     },
     pocketIds = {},                   -- bekannte Pockets; eigene ID erkennt Installer
     display = { monitor = "auto", textScale = 0.5, pageSize = 0 },

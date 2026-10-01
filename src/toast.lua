@@ -5,6 +5,10 @@ local args={...}
 
 local function runOnce()
     local cfg=common.load()
+    -- Name auch im Spiel setzen (steht dann an Turtle/Computer und in der Item-Info).
+    if cfg.label~="" and os.setComputerLabel and os.getComputerLabel()~=cfg.label then
+        pcall(os.setComputerLabel,cfg.label)
+    end
     if cfg.role=="turtle" then
         local name=cfg.job=="farm" and "farm" or "mine"
         local workerCommon=dofile("/toast/"..name.."_common.lua")

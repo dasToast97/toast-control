@@ -47,7 +47,7 @@ local st=load("return "..S.files["/toast_mining_state"])()
 check("installierte Mine laeuft + setzt bei Zelle 3 fort",st.next==9,st.next.." "..tostring(S.result))
 
 print("B Turtle Komplett neu")
-S=Sim.new({config=MINECFG,input={"2","LOESCHEN","2","","","","","","","n","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"2","LOESCHEN","2","","","","","","","","n","j","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG;S.files["/toast_mining_state"]="{x=5}";S.files["/meinprog.lua"]="x"
 ok,err=install(S,true,7)
 check("laeuft durch",ok,err)
@@ -61,20 +61,22 @@ ok,err=install(S,true,7)
 check("abgebrochen + Datei noch da",not ok and S.files["/meinprog.lua"]=="x",err)
 
 print("D Zentrale neu (Computer #4)")
-S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files={["/farm_touch.lua"]="alt"}
+S=Sim.new({config=MINECFG,input={"1","Zentrale Haus","n","j","n"}});S.files={["/farm_touch.lua"]="alt"}
 ok,err=install(S,false,4)
 check("laeuft durch",ok,err)
 c=load(S.files["/toast.config.lua"])()
+check("Zentrale-Name gespeichert",load(S.files["/toast.config.lua"])().name=="Zentrale Haus")
 check("Rolle Zentrale, ID 4, Dateien da",c.role=="controller" and c.controllerId==4 and S.files["/toast/toast_control.lua"] and not S.files["/farm_touch.lua"])
 
 print("E Kaputte Config wird ersetzt")
-S=Sim.new({config=MINECFG,input={"1","1","","","","","","","n","j","n"}});S.files={["/toast.config.lua"]="return {kaputt"}
+S=Sim.new({config=MINECFG,input={"1","1","","","","","","","","n","j","n"}});S.files={["/toast.config.lua"]="return {kaputt"}
 ok,err=install(S,true,7)
 check("laeuft durch + neue Farm-Config",ok and load(S.files["/toast.config.lua"])().job=="farm",err)
 print("F Neue Farm-Turtle: 10 lang x 4 breit, links, Karotten")
-S=Sim.new({config=MINECFG,input={"1","1","","10","4","l","2","30","n","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","1","","Karotten Sued","10","4","l","2","30","n","j","n"}});S.files={}
 ok,err=install(S,true,7)
 local fc=ok and load(S.files["/toast.config.lua"])().farm
+check("Name gespeichert",ok and load(S.files["/toast.config.lua"])().name=="Karotten Sued")
 check("Farm-Masse gespeichert",fc and fc.length==10 and fc.width==4 and fc.side=="left" and fc.crop=="carrots" and fc.interval==30 and #fc.water==0,err)
 -- Farmrunde auf gespiegeltem 10x4-Feld mit Wasserreihe in der Mitte
 S.T=0;S.timers={};S.queue={};S.input={};S.protocol="toast.farm.v2"
@@ -90,9 +92,10 @@ local left=0;for x=0,3 do for z=1,10 do if S.world[S.key(-x,1,z)]=="minecraft:ca
 check("ganzes Feld links abgeerntet, Wasserreihe uebersprungen",fs_.rounds==1 and left==0 and fs_.harvested==36,tostring(fs_.rounds).." rest="..left.." h="..tostring(fs_.harvested))
 check("Wasser unberuehrt",S.world[S.key(-2,1,5)]=="minecraft:water")
 check("zurueck an Basis",S.p.x==0 and S.p.z==0)
+check("Name in Statusmeldung",S.last and S.last.label=="Karotten Sued",S.last and S.last.label)
 
 print("G Minenmasse aendern -> neuer Auftrag")
-S=Sim.new({config=MINECFG,input={"1","j","50","3","3","2","r","j","n","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","j","","50","3","3","2","r","j","n","j","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG
 S.files["/toast_mining_state"]='{x=0,y=0,z=0,dir=0,next=5,total=5,harvested=5,commandSerial=1,layout="strip2:4:2:2:1"}'
 ok,err=install(S,true,7)

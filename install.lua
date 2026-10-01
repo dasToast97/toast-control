@@ -8,6 +8,10 @@ local args={...}
 
 local function runOnce()
     local cfg=common.load()
+    -- Name auch im Spiel setzen (steht dann an Turtle/Computer und in der Item-Info).
+    if cfg.label~="" and os.setComputerLabel and os.getComputerLabel()~=cfg.label then
+        pcall(os.setComputerLabel,cfg.label)
+    end
     if cfg.role=="turtle" then
         local name=cfg.job=="farm" and "farm" or "mine"
         local workerCommon=dofile("/toast/"..name.."_common.lua")
@@ -116,7 +120,8 @@ function M.load(c)
     local used={[c.controllerId]=true};local count=0
     for id,d in pairs(c.devices) do
         assert(M.id(id) and not used[id] and type(d)=="table" and (M.job(d.job) or d.job=="auto"),"devices: ungueltige ID oder job.")
-        assert(d.label==nil or type(d.label)=="string","devices.label: Text verwenden.")
+        if d.name~=nil then d.label=d.name end
+        assert(d.label==nil or type(d.label)=="string","devices.name: Text in Anfuehrungszeichen verwenden.")
         used[id]=true;count=count+1
     end
     local pc=0
@@ -133,7 +138,12 @@ function M.load(c)
     assert(M.number(n.commandTimeout)>=1 and M.number(n.commandTimeout)<=15,"commandTimeout: 1 bis 15.")
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
-    c.label=M.label(c.label)
+    -- "name" ist der neue, gut sichtbare Eintrag; "label" bleibt fuer alte Configs gueltig.
+    if c.name~=nil then
+        assert(type(c.name)=="string","name: Text in Anfuehrungszeichen, z.B. name = \"Mine Nord\"")
+        c.label=c.name
+    end
+    c.label=M.label(c.label);c.name=c.label
     return c
 end
 function M.workerConfig(c)
@@ -1854,12 +1864,13 @@ return {
     role = "auto",
     job = "auto",                     -- Turtle: farm oder mining
     controllerId = 4,
-    label = "",                      -- eigener Turtle-Name
+    name = "",                       -- NAME dieses Geraets, z.B. "Weizen Nord" (Zentrale, Pocket, Turtle)
     autoDiscover = true,              -- Zentrale lernt meldende Turtles
     autoPairPockets = true,           -- neue Toast-Pockets automatisch anmelden
     devices = {                      -- optional: feste/offline bekannte Geraete
-        -- [5] = { job = "farm", label = "Weizen Nord" },
-        -- [12] = { job = "mining", label = "Mine Nord" },
+        -- Nur an der Zentrale: Namen hier ueberschreiben den Namen der Turtle.
+        -- [5] = { job = "farm", name = "Weizen Nord" },
+        -- [12] = { job = "mining", name = "Mine Nord" },
     },
     pocketIds = {},                   -- bekannte Pockets; eigene ID erkennt Installer
     display = { monitor = "auto", textScale = 0.5, pageSize = 0 },
@@ -2059,8 +2070,17 @@ end
 local layoutChanged=false
 local setup=role=="turtle" and (clean or not existing or requested)
 if role=="turtle" and not setup then
-    write((job=="farm" and "Feldmasse" or "Minenmasse").." aendern? (j/n) [n]: ")
+    write("Name oder "..(job=="farm" and "Feldmasse" or "Minenmasse").." aendern? (j/n) [n]: ")
     setup=read():lower()=="j"
+end
+-- Name abfragen: Turtles beim Einrichten, Zentrale/Pocket bei neuer Installation.
+if setup or (role~="turtle" and role~="repeater" and (clean or not existing)) then
+    local current=c.name or c.label or ""
+    if current=="" then current=os.getComputerLabel and os.getComputerLabel() or "" end
+    write("Name"..(current~="" and " ["..current.."]" or " (leer = keiner)")..": ")
+    local v=read()
+    if v~="" then c.name=common.label(v) else c.name=current end
+    c.label=c.name;configChanged=true
 end
 if setup then
     print("")
