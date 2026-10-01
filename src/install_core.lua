@@ -54,7 +54,7 @@ end
 local oldFarm,oldMine=config("/farm.config.lua"),config("/mine.config.lua")
 local existing=config("/toast.config.lua")
 if existing and not pcall(function()
-    local copy=textutils.unserialize(textutils.serialize(existing));copy.role=nil;common.load(copy) end) then
+    local copy=textutils.unserialize(textutils.serialize(existing));copy.role=(copy.role=="repeater" and not turtle and not pocket) and "repeater" or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.
     printError("Vorhandene toast.config.lua ungueltig, wird neu erstellt.")
     existing=nil
@@ -75,6 +75,21 @@ if resetProtection(c) then configChanged=existing~=nil;print("Mining: alte Schut
 if oldMine then resetProtection(oldMine) end
 local role=turtle and "turtle" or (pocket and "pocket" or "controller")
 if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") then role="repeater" end
+-- Neuer stationaerer Computer: Zentrale oder Repeater? Ohne Monitor ist Repeater vorgewaehlt.
+if role=="controller" and not requested and (clean or not existing) then
+    local monitor=peripheral.find("monitor")~=nil
+    print("")
+    print("Stationaerer Computer"..(monitor and " mit Monitor" or " ohne Monitor")..":")
+    print("1 Zentrale (steuert alle Turtles)")
+    print("2 Repeater (verlaengert die Funkreichweite)")
+    while true do
+        write("Auswahl ["..(monitor and "1" or "2").."]: ")
+        local v=read()
+        if v=="" then v=monitor and "1" or "2" end
+        if v=="1" then break end
+        if v=="2" then role="repeater";break end
+    end
+end
 assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaerem Computer installieren.")
 assert(not requested or requested=="repeater" or role=="turtle","farm/mining nur fuer Turtles.")
 if existing and not requested and not (c.role==nil or c.role=="auto" or c.role==role) then
@@ -171,7 +186,7 @@ if role=="turtle" and not setup then
     setup=read():lower()=="j"
 end
 -- Name abfragen: Turtles beim Einrichten, Zentrale/Pocket bei neuer Installation.
-if setup or (role~="turtle" and role~="repeater" and (clean or not existing)) then
+if setup or (role~="turtle" and (clean or not existing)) then
     local current=c.name or c.label or ""
     if current=="" then current=os.getComputerLabel and os.getComputerLabel() or "" end
     write("Name"..(current~="" and " ["..current.."]" or " (leer = keiner)")..": ")

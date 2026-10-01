@@ -1,5 +1,13 @@
 # Toast Control 2.3 – Stabilität, Reset, sparsamer Fahrweg & eigene Maße
 
+## Neu: Repeater über denselben Link
+
+Auf einem stationären Computer fragt der Installer „1 Zentrale / 2 Repeater“.
+Ohne angeschlossenen Monitor ist **Repeater vorgewählt** (einfach Enter).
+Ender- und normale Funkmodems werden automatisch genutzt. Ein vorhandener
+Repeater bleibt beim Update Repeater (Fehler behoben: seine Config wurde beim
+Update fälschlich verworfen).
+
 ## Neu in 2.3: Namen und Maße beim Installieren einstellen
 
 **Namen:** In `/toast.config.lua` steht oben `name = "..."`. Der Installer fragt

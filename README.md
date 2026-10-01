@@ -12,6 +12,7 @@ wget run https://raw.githubusercontent.com/dasToast97/toast-control/main/install
 
 - **1 Update:** löscht alles Alte, behält Config und Turtle-Fortschritt.
 - **2 Komplett neu:** löscht ALLES (mit `LOESCHEN` bestätigen). Turtle vorher an die Basis stellen.
+- Stationärer Computer: Auswahl **1 Zentrale / 2 Repeater** (ohne Monitor ist Repeater vorgewählt).
 - Direkt: `... install.lua clean`, `... install.lua farm`, `... install.lua mining`, `... install.lua repeater`
 
 `install.lua` enthält alle Programme – es wird nichts weiter heruntergeladen.

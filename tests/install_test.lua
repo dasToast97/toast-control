@@ -61,7 +61,7 @@ ok,err=install(S,true,7)
 check("abgebrochen + Datei noch da",not ok and S.files["/meinprog.lua"]=="x",err)
 
 print("D Zentrale neu (Computer #4)")
-S=Sim.new({config=MINECFG,input={"1","Zentrale Haus","n","j","n"}});S.files={["/farm_touch.lua"]="alt"}
+S=Sim.new({config=MINECFG,input={"1","1","Zentrale Haus","n","j","n"}});S.files={["/farm_touch.lua"]="alt"}
 ok,err=install(S,false,4)
 check("laeuft durch",ok,err)
 c=load(S.files["/toast.config.lua"])()
@@ -102,5 +102,23 @@ ok,err=install(S,true,7)
 local mc=ok and load(S.files["/toast.config.lua"])().mine
 check("neue Minenmasse",mc and mc.length==50 and mc.height==3 and mc.tunnels==3,err)
 check("alter Fortschritt zurueckgesetzt",S.files["/toast_mining_state"]==nil)
+
+print("H Computer ohne Monitor -> Enter = Repeater")
+S=Sim.new({config=MINECFG,input={"1","","Repeater Nord","n","j","n"}});S.files={}
+ok,err=install(S,false,9)
+local rc=ok and load(S.files["/toast.config.lua"])()
+check("als Repeater installiert",rc and rc.role=="repeater" and rc.name=="Repeater Nord" and S.files["/toast/repeater.lua"] and not S.files["/toast/toast_control.lua"],err)
+check("Autostart startet Repeater",S.files["/startup.lua"]=='shell.run("/toast.lua")\n')
+
+print("I Computer ohne Monitor, aber 1 gewaehlt -> Zentrale")
+S=Sim.new({config=MINECFG,input={"1","1","","n","j","n"}});S.files={}
+ok,err=install(S,false,4)
+rc=ok and load(S.files["/toast.config.lua"])()
+check("Zentrale trotz fehlendem Monitor",rc and rc.role=="controller",err)
+
+print("J Repeater-Update fragt nicht erneut")
+S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files={["/toast.config.lua"]='return {role="repeater",controllerId=4,autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},display={monitor="auto",textScale=0.5,pageSize=0},network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256}}'}
+ok,err=install(S,false,9)
+check("bleibt Repeater",ok and load(S.files["/toast.config.lua"])().role=="repeater" and S.files["/toast/repeater.lua"],err)
 
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))

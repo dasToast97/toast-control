@@ -27,15 +27,17 @@ local function draw()
         if y<=h then term.setCursorPos(1,y);term.write(tostring(text):sub(1,w)) end
     end
     local count=0;for _ in pairs(modems) do count=count+1 end
-    line(1,"TOAST / WIRELESS REPEATER")
+    local label=os.getComputerLabel and os.getComputerLabel()
+    line(1,"TOAST / WIRELESS REPEATER"..(label and (" / "..label) or ""))
     line(3,"Computer-ID: "..os.getComputerID())
     line(4,"Funkmodems: "..count..(count==0 and " - BITTE ANBRINGEN" or " / AKTIV"))
     line(6,"Weitergeleitet: "..repeated)
     line(7,"Doppelte ignoriert: "..duplicates)
     line(8,"Cache voll: "..dropped)
     line(10,"Rednet: Farm, Mining, Pocket")
+    line(12,"Endermodem: Reichweite unbegrenzt")
     line(11,"IDs bleiben unveraendert.")
-    line(13,"Q / Ctrl+T: beenden")
+    line(14,"Q / Ctrl+T: beenden")
 end
 local function cleanup()
     for _,m in pairs(modems) do if m.owned then pcall(m.device.close,CHANNEL_REPEAT) end end
