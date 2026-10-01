@@ -108,6 +108,12 @@ Sim.run(S,600);st=state(S)
 check("Funkverlust erkannt",lost=="Funkverbindung verloren",lost)
 check("danach fertig",st.next==81,st.next)
 
+print("T6b radioTimeout=0 -> arbeitet ohne Zentrale weiter")
+S=Sim.new({config=mineConfig():gsub("radioTimeout=10,freeSlots","radioTimeout=0,freeSlots"),actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},
+    {t=3,fn=function(S)S.polling=false end}}})
+S.protocol="toast.mine.v1";Sim.run(S,400);st=state(S)
+check("fertig ohne Kontakt",st.next==9 and not (S.last and S.last.fault),st.next.." "..tostring(S.last and S.last.fault))
+
 print("T7 Halb geschriebene .tmp-Datei blockiert den Start nicht")
 S=Sim.new({config=mineConfig(),actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
 S.protocol="toast.mine.v1"

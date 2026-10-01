@@ -175,7 +175,8 @@ local function equipTool()
 end
 local function isHome() return st.x == 0 and st.z == 0 end
 local function active()
-    if run.mode ~= "off" and os.clock() - run.lastContact > CFG.radioTimeout then
+    -- radioTimeout = 0: auch ohne Zentrale weiterarbeiten.
+    if run.mode ~= "off" and CFG.radioTimeout > 0 and os.clock() - run.lastContact > CFG.radioTimeout then
         fail("Funkverbindung verloren")
     end
     return run.mode ~= "off" and not run.recovery
@@ -440,7 +441,7 @@ local function idle()
         local now = os.clock()
         if run.lastMode and retryable(run.fault) and run.retries < R.autoRetry then
             run.retryAt = run.retryAt or now + R.retryDelay
-            local contact = now - run.lastContact < CFG.radioTimeout
+            local contact = CFG.radioTimeout == 0 or now - run.lastContact < CFG.radioTimeout
             if now >= run.retryAt and contact then
                 run.retries, run.retryAt, run.fault, run.mode = run.retries + 1, nil, nil, run.lastMode
                 status("Neuer Versuch", "Automatisch " .. run.retries .. "/" .. R.autoRetry)

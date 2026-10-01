@@ -28,7 +28,7 @@ function M.load(c)
     local f=c.mine; assert(type(f)=="table", "mine fehlt.")
     assert(integer(f.length,1,1024) and integer(f.height,1,5) and integer(f.tunnels,1,64) and integer(f.gap,0,16), "Strip: length 1-1024, height 1-5, tunnels 1-64, gap 0-16.")
     assert(integer(f.fuelTarget,100,20000), "fuelTarget: 100 bis 20000.")
-    assert(integer(f.radioTimeout,10,300), "radioTimeout: 10 bis 300 Sekunden.")
+    assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(integer(f.freeSlots,2,8), "freeSlots: 2 bis 8.")
     assert(integer(f.digRetries,1,64), "digRetries: 1 bis 64.")
     assert(type(f.protectedBlocks)=="table", "protectedBlocks muss eine Liste sein.")
@@ -40,7 +40,7 @@ function M.load(c)
     assert(type(n.pollInterval)=="number" and n.pollInterval>=0.25 and n.pollInterval<=5, "pollInterval: 0.25 bis 5.")
     assert(type(n.staleAfter)=="number" and n.staleAfter>=n.pollInterval*2 and n.staleAfter<=60, "staleAfter zu klein/gross.")
     assert(type(n.commandTimeout)=="number" and n.commandTimeout>=1 and n.commandTimeout<=15, "commandTimeout: 1 bis 15.")
-    assert(f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
+    assert(f.radioTimeout==0 or f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"Diese Zentrale hat eine andere ID: controllerId korrigieren.") end
     if c.role=="turtle" then assert(turtle,"role turtle benoetigt eine Turtle."); assert(os.getComputerID()~=c.controllerId,"Turtle-ID darf nicht controllerId sein.") end
     if c.role=="pocket" then assert(pocket,"role pocket benoetigt einen Pocket Computer.") end

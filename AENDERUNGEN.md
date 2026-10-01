@@ -1,5 +1,13 @@
 # Toast Control 2.3 – Stabilität, Reset, sparsamer Fahrweg & eigene Maße
 
+## Neu: Weiterarbeiten ohne Zentrale
+
+`farm.radioTimeout = 0` bzw. `mine.radioTimeout = 0` in der Config: Die Turtle
+arbeitet weiter, auch wenn die Zentrale nicht erreichbar ist (z. B. weil ihr
+Chunk entladen ist). Standard bleibt 60 s (dann Stopp + Heimfahrt).
+Hinweis: Endermodems haben unbegrenzte Reichweite, aber Geräte in entladenen
+Chunks laufen nicht – dafür Chunks mit `/forceload` geladen halten.
+
 ## Neu: Repeater über denselben Link
 
 Auf einem stationären Computer fragt der Installer „1 Zentrale / 2 Repeater“.

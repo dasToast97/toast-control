@@ -28,12 +28,14 @@ return {
     -- length = Bloecke nach vorne, width/tunnels = zur Seite (side = right/left).
     farm = {
         width = 9, length = 9, side = "right", crop = "wheat", interval = 60,
-        seedReserve = 64, radioTimeout = 60,
+        seedReserve = 64,
+        radioTimeout = 60,            -- Sekunden ohne Zentrale bis Stopp; 0 = trotzdem weiterarbeiten
         water = {},                   -- Wasser wird automatisch erkannt (egal wo, auch ganze Reihen)
     },
     mine = {
         length = 100, height = 3, tunnels = 5, gap = 2, side = "right",
-        fuelTarget = 2000, radioTimeout = 60, freeSlots = 2, digRetries = 16,
+        fuelTarget = 2000, freeSlots = 2, digRetries = 16,
+        radioTimeout = 60,            -- Sekunden ohne Zentrale bis Stopp; 0 = trotzdem weiterarbeiten
         -- Alles wird abgebaut, Wasser/Lava werden durchfahren.
         -- Hier Bloecke eintragen, die die Turtle NICHT abbauen soll, z.B.
         -- "minecraft:chest", "minecraft:spawner". Andere Turtles sind immer geschuetzt.

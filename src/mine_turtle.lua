@@ -113,7 +113,8 @@ local function fail(why)
     run.mode,run.fault,run.retryAt="off",why,nil
 end
 local function active()
-    if run.mode~="off" and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
+    -- radioTimeout=0: auch ohne Zentrale weiterarbeiten (z.B. Zentrale in entladenem Chunk).
+    if run.mode~="off" and C.radioTimeout>0 and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
     return run.mode~="off" and not run.recovery
 end
 local function action(kind,fn,update)
@@ -328,7 +329,7 @@ local function idle()
         local now=os.clock()
         if run.lastMode and retryable(run.fault) and run.retries<R.autoRetry then
             run.retryAt=run.retryAt or now+R.retryDelay
-            local contact=now-run.lastContact<C.radioTimeout
+            local contact=C.radioTimeout==0 or now-run.lastContact<C.radioTimeout
             if now>=run.retryAt and contact then
                 run.retries=run.retries+1;run.retryAt=nil;run.fault=nil;run.mode=run.lastMode
                 status("Neuer Versuch","Automatisch "..run.retries.."/"..R.autoRetry)

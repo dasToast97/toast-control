@@ -819,7 +819,8 @@ local function equipTool()
 end
 local function isHome() return st.x == 0 and st.z == 0 end
 local function active()
-    if run.mode ~= "off" and os.clock() - run.lastContact > CFG.radioTimeout then
+    -- radioTimeout = 0: auch ohne Zentrale weiterarbeiten.
+    if run.mode ~= "off" and CFG.radioTimeout > 0 and os.clock() - run.lastContact > CFG.radioTimeout then
         fail("Funkverbindung verloren")
     end
     return run.mode ~= "off" and not run.recovery
@@ -1084,7 +1085,7 @@ local function idle()
         local now = os.clock()
         if run.lastMode and retryable(run.fault) and run.retries < R.autoRetry then
             run.retryAt = run.retryAt or now + R.retryDelay
-            local contact = now - run.lastContact < CFG.radioTimeout
+            local contact = CFG.radioTimeout == 0 or now - run.lastContact < CFG.radioTimeout
             if now >= run.retryAt and contact then
                 run.retries, run.retryAt, run.fault, run.mode = run.retries + 1, nil, nil, run.lastMode
                 status("Neuer Versuch", "Automatisch " .. run.retries .. "/" .. R.autoRetry)
@@ -1227,7 +1228,7 @@ function M.load(c)
     assert(integer(f.width,1,32) and integer(f.length,1,32), "Feldgroesse: 1 bis 32.")
     assert(({wheat=true,carrots=true,potatoes=true,beetroot=true})[f.crop], "Unbekannte crop.")
     assert(integer(f.interval,1,86400) and integer(f.seedReserve,1,256), "interval/seedReserve ungueltig.")
-    assert(integer(f.radioTimeout,10,300), "radioTimeout: 10 bis 300 Sekunden.")
+    assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(type(f.water)=="table", "farm.water muss eine Liste sein (auch {} erlaubt).")
     local cells={}
     for _,v in ipairs(f.water) do
@@ -1241,7 +1242,7 @@ function M.load(c)
     assert(type(n.pollInterval)=="number" and n.pollInterval>=0.25 and n.pollInterval<=5, "pollInterval: 0.25 bis 5.")
     assert(type(n.staleAfter)=="number" and n.staleAfter>=n.pollInterval*2 and n.staleAfter<=60, "staleAfter zu klein/gross.")
     assert(type(n.commandTimeout)=="number" and n.commandTimeout>=1 and n.commandTimeout<=15, "commandTimeout: 1 bis 15.")
-    assert(f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
+    assert(f.radioTimeout==0 or f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"Diese Zentrale hat eine andere ID: controllerId korrigieren.") end
     if c.role=="turtle" then assert(turtle,"role turtle benoetigt eine Turtle."); assert(os.getComputerID()~=c.controllerId,"Turtle-ID darf nicht controllerId sein.") end
     if c.role=="pocket" then assert(pocket,"role pocket benoetigt einen Pocket Computer.") end
@@ -1385,7 +1386,8 @@ local function fail(why)
     run.mode,run.fault,run.retryAt="off",why,nil
 end
 local function active()
-    if run.mode~="off" and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
+    -- radioTimeout=0: auch ohne Zentrale weiterarbeiten (z.B. Zentrale in entladenem Chunk).
+    if run.mode~="off" and C.radioTimeout>0 and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
     return run.mode~="off" and not run.recovery
 end
 local function action(kind,fn,update)
@@ -1600,7 +1602,7 @@ local function idle()
         local now=os.clock()
         if run.lastMode and retryable(run.fault) and run.retries<R.autoRetry then
             run.retryAt=run.retryAt or now+R.retryDelay
-            local contact=now-run.lastContact<C.radioTimeout
+            local contact=C.radioTimeout==0 or now-run.lastContact<C.radioTimeout
             if now>=run.retryAt and contact then
                 run.retries=run.retries+1;run.retryAt=nil;run.fault=nil;run.mode=run.lastMode
                 status("Neuer Versuch","Automatisch "..run.retries.."/"..R.autoRetry)
@@ -1739,7 +1741,7 @@ function M.load(c)
     local f=c.mine; assert(type(f)=="table", "mine fehlt.")
     assert(integer(f.length,1,1024) and integer(f.height,1,5) and integer(f.tunnels,1,64) and integer(f.gap,0,16), "Strip: length 1-1024, height 1-5, tunnels 1-64, gap 0-16.")
     assert(integer(f.fuelTarget,100,20000), "fuelTarget: 100 bis 20000.")
-    assert(integer(f.radioTimeout,10,300), "radioTimeout: 10 bis 300 Sekunden.")
+    assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(integer(f.freeSlots,2,8), "freeSlots: 2 bis 8.")
     assert(integer(f.digRetries,1,64), "digRetries: 1 bis 64.")
     assert(type(f.protectedBlocks)=="table", "protectedBlocks muss eine Liste sein.")
@@ -1751,7 +1753,7 @@ function M.load(c)
     assert(type(n.pollInterval)=="number" and n.pollInterval>=0.25 and n.pollInterval<=5, "pollInterval: 0.25 bis 5.")
     assert(type(n.staleAfter)=="number" and n.staleAfter>=n.pollInterval*2 and n.staleAfter<=60, "staleAfter zu klein/gross.")
     assert(type(n.commandTimeout)=="number" and n.commandTimeout>=1 and n.commandTimeout<=15, "commandTimeout: 1 bis 15.")
-    assert(f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
+    assert(f.radioTimeout==0 or f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"Diese Zentrale hat eine andere ID: controllerId korrigieren.") end
     if c.role=="turtle" then assert(turtle,"role turtle benoetigt eine Turtle."); assert(os.getComputerID()~=c.controllerId,"Turtle-ID darf nicht controllerId sein.") end
     if c.role=="pocket" then assert(pocket,"role pocket benoetigt einen Pocket Computer.") end
@@ -1890,12 +1892,14 @@ return {
     -- length = Bloecke nach vorne, width/tunnels = zur Seite (side = right/left).
     farm = {
         width = 9, length = 9, side = "right", crop = "wheat", interval = 60,
-        seedReserve = 64, radioTimeout = 60,
+        seedReserve = 64,
+        radioTimeout = 60,            -- Sekunden ohne Zentrale bis Stopp; 0 = trotzdem weiterarbeiten
         water = {},                   -- Wasser wird automatisch erkannt (egal wo, auch ganze Reihen)
     },
     mine = {
         length = 100, height = 3, tunnels = 5, gap = 2, side = "right",
-        fuelTarget = 2000, radioTimeout = 60, freeSlots = 2, digRetries = 16,
+        fuelTarget = 2000, freeSlots = 2, digRetries = 16,
+        radioTimeout = 60,            -- Sekunden ohne Zentrale bis Stopp; 0 = trotzdem weiterarbeiten
         -- Alles wird abgebaut, Wasser/Lava werden durchfahren.
         -- Hier Bloecke eintragen, die die Turtle NICHT abbauen soll, z.B.
         -- "minecraft:chest", "minecraft:spawner". Andere Turtles sind immer geschuetzt.

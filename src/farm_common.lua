@@ -29,7 +29,7 @@ function M.load(c)
     assert(integer(f.width,1,32) and integer(f.length,1,32), "Feldgroesse: 1 bis 32.")
     assert(({wheat=true,carrots=true,potatoes=true,beetroot=true})[f.crop], "Unbekannte crop.")
     assert(integer(f.interval,1,86400) and integer(f.seedReserve,1,256), "interval/seedReserve ungueltig.")
-    assert(integer(f.radioTimeout,10,300), "radioTimeout: 10 bis 300 Sekunden.")
+    assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(type(f.water)=="table", "farm.water muss eine Liste sein (auch {} erlaubt).")
     local cells={}
     for _,v in ipairs(f.water) do
@@ -43,7 +43,7 @@ function M.load(c)
     assert(type(n.pollInterval)=="number" and n.pollInterval>=0.25 and n.pollInterval<=5, "pollInterval: 0.25 bis 5.")
     assert(type(n.staleAfter)=="number" and n.staleAfter>=n.pollInterval*2 and n.staleAfter<=60, "staleAfter zu klein/gross.")
     assert(type(n.commandTimeout)=="number" and n.commandTimeout>=1 and n.commandTimeout<=15, "commandTimeout: 1 bis 15.")
-    assert(f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
+    assert(f.radioTimeout==0 or f.radioTimeout>=n.pollInterval*3, "radioTimeout muss mindestens 3 Pollintervalle sein.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"Diese Zentrale hat eine andere ID: controllerId korrigieren.") end
     if c.role=="turtle" then assert(turtle,"role turtle benoetigt eine Turtle."); assert(os.getComputerID()~=c.controllerId,"Turtle-ID darf nicht controllerId sein.") end
     if c.role=="pocket" then assert(pocket,"role pocket benoetigt einen Pocket Computer.") end
