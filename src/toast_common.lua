@@ -118,7 +118,7 @@ end
 -- Fehler, bei denen ein automatischer neuer Versuch gefaehrlich waere.
 function M.retryable(fault)
     if type(fault)~="string" or fault=="" then return false end
-    for _,word in ipairs({"Lava","Wasser","Geschuetzt","Nicht abbaubar","Fuelbedarf","Position unklar"}) do
+    for _,word in ipairs({"Geschuetzt","Nicht abbaubar","Fuelbedarf","Position unklar"}) do
         if fault:find(word,1,true) then return false end
     end
     return true

@@ -60,6 +60,19 @@ if existing and not pcall(function()
     existing=nil
 end
 local c=existing or assert(load(code["toast.config.lua"],"@toast.config.lua"))()
+-- Alte Standard-Schutzliste (Kisten, Oefen, Spawner...) ersetzen: jetzt wird alles abgebaut.
+local OLD_PROTECT={["minecraft:bedrock"]=1,["minecraft:chest"]=1,["minecraft:trapped_chest"]=1,["minecraft:barrel"]=1,
+    ["minecraft:ender_chest"]=1,["minecraft:hopper"]=1,["minecraft:spawner"]=1,["minecraft:furnace"]=1,
+    ["minecraft:blast_furnace"]=1,["minecraft:smoker"]=1}
+local configChanged=false
+local function resetProtection(cfgTable)
+    local list=type(cfgTable)=="table" and type(cfgTable.mine)=="table" and cfgTable.mine.protectedBlocks
+    if type(list)~="table" or #list==0 then return end
+    for _,name in ipairs(list)do if not OLD_PROTECT[name] then return end end
+    cfgTable.mine.protectedBlocks={};return true
+end
+if resetProtection(c) then configChanged=existing~=nil;print("Mining: alte Schutzliste entfernt, alles wird abgebaut.") end
+if oldMine then resetProtection(oldMine) end
 local role=turtle and "turtle" or (pocket and "pocket" or "controller")
 if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") then role="repeater" end
 assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaerem Computer installieren.")
@@ -164,7 +177,7 @@ for _,name in ipairs(names)do
     local path=name=="toast.lua" and "/toast.lua" or "/toast/"..name
     local f=assert(fs.open(path,"w"));f.write(code[name]);f.close()
 end
-if clean or not existing or requested then
+if clean or not existing or requested or configChanged then
     local f=assert(fs.open("/toast.config.lua","w"))
     f.write("-- Toast Control: edit /toast.config.lua\nreturn "..textutils.serialize(c).."\n");f.close()
 end

@@ -27,11 +27,17 @@ die Position selbst richtig. `--dock` ist nur noch nach einer unterbrochenen
 Drehung oder bei Turtles mit unbegrenztem Fuel nötig.
 
 **Auto-Retry:** Bei behebbaren Fehlern (Weg blockiert, Funkverlust, Kies usw.)
-versucht es die Turtle nach 30 s erneut, bis zu 3×. Bei Lava, Wasser und
+versucht es die Turtle nach 30 s erneut, bis zu 3×. Bei Bedrock und
 geschützten Blöcken nie – dort bleibt sie stehen, bis du RESET drückst.
 
 **Mobs im Weg:** Turtle greift an, wartet kurz und versucht es bis zu 8× erneut,
 statt sofort mit Fehler stehenzubleiben.
+
+**Mining baut alles ab:** Wasser und Lava werden einfach durchfahren (Turtles
+nehmen keinen Schaden). Kisten, Öfen, Spawner usw. werden mit abgebaut. Nicht
+abgebaut werden nur unzerstörbare Blöcke (Bedrock, Barriere, Portale) und
+andere Turtles. Eigene Ausnahmen: `mine.protectedBlocks` in der Config.
+Beim Update wird die alte Standard-Schutzliste automatisch geleert.
 
 ## Behoben
 
@@ -66,6 +72,6 @@ Fehlt der Block, gelten diese Standardwerte:
 
 Lua-Simulation mit nachgebauter CraftOS-Umgebung (Welt, Dateisystem, Timer, Funk):
 normaler Abbau, Absturz mitten im Schritt + Neustart + Fortsetzen, Mob kurz und
-lange im Weg, Lava + RESET, Funkverlust + automatisches Weitermachen, kaputte
+lange im Weg, Lava/Wasser/Kiste durchfahren, Bedrock + RESET, andere Turtle geschützt, Funkverlust + automatisches Weitermachen, kaputte
 .tmp-Datei, STOP, Farmrunde mit Absturz; Zentrale-Modell + Anzeige in 4 Größen.
 Kein Test in einer echten Minecraft-Welt – nach dem Update zuerst 1 GANG / 1 RUNDE.

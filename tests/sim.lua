@@ -43,13 +43,15 @@ function Sim.new(opts)
     end end
     local function dig(kind)return function()
         local x,y,z=front(kind);local b=block(x,y,z);if not b then return false,"Nothing to dig" end
-        if b=="minecraft:bedrock" then return false,"Unbreakable" end
+        if b=="minecraft:bedrock" then return false,"Unbreakable block detected" end
+        if b:find("lava",1,true) or b:find("water",1,true) then return false,"Nothing to dig here" end
         S.world[key(x,y,z)]=false;add(b=="minecraft:stone" and "minecraft:cobblestone" or b,1);return true
     end end
     local function mv(kind)return function()
         if S.fuel<=0 then return false,"Out of fuel" end
         local x,y,z=front(kind)
-        if block(x,y,z) then return false,"Movement obstructed" end
+        local bb=block(x,y,z)
+        if bb and not bb:find("lava",1,true) and not bb:find("water",1,true) then return false,"Movement obstructed" end
         if S.mobs>0 and kind=="forward" then S.mobs=S.mobs-1;return false,"Movement obstructed" end
         S.p.x,S.p.y,S.p.z=x,y,z;S.fuel=S.fuel-1;S.moves=S.moves+1
         if S.crashAtMove and S.moves==S.crashAtMove then S.crashAtMove=nil;error("SIMULIERTER SERVERSTOPP",0) end

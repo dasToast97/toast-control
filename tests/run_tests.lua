@@ -11,7 +11,7 @@ local function mineConfig(extra)
     ]]..(extra or "")..[[
     farm={width=3,length=3,crop="wheat",interval=5,seedReserve=16,radioTimeout=10,water={}},
     mine={length=4,height=2,tunnels=2,gap=1,fuelTarget=100,radioTimeout=10,freeSlots=2,digRetries=16,
-      protectedBlocks={"minecraft:bedrock"}}}]]
+      protectedBlocks={}}}]]
 end
 local function state(S,file)
     local s=S.files[file or "/toast_mining_state"];return s and load("return "..s)() or {}
@@ -54,18 +54,33 @@ Sim.run(S,600);st=state(S)
 check("Fehler wurde gemeldet",sawFault)
 check("nach Retry fertig",st.next==9,st.next.." "..tostring(S.last and S.last.status))
 
-print("T5 Lava -> kein Auto-Retry, RESET loescht Fehler")
-S=Sim.new({config=mineConfig(),world=function(S)S.world[S.key(0,0,3)]="minecraft:lava" end,
+print("T5 Lava + Wasser + Kiste im Weg -> wird durchfahren/abgebaut")
+S=Sim.new({config=mineConfig(),world=function(S)S.world[S.key(0,0,3)]="minecraft:lava";S.world[S.key(0,-1,2)]="minecraft:water"
+    S.world[S.key(2,0,2)]="minecraft:chest" end,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1";Sim.run(S,400);st=state(S)
+check("trotz Lava/Wasser/Kiste fertig",st.next==9 and not (S.last and S.last.fault),st.next.." "..tostring(S.last and S.last.fault))
+check("Kiste abgebaut",S.world[S.key(2,0,2)]==false)
+
+print("T5b Bedrock -> kein Auto-Retry, RESET loescht Fehler")
+S=Sim.new({config=mineConfig(),world=function(S)S.world[S.key(0,0,3)]="minecraft:bedrock" end,
     actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
 S.protocol="toast.mine.v1"
-local lavaStatus,afterReset
-S.actions[#S.actions+1]={t=80,fn=function(S)lavaStatus=S.last and S.last.fault end}
+local bedStatus,afterReset
+S.actions[#S.actions+1]={t=80,fn=function(S)bedStatus=S.last and S.last.fault end}
 S.actions[#S.actions+1]={t=81,fn=function(S)Sim.cmd(S,"reset",11)end}
 S.actions[#S.actions+1]={t=90,fn=function(S)afterReset=S.last end}
 Sim.run(S,95);st=state(S)
-check("Lava-Fehler bleibt (kein Retry)",lavaStatus=="Lava erkannt",lavaStatus)
+check("Bedrock-Fehler bleibt (kein Retry)",bedStatus and bedStatus:find("bedrock",1,true)~=nil,bedStatus)
 check("RESET: Fehler weg + Bereit",afterReset and afterReset.fault==nil and afterReset.status=="Bereit",afterReset and afterReset.status)
 check("RESET: zu Hause",S.p.x==0 and S.p.z==0)
+
+print("T5c Andere Turtle im Weg wird nicht abgebaut")
+S=Sim.new({config=mineConfig(),world=function(S)S.world[S.key(0,0,2)]="computercraft:turtle_normal" end,
+    actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1"
+local tStatus;S.actions[#S.actions+1]={t=60,fn=function(S)tStatus=S.last and S.last.fault end}
+Sim.run(S,61)
+check("Turtle geschuetzt",S.world[S.key(0,0,2)]=="computercraft:turtle_normal" and tStatus and tStatus:find("Geschuetzt",1,true),tStatus)
 
 print("T6 Funkverlust -> Stopp, bei Kontakt automatisch weiter")
 S=Sim.new({config=mineConfig():gsub("length=4,height=2","length=40,height=2"),actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},

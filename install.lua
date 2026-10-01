@@ -187,7 +187,7 @@ end
 -- Fehler, bei denen ein automatischer neuer Versuch gefaehrlich waere.
 function M.retryable(fault)
     if type(fault)~="string" or fault=="" then return false end
-    for _,word in ipairs({"Lava","Wasser","Geschuetzt","Nicht abbaubar","Fuelbedarf","Position unklar"}) do
+    for _,word in ipairs({"Geschuetzt","Nicht abbaubar","Fuelbedarf","Position unklar"}) do
         if fault:find(word,1,true) then return false end
     end
     return true
@@ -750,7 +750,7 @@ local function status(title, detail)
 end
 local function retryable(fault)
     if type(fault) ~= "string" then return false end
-    for _, w in ipairs({ "Lava", "Wasser", "Geschuetzt", "Position unklar" }) do
+    for _, w in ipairs({ "Geschuetzt", "Position unklar" }) do
         if fault:find(w, 1, true) then return false end
     end
     return true
@@ -1301,13 +1301,16 @@ if not run.recovery and (st.lastMode=="auto" or st.lastMode=="once") and st.next
 end
 local protected={}
 for _,name in ipairs(C.protectedBlocks) do protected[name]=true end
-local hard={['minecraft:bedrock']=true,['minecraft:chest']=true,['minecraft:trapped_chest']=true,
-    ['minecraft:barrel']=true,['minecraft:ender_chest']=true,['minecraft:hopper']=true,
-    ['computercraft:turtle_normal']=true,['computercraft:turtle_advanced']=true}
+-- Turtles nehmen keinen Schaden und fahren durch Wasser/Lava; abgebaut wird alles.
+-- Nur andere Turtles werden nie abgebaut (sonst gehen deine eigenen kaputt).
+local hard={['computercraft:turtle_normal']=true,['computercraft:turtle_advanced']=true}
+local unbreakable={['minecraft:bedrock']=true,['minecraft:barrier']=true,['minecraft:end_portal_frame']=true,
+    ['minecraft:end_portal']=true,['minecraft:nether_portal']=true,['minecraft:reinforced_deepslate']=true}
+local liquid={['minecraft:water']=true,['minecraft:flowing_water']=true,['minecraft:lava']=true,['minecraft:flowing_lava']=true}
 local function status(a,b) run.status,run.detail=a,b or "" end
 local function retryable(fault)
     if type(fault)~="string" then return false end
-    for _,w in ipairs({"Lava","Wasser","Geschuetzt","Nicht abbaubar","Fuelbedarf","Position unklar"}) do
+    for _,w in ipairs({"Geschuetzt","Nicht abbaubar","Fuelbedarf","Position unklar"}) do
         if fault:find(w,1,true) then return false end
     end
     return true
@@ -1340,22 +1343,20 @@ local function freeSlots()
     local n=0;for i=1,16 do if turtle.getItemCount(i)==0 then n=n+1 end end;return n
 end
 local function blockReason(b)
-    if b.name=="minecraft:lava" or b.name=="minecraft:flowing_lava" then return "Lava erkannt" end
-    if b.name=="minecraft:water" or b.name=="minecraft:flowing_water"
-        or (b.state and b.state.waterlogged) then return "Wasser erkannt" end
-    if protected[b.name] or hard[b.name] or b.name:find("shulker_box",1,true) then return "Geschuetzter Block: "..b.name end
+    if unbreakable[b.name] then return "Nicht abbaubar: "..b.name end
+    if protected[b.name] or hard[b.name] then return "Geschuetzter Block: "..b.name end
 end
 local function clear(inspect,dig,interruptible)
     for _=1,C.digRetries do
         if interruptible and not active() then return false,"stopped" end
         local exists,b=inspect()
-        if not exists then return true end
+        if not exists or liquid[b.name] then return true end
         local reason=blockReason(b);if reason then return false,reason end
         if freeSlots()==0 then return false,"Inventar voll / Rueckweg pruefen" end
         local ok,why=dig();if not ok then return false,"Nicht abbaubar: "..b.name.." / "..tostring(why) end
         st.harvested=(st.harvested or 0)+1;save();sleep(0.1)
     end
-    local exists,b=inspect();if not exists then return true end
+    local exists,b=inspect();if not exists or liquid[b.name] then return true end
     return false,blockReason(b) or "Zu viel nachrutschender Kies/Sand"
 end
 local DX,DZ={[0]=0,1,0,-1},{[0]=1,0,-1,0}
@@ -1792,11 +1793,10 @@ return {
     mine = {
         length = 100, height = 3, tunnels = 5, gap = 2,
         fuelTarget = 2000, radioTimeout = 60, freeSlots = 2, digRetries = 16,
-        protectedBlocks = {
-            "minecraft:bedrock", "minecraft:chest", "minecraft:trapped_chest",
-            "minecraft:barrel", "minecraft:ender_chest", "minecraft:hopper",
-            "minecraft:spawner", "minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker",
-        },
+        -- Alles wird abgebaut, Wasser/Lava werden durchfahren.
+        -- Hier Bloecke eintragen, die die Turtle NICHT abbauen soll, z.B.
+        -- "minecraft:chest", "minecraft:spawner". Andere Turtles sind immer geschuetzt.
+        protectedBlocks = {},
     },
 }
 ]======]
@@ -1862,6 +1862,19 @@ if existing and not pcall(function()
     existing=nil
 end
 local c=existing or assert(load(code["toast.config.lua"],"@toast.config.lua"))()
+-- Alte Standard-Schutzliste (Kisten, Oefen, Spawner...) ersetzen: jetzt wird alles abgebaut.
+local OLD_PROTECT={["minecraft:bedrock"]=1,["minecraft:chest"]=1,["minecraft:trapped_chest"]=1,["minecraft:barrel"]=1,
+    ["minecraft:ender_chest"]=1,["minecraft:hopper"]=1,["minecraft:spawner"]=1,["minecraft:furnace"]=1,
+    ["minecraft:blast_furnace"]=1,["minecraft:smoker"]=1}
+local configChanged=false
+local function resetProtection(cfgTable)
+    local list=type(cfgTable)=="table" and type(cfgTable.mine)=="table" and cfgTable.mine.protectedBlocks
+    if type(list)~="table" or #list==0 then return end
+    for _,name in ipairs(list)do if not OLD_PROTECT[name] then return end end
+    cfgTable.mine.protectedBlocks={};return true
+end
+if resetProtection(c) then configChanged=existing~=nil;print("Mining: alte Schutzliste entfernt, alles wird abgebaut.") end
+if oldMine then resetProtection(oldMine) end
 local role=turtle and "turtle" or (pocket and "pocket" or "controller")
 if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") then role="repeater" end
 assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaerem Computer installieren.")
@@ -1966,7 +1979,7 @@ for _,name in ipairs(names)do
     local path=name=="toast.lua" and "/toast.lua" or "/toast/"..name
     local f=assert(fs.open(path,"w"));f.write(code[name]);f.close()
 end
-if clean or not existing or requested then
+if clean or not existing or requested or configChanged then
     local f=assert(fs.open("/toast.config.lua","w"))
     f.write("-- Toast Control: edit /toast.config.lua\nreturn "..textutils.serialize(c).."\n");f.close()
 end

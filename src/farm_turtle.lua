@@ -116,7 +116,7 @@ local function status(title, detail)
 end
 local function retryable(fault)
     if type(fault) ~= "string" then return false end
-    for _, w in ipairs({ "Lava", "Wasser", "Geschuetzt", "Position unklar" }) do
+    for _, w in ipairs({ "Geschuetzt", "Position unklar" }) do
         if fault:find(w, 1, true) then return false end
     end
     return true

@@ -31,10 +31,9 @@ return {
     mine = {
         length = 100, height = 3, tunnels = 5, gap = 2,
         fuelTarget = 2000, radioTimeout = 60, freeSlots = 2, digRetries = 16,
-        protectedBlocks = {
-            "minecraft:bedrock", "minecraft:chest", "minecraft:trapped_chest",
-            "minecraft:barrel", "minecraft:ender_chest", "minecraft:hopper",
-            "minecraft:spawner", "minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker",
-        },
+        -- Alles wird abgebaut, Wasser/Lava werden durchfahren.
+        -- Hier Bloecke eintragen, die die Turtle NICHT abbauen soll, z.B.
+        -- "minecraft:chest", "minecraft:spawner". Andere Turtles sind immer geschuetzt.
+        protectedBlocks = {},
     },
 }

@@ -35,7 +35,9 @@ S.files["/toast_mining_state.backup3"]="x";S.files["/meinprog.lua"]="x"
 local ok,err=install(S,true,7)
 check("laeuft durch",ok,err)
 check("Altlasten weg",not S.files["/farm_turtle.lua"] and not S.files["/toast/alt_modul.lua"] and not S.files["/meinprog.lua"] and not S.files["/toast_mining_state.backup3"])
-check("Fortschritt + Config behalten",S.files["/toast_mining_state"] and S.files["/toast.config.lua"]==MINECFG)
+local kc=load(S.files["/toast.config.lua"])()
+check("Fortschritt + Config behalten",S.files["/toast_mining_state"] and kc.job=="mining" and kc.controllerId==4 and kc.label=="Alt" and kc.mine.length==4)
+check("alte Schutzliste geleert",#kc.mine.protectedBlocks==0)
 check("neue Programme da",S.files["/toast/mine_turtle.lua"] and S.files["/toast.lua"] and not S.files["/toast/farm_turtle.lua"])
 check("Autostart neu",S.files["/startup.lua"]=='shell.run("/toast.lua")\n',S.files["/startup.lua"])
 -- installiertes System direkt laufen lassen
