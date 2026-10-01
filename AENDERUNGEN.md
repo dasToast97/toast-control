@@ -39,6 +39,11 @@ abgebaut werden nur unzerstörbare Blöcke (Bedrock, Barriere, Portale) und
 andere Turtles. Eigene Ausnahmen: `mine.protectedBlocks` in der Config.
 Beim Update wird die alte Standard-Schutzliste automatisch geleert.
 
+**Spitzhacke wird selbst angelegt:** Fehlt das Werkzeug („No tool to dig with“),
+zeigt die Turtle „Keine Spitzhacke“. Liegt eine Diamant-Spitzhacke im Inventar,
+legt sie sie selbst an (auf der Seite ohne Modem) und arbeitet weiter.
+Die Spitzhacke wird nie in die Kiste abgeladen.
+
 ## Behoben
 
 - Halb geschriebene Zustandsdatei (`.tmp`) nach Absturz blockierte den Start

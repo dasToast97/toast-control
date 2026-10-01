@@ -4,7 +4,7 @@ local function readReal(p)local f=assert(io.open(p,"rb"));local s=f:read("a");f:
 local Sim={}
 function Sim.new(opts)
     local S={T=0,timers={},nextTimer=1,queue={},files={},world={},inv={},sel=1,log={},sent={},
-        p={x=0,y=0,z=0,dir=0},fuel=opts.fuel or 5000,mobs=0,crashAtMove=nil,moves=0,chestBelow=0,coal=opts.coal or 640,
+        p={x=0,y=0,z=0,dir=0},tool=opts.tool~=false,fuel=opts.fuel or 5000,mobs=0,crashAtMove=nil,moves=0,chestBelow=0,coal=opts.coal or 640,
         input=opts.input or {},polling=true,actions=opts.actions or {}}
     -- Dateien
     for _,n in ipairs({"toast.lua"})do S.files["/"..n]=readReal(SRC..n)end
@@ -43,6 +43,7 @@ function Sim.new(opts)
     end end
     local function dig(kind)return function()
         local x,y,z=front(kind);local b=block(x,y,z);if not b then return false,"Nothing to dig" end
+        if not S.tool then return false,"No tool to dig with" end
         if b=="minecraft:bedrock" then return false,"Unbreakable block detected" end
         if b:find("lava",1,true) or b:find("water",1,true) then return false,"Nothing to dig here" end
         S.world[key(x,y,z)]=false;add(b=="minecraft:stone" and "minecraft:cobblestone" or b,1);return true
@@ -81,7 +82,10 @@ function Sim.new(opts)
         suck=function()return false end,
         refuel=function(n)local it=S.inv[S.sel];if not it or it.name~="minecraft:coal" then return false end
             n=math.min(n or it.count,it.count);it.count=it.count-n;S.fuel=S.fuel+80*n;if it.count==0 then S.inv[S.sel]=nil end;return true end,
-        placeDown=function()return false end,digDownCrop=nil,
+        placeDown=function()return false end,
+        equipLeft=function()local it=S.inv[S.sel];if not it or not it.name:find("pickaxe") then return false end
+            S.inv[S.sel]=nil;S.tool=true;return true end,
+        equipRight=function()return false end,digDownCrop=nil,
     }
     return S
 end
@@ -121,7 +125,7 @@ function Sim.env(S)
     G.sleep=function(t)local id=G.os.startTimer(t);repeat local _,p=G.os.pullEvent("timer") until p==id end
     G.turtle=S.turtle;G.pocket=nil
     G.peripheral={find=function(t,f)if t=="modem" then local m={isWireless=function()return true end};if not f or f("back",m) then return m end end end,
-        getName=function()return "back"end}
+        getName=function()return "back"end,getType=function(side)return side=="right" and "modem" or nil end}
     G.rednet={open=function()end,send=function(id,msg,p)S.sent[#S.sent+1]={id=id,msg=msg,p=p};S.last=msg;return true end,
         broadcast=function()end,host=function()end,unhost=function()end,lookup=function()end}
     G.term={clear=function()end,setCursorPos=function()end,getSize=function()return 39,13 end,

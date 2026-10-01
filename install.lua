@@ -652,6 +652,9 @@ local CROPS = {
 }
 local PROTOCOL, STATE_FILE = common.protocol, "/toast_farm_state"
 local FUEL = { ["minecraft:coal"] = true, ["minecraft:charcoal"] = true, ["minecraft:coal_block"] = true }
+local TOOLS = { ["minecraft:diamond_pickaxe"] = true, ["minecraft:netherite_pickaxe"] = true,
+    ["minecraft:diamond_hoe"] = true, ["minecraft:netherite_hoe"] = true }
+local NO_TOOL = "Kein Werkzeug: Diamant-Spitzhacke oder -Hacke in die Turtle legen"
 local CONTAINERS = { ["minecraft:chest"] = true,
     ["minecraft:trapped_chest"] = true, ["minecraft:barrel"] = true }
 local args = { ... }
@@ -786,6 +789,21 @@ local function receiveSlot(name)
     end
     for i = 1, 16 do if turtle.getItemCount(i) == 0 then return i end end
 end
+local function equipTool()
+    for i = 1, 16 do
+        local it = turtle.getItemDetail(i)
+        if it and TOOLS[it.name] then
+            turtle.select(i)
+            for _, side in ipairs({ "left", "right" }) do
+                if peripheral.getType(side) ~= "modem" then
+                    local fn = side == "left" and turtle.equipLeft or turtle.equipRight
+                    if fn() then return true end
+                end
+            end
+        end
+    end
+    return false
+end
 local function isHome() return st.x == 0 and st.z == 0 end
 local function active()
     if run.mode ~= "off" and os.clock() - run.lastContact > CFG.radioTimeout then
@@ -863,7 +881,7 @@ local function unload()
     local keep = CFG.seedReserve
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
-        if item and not FUEL[item.name] then
+        if item and not FUEL[item.name] and not TOOLS[item.name] then
             local amount = item.count
             if item.name == crop.seed then
                 local retained = math.min(keep, amount)
@@ -971,7 +989,14 @@ local function visit(x, z)
     local before = count(crop.produce)
     if exists then
         status("Ernte", "Reife Pflanzen werden geerntet und neu gepflanzt.")
-        if not turtle.digDown() then return false, "Pflanze nicht abbaubar" end
+        local dug, why = turtle.digDown()
+        if not dug and tostring(why):find("No tool", 1, true) then
+            if not equipTool() then return false, NO_TOOL end
+            dug, why = turtle.digDown()
+        end
+        if not dug then
+            return false, tostring(why):find("No tool", 1, true) and NO_TOOL or "Pflanze nicht abbaubar"
+        end
         st.harvested, run.roundPlants = (st.harvested or 0) + 1, run.roundPlants + 1
     else
         status("Pflanzen", "Leere Ackerstellen werden bepflanzt.")
@@ -1139,6 +1164,7 @@ end
 local function heartbeat()
     while true do common.refreshModems(); sendStatus(); sleep(2) end
 end
+pcall(equipTool)
 term.clear(); term.setCursorPos(1, 1)
 print("TOAST FARM 2.1 - Turtle #" .. os.getComputerID())
 print("Zentrale #" .. st.controller .. " | " .. crop.label)
@@ -1339,6 +1365,25 @@ local function face(dir)
     end
     return true
 end
+-- Spitzhacke: liegt eine im Inventar, legt die Turtle sie selbst an
+-- (auf der Seite OHNE Modem).
+local TOOLS={['minecraft:diamond_pickaxe']=true,['minecraft:netherite_pickaxe']=true}
+local function equipTool()
+    for i=1,16 do
+        local it=turtle.getItemDetail(i)
+        if it and TOOLS[it.name] then
+            turtle.select(i)
+            for _,side in ipairs({"left","right"}) do
+                if peripheral.getType(side)~="modem" then
+                    local fn=side=="left" and turtle.equipLeft or turtle.equipRight
+                    if fn() then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+local NO_TOOL="Keine Spitzhacke: Diamant-Spitzhacke in die Turtle legen"
 local function freeSlots()
     local n=0;for i=1,16 do if turtle.getItemCount(i)==0 then n=n+1 end end;return n
 end
@@ -1353,7 +1398,15 @@ local function clear(inspect,dig,interruptible)
         if not exists or liquid[b.name] then return true end
         local reason=blockReason(b);if reason then return false,reason end
         if freeSlots()==0 then return false,"Inventar voll / Rueckweg pruefen" end
-        local ok,why=dig();if not ok then return false,"Nicht abbaubar: "..b.name.." / "..tostring(why) end
+        local ok,why=dig()
+        if not ok and tostring(why):find("No tool",1,true) then
+            if not equipTool() then return false,NO_TOOL end
+            ok,why=dig()
+        end
+        if not ok then
+            if tostring(why):find("No tool",1,true) then return false,NO_TOOL end
+            return false,"Nicht abbaubar: "..b.name.." / "..tostring(why)
+        end
         st.harvested=(st.harvested or 0)+1;save();sleep(0.1)
     end
     local exists,b=inspect();if not exists or liquid[b.name] then return true end
@@ -1418,7 +1471,8 @@ local function container(fn)local ok,b=fn();return ok and containers[b.name] end
 local function unload()
     if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
     for i=1,16 do
-        if turtle.getItemCount(i)>0 then
+        local item=turtle.getItemDetail(i)
+        if item and not TOOLS[item.name] then
             if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
             turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
             local delivered=before-turtle.getItemCount(i)
@@ -1596,6 +1650,7 @@ local function listener()
     end
 end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
+pcall(equipTool)
 term.clear();term.setCursorPos(1,1)
 print("TOAST MINING 2.1 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)

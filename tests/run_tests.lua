@@ -82,6 +82,21 @@ local tStatus;S.actions[#S.actions+1]={t=60,fn=function(S)tStatus=S.last and S.l
 Sim.run(S,61)
 check("Turtle geschuetzt",S.world[S.key(0,0,2)]=="computercraft:turtle_normal" and tStatus and tStatus:find("Geschuetzt",1,true),tStatus)
 
+print("T5d Keine Spitzhacke -> klare Meldung; Spitzhacke ins Inventar -> legt sie selbst an")
+S=Sim.new({config=mineConfig(),tool=false,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1"
+local noTool;S.actions[#S.actions+1]={t=20,fn=function(S)noTool=S.last and S.last.fault end}
+S.actions[#S.actions+1]={t=21,fn=function(S)S.inv[5]={name="minecraft:diamond_pickaxe",count=1} end}
+Sim.run(S,600);st=state(S)
+check("Meldung Keine Spitzhacke",noTool and noTool:find("Keine Spitzhacke",1,true),noTool)
+check("nach Einlegen automatisch fertig",st.next==9 and S.tool,st.next)
+check("Spitzhacke nicht in Kiste abgeladen",S.tool)
+
+print("T5e Spitzhacke liegt beim Start im Inventar -> wird angelegt")
+S=Sim.new({config=mineConfig(),tool=false,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.inv[1]={name="minecraft:diamond_pickaxe",count=1};S.protocol="toast.mine.v1";Sim.run(S,400);st=state(S)
+check("fertig ohne Fehler",st.next==9 and S.tool,st.next)
+
 print("T6 Funkverlust -> Stopp, bei Kontakt automatisch weiter")
 S=Sim.new({config=mineConfig():gsub("length=4,height=2","length=40,height=2"),actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},
     {t=5,fn=function(S)S.polling=false end},{t=60,fn=function(S)S.polling=true end}}})
