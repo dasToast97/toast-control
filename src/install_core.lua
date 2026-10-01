@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Auswahl Update / Komplett neu
 --        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
 --        wget run <link> farm|mining|repeater

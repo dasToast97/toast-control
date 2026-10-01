@@ -1,13 +1,34 @@
-# Toast Control 2.1 – Stabilität & Reset
+# Toast Control 2.2 – Stabilität, Reset & sparsamer Fahrweg
 
-Diese Dateien auf deinem Server (`/control/`) ersetzen, danach auf jedem Gerät
-den Installer erneut ausführen (Config und Fortschritt bleiben erhalten):
+## Neu in 2.2: Energiesparender Mining-Fahrweg
 
-    wget run https://toast-farm-cc-0930.eismann-db.chatgpt.site/control/install.lua
+- **Oben/unten beim Vorwärtsfahren mit abbauen:** Bei Höhe 3 fährt die Turtle in
+  der mittleren Reihe und baut Block darüber und darunter direkt mit ab –
+  1 Fuel pro Gangblock statt hoch- und runterzufahren.
+- **Schlangenlinie:** Gang 1 hin, am Ende hinüber, Gang 2 zurück. Keine leeren
+  Rückwege durch fertige Gänge mehr.
+- **Höhe 4–5:** Hinweg unten, Rückweg oben – der nötige Rückweg baut gleich mit ab.
+- **Heimfahrt nur wenn nötig** (Inventar voll / Fuel knapp), nicht mehr nach jedem Gang.
+  Danach fährt sie auf kürzestem Weg zurück an die Stelle, wo sie aufgehört hat.
 
-Geänderte Dateien: toast.lua, toast_common.lua, toast_control.lua, toast_model.lua,
-toast_ui.lua, toast_pocket.lua, farm_turtle.lua, mine_turtle.lua, toast.config.lua, install.lua.
-Unverändert: farm_common.lua, mine_common.lua, repeater.lua.
+Gemessen in der Simulation (4 Gänge à 20, Abstand 2):
+
+| Höhe | alter Fahrweg | neuer Fahrweg | Ersparnis |
+|---|---|---|---|
+| 1 | 196 Fuel | 96 Fuel | 51 % |
+| 2 | 368 Fuel | 96 Fuel | 74 % |
+| 3 | 540 Fuel | 98 Fuel | 82 % |
+| 4 | 712 Fuel | 182 Fuel | 74 % |
+| 5 | 884 Fuel | 190 Fuel | 79 % |
+
+Laufende Aufträge werden übernommen: fertige Gänge bleiben fertig, ein
+angefangener Gang wird vom Anfang an neu befahren (dort ist schon frei).
+
+## Seit 2.1
+
+Installieren / Updaten auf jedem Gerät (Config und Fortschritt bleiben erhalten):
+
+    wget run https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua
 
 ## Neu
 

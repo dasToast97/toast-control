@@ -1,4 +1,4 @@
-# Toast Control 2.1
+# Toast Control 2.2
 
 Farm- und Mining-Turtles, Zentrale und Pocket für CC:Tweaked (Minecraft Fabric 1.20.1).
 

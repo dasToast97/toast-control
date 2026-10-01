@@ -1,14 +1,33 @@
--- Toast Mining 2.1: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
+-- Toast Mining 2.2: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
+-- Fahrweg 2.2: Turtle baut oben/unten beim Vorwaertsfahren mit ab (1 Fuel je Block),
+-- Gaenge werden in Schlangenlinie verbunden, Heimfahrt nur wenn noetig.
 -- Neu: Positions-Wiederherstellung nach Absturz, RESET, Auto-Retry, Mob-Blockaden.
 local common=dofile("/mine_common.lua")
 local cfg=common.load();assert(cfg.role=="turtle","Mining Turtle erforderlich.")
 common.modem()
 local R=cfg.recovery or {autoRetry=3,retryDelay=30,moveRetries=8}
 local C,FILE,args=cfg.mine,"/toast_mining_state",{...}
-local area,cells=C.length,C.length*C.tunnels
-local width=(C.tunnels-1)*(C.gap+1)+1
-local layout="strip:"..C.length..":"..C.height..":"..C.tunnels..":"..C.gap
+local H,L,G=C.height,C.length,C.gap
+local width=(C.tunnels-1)*(G+1)+1
+-- Laufebene: bei 3+ Hoehe die mittlere Reihe (y=-1), sonst Bodenreihe (y=0).
+local WALK=H>=3 and -1 or 0
+-- Bei 4-5 Hoehe: Rueckweg auf oberer Ebene baut die restlichen Reihen ab.
+local HIGH=H==4 and -2 or -3
+local area=H<=3 and L or 2*L          -- Schritte je Gang
+local cells=area*C.tunnels
+local layout="strip2:"..L..":"..H..":"..C.tunnels..":"..G
+-- Schritt i -> Position (x,y,z) und ob oben/unten mit abgebaut wird.
+local function step(i)
+    local t=math.floor((i-1)/area);local k=(i-1)%area;local x=t*(G+1)
+    if H<=3 then
+        local z=t%2==0 and k+1 or L-k     -- Schlangenlinie: hin, rueber, zurueck
+        return x,WALK,z,H>=2,H==3
+    end
+    if k<L then return x,WALK,k+1,true,true end
+    return x,HIGH,L-(k-L),true,false
+end
 local st={x=0,y=0,z=0,dir=0,next=1,total=0,harvested=0,commandSerial=0,layout=layout}
+local oldLayout="strip:"..L..":"..H..":"..C.tunnels..":"..G
 local function readTable(path)
     if not fs.exists(path) then return nil end
     local f=fs.open(path,"r");if not f then return nil end
@@ -52,6 +71,11 @@ for _,arg in ipairs(args) do
         write("Neue Gaenge an dieser Basis? NEU eingeben: ");assert(read()=="NEU","Abgebrochen.")
         st.next,st.layout,st.accessHigh,st.lastMode=1,layout,nil,nil
     else error("Start: toast.lua [--dock] [--new]",0) end
+end
+-- Fortschritt aus der alten Version uebernehmen: angefangener Gang wird neu befahren.
+if st.layout==oldLayout then
+    local t=math.floor((st.next-1)/L)
+    st.next=math.min(cells+1,t*area+1);st.layout=layout;st.accessHigh=nil
 end
 assert(st.layout==layout,"Abbaumasse geaendert: an Basis mit --new neuen Auftrag bestaetigen.")
 assert(st.x>=0 and st.x<width and st.y>=-(C.height-1) and st.y<=0 and st.z>=0 and st.z<=C.length
@@ -139,7 +163,10 @@ local function clear(inspect,dig,interruptible)
         local exists,b=inspect()
         if not exists or liquid[b.name] then return true end
         local reason=blockReason(b);if reason then return false,reason end
-        if freeSlots()==0 then return false,"Inventar voll / Rueckweg pruefen" end
+        if freeSlots()==0 then
+            if interruptible then return false,"resupply" end
+            return false,"Inventar voll / Rueckweg pruefen"
+        end
         local ok,why=dig()
         if not ok and tostring(why):find("No tool",1,true) then
             if not equipTool() then return false,NO_TOOL end
@@ -155,7 +182,10 @@ local function clear(inspect,dig,interruptible)
     return false,blockReason(b) or "Zu viel nachrutschender Kies/Sand"
 end
 local DX,DZ={[0]=0,1,0,-1},{[0]=1,0,-1,0}
-local function homeDistance()return st.x+math.max(0,st.z-1)+math.abs(st.y)+(st.z>0 and 1 or 0)end
+local function homeDistance()
+    if st.z==0 then return 0 end
+    return math.abs(st.y-WALK)+math.max(0,st.z-1)+st.x+math.abs(WALK)+1
+end
 local function move(kind,interruptible)
     if interruptible and not active() then return false,"stopped" end
     local fuel=turtle.getFuelLevel()
@@ -177,33 +207,49 @@ local function move(kind,interruptible)
     end
     return false,"Bewegung blockiert: "..tostring(last)
 end
-local clearHeight
-local function horizontal(x,z,interruptible,xFirst)
-    while st.x~=x or st.z~=z do
-        local dir
-        if st.x~=x and (xFirst or st.z==z) then dir=st.x<x and 1 or 3
-        else dir=st.z<z and 0 or 2 end
-        local ok,why=face(dir);if not ok then return false,why end
-        ok,why=move("forward",interruptible);if not ok then return false,why end
-        if interruptible and st.z==1 and st.x>(st.accessHigh or -1) then
-            ok,why=clearHeight();if not ok then return false,why end
-            st.accessHigh=st.x;save()
-        end
+local function lineX(x,i)
+    while st.x~=x do
+        local ok,why=face(st.x<x and 1 or 3);if not ok then return false,why end
+        ok,why=move("forward",i);if not ok then return false,why end
     end
     return true
 end
-local function vertical(y,interruptible)
-    while st.y~=y do local ok,why=move(st.y<y and "down" or "up",interruptible);if not ok then return false,why end end
+local function lineZ(z,i)
+    while st.z~=z do
+        local ok,why=face(st.z<z and 0 or 2);if not ok then return false,why end
+        ok,why=move("forward",i);if not ok then return false,why end
+    end
     return true
+end
+local function vertical(y,i)
+    while st.y~=y do local ok,why=move(st.y<y and "down" or "up",i);if not ok then return false,why end end
+    return true
+end
+local function chain(...)
+    for _,f in ipairs({...}) do local ok,why=f();if not ok then return false,why end end
+    return true
+end
+-- Kuerzester Weg ueber bereits freie Gaenge: Laufebene -> eigener Gang bis vorne ->
+-- vordere Querreihe -> Zielgang -> Zielhoehe. Niemals senkrecht an der Basis (Kisten!).
+local function routeTo(x,y,z,i)
+    return chain(
+        function() if st.z==0 then return lineZ(1,i) end return true end,
+        function() if st.x~=x then return chain(function()return vertical(WALK,i)end,
+            function()return lineZ(1,i)end,function()return lineX(x,i)end) end return true end,
+        function() if st.z~=z then return chain(function()return vertical(WALK,i)end,
+            function()return lineZ(z,i)end) end return true end,
+        function() return vertical(y,i) end)
+end
+-- Naechster Schritt direkt (auch Querweg am Gangende): Hoehe, dann x, dann z.
+local function direct(x,y,z,i)
+    return chain(function()return vertical(y,i)end,function()return lineX(x,i)end,function()return lineZ(z,i)end)
 end
 local function home()
     status("Rueckkehr",run.fault or "Fahre ueber freigelegte Wege zur Basis.")
     local ok,why=true
     if st.z>0 then
-        ok,why=vertical(0,false)
-        if ok then ok,why=horizontal(0,1,false,false) end
-        if ok then ok,why=vertical(0,false) end
-        if ok then ok,why=horizontal(0,0,false,false) end
+        ok,why=chain(function()return vertical(WALK,false)end,function()return lineZ(1,false)end,
+            function()return lineX(0,false)end,function()return vertical(0,false)end,function()return lineZ(0,false)end)
     end
     if ok then ok,why=face(0) end
     return ok,why
@@ -266,22 +312,6 @@ local function supplies()
     end
     return false,"stopped"
 end
-local function target(index)
-    local tunnel=math.floor((index-1)/C.length)
-    return tunnel*(C.gap+1),0,(index-1)%C.length+1
-end
-local function resumePath()
-    local x,_,z=target(st.next)
-    local ok,why=horizontal(0,1,true,false);if not ok then return false,why end
-    ok,why=horizontal(x,1,true,true);if not ok then return false,why end
-    return horizontal(x,z,true,false)
-end
-clearHeight=function()
-    for y=1,C.height-1 do
-        local ok,why=move("up",true);if not ok then return false,why end
-    end
-    return vertical(0,true)
-end
 local function finish()
     run.mode,run.lastMode="off",nil
     if st.lastMode then st.lastMode=nil;save() end
@@ -322,18 +352,14 @@ local function work()
                     end
                     if ok and active() then
                         status("Abbau","Gang "..(math.floor((st.next-1)/area)+1).." / "..C.tunnels)
-                        if homePosition() then ok,why=resumePath()
-                        else
-                            local x,y,z=target(st.next)
-                            if st.y~=0 then
-                                ok,why=vertical(0,true)
-                                if ok then ok,why=horizontal(x,z,true,false) end
-                            elseif (st.next-1)%area==0 then
-                                ok,why=supplies();if ok then ok,why=resumePath() end
-                            else ok,why=horizontal(x,z,true,false) end
-                        end
+                        local x,y,z,up,down=step(st.next)
+                        local px,py,pz
+                        if st.next>1 then px,py,pz=step(st.next-1) end
+                        if px and st.x==px and st.y==py and st.z==pz then ok,why=direct(x,y,z,true)
+                        else ok,why=routeTo(x,y,z,true) end
+                        if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true) end
+                        if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true) end
                     end
-                    if ok and active() and not (st.z==1 and st.x<=(st.accessHigh or -1)) then ok,why=clearHeight() end
                     if ok and active() then
                         st.next=st.next+1;save();run.retries=0
                         if run.mode=="once" and st.next>run.onceEnd then finish() end
@@ -394,7 +420,7 @@ end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
 pcall(equipTool)
 term.clear();term.setCursorPos(1,1)
-print("TOAST MINING 2.1 / Turtle #"..os.getComputerID())
+print("TOAST MINING 2.2 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
 print("Zentrale #"..cfg.controllerId)
 print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")
