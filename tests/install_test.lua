@@ -27,7 +27,7 @@ end
 local MINECFG=[[return {role="auto",job="mining",controllerId=4,label="Alt",autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},display={monitor="auto",textScale=0.5,pageSize=0},network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},farm={width=3,length=3,crop="wheat",interval=5,seedReserve=16,radioTimeout=10,water={}},mine={length=4,height=2,tunnels=2,gap=1,fuelTarget=100,radioTimeout=10,freeSlots=2,digRetries=16,protectedBlocks={"minecraft:bedrock"}}}]]
 
 print("A Turtle Update-Modus")
-local S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files={}
+local S=Sim.new({config=MINECFG,input={"1","n","n","j","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG
 S.files["/toast_mining_state"]='{x=0,y=0,z=0,dir=0,next=3,total=5,harvested=5,commandSerial=1,layout="strip:4:2:2:1"}'
 S.files["/farm_turtle.lua"]="alt";S.files["/toast/alt_modul.lua"]="alt";S.files["/startup.lua"]="shell.run('irgendwas')"
@@ -47,7 +47,7 @@ local st=load("return "..S.files["/toast_mining_state"])()
 check("installierte Mine laeuft + setzt bei Zelle 3 fort",st.next==9,st.next.." "..tostring(S.result))
 
 print("B Turtle Komplett neu")
-S=Sim.new({config=MINECFG,input={"2","LOESCHEN","2","","n","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"2","LOESCHEN","2","","","","","","","n","j","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG;S.files["/toast_mining_state"]="{x=5}";S.files["/meinprog.lua"]="x"
 ok,err=install(S,true,7)
 check("laeuft durch",ok,err)
@@ -68,7 +68,36 @@ c=load(S.files["/toast.config.lua"])()
 check("Rolle Zentrale, ID 4, Dateien da",c.role=="controller" and c.controllerId==4 and S.files["/toast/toast_control.lua"] and not S.files["/farm_touch.lua"])
 
 print("E Kaputte Config wird ersetzt")
-S=Sim.new({config=MINECFG,input={"1","1","","n","j","n"}});S.files={["/toast.config.lua"]="return {kaputt"}
+S=Sim.new({config=MINECFG,input={"1","1","","","","","","","n","j","n"}});S.files={["/toast.config.lua"]="return {kaputt"}
 ok,err=install(S,true,7)
 check("laeuft durch + neue Farm-Config",ok and load(S.files["/toast.config.lua"])().job=="farm",err)
+print("F Neue Farm-Turtle: 10 lang x 4 breit, links, Karotten")
+S=Sim.new({config=MINECFG,input={"1","1","","10","4","l","2","30","n","j","n"}});S.files={}
+ok,err=install(S,true,7)
+local fc=ok and load(S.files["/toast.config.lua"])().farm
+check("Farm-Masse gespeichert",fc and fc.length==10 and fc.width==4 and fc.side=="left" and fc.crop=="carrots" and fc.interval==30 and #fc.water==0,err)
+-- Farmrunde auf gespiegeltem 10x4-Feld mit Wasserreihe in der Mitte
+S.T=0;S.timers={};S.queue={};S.input={};S.protocol="toast.farm.v2"
+S.actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}
+S.inv[1]={name="minecraft:carrot",count=64}
+for x=0,3 do for z=1,10 do S.world[S.key(-x,1,z)]= (z==5) and "minecraft:water" or "minecraft:carrots_ripe" end end
+S.world[S.key(0,1,0)]="minecraft:chest";S.world[S.key(0,-1,0)]="minecraft:chest"
+-- Luft ueber dem Feld
+for x=-4,4 do for z=0,11 do if S.world[S.key(x,0,z)]==nil then S.world[S.key(x,0,z)]=false end end end
+Sim.run(S,600)
+local fs_=load("return "..S.files["/toast_farm_state"])()
+local left=0;for x=0,3 do for z=1,10 do if S.world[S.key(-x,1,z)]=="minecraft:carrots_ripe" then left=left+1 end end end
+check("ganzes Feld links abgeerntet, Wasserreihe uebersprungen",fs_.rounds==1 and left==0 and fs_.harvested==36,tostring(fs_.rounds).." rest="..left.." h="..tostring(fs_.harvested))
+check("Wasser unberuehrt",S.world[S.key(-2,1,5)]=="minecraft:water")
+check("zurueck an Basis",S.p.x==0 and S.p.z==0)
+
+print("G Minenmasse aendern -> neuer Auftrag")
+S=Sim.new({config=MINECFG,input={"1","j","50","3","3","2","r","j","n","j","n"}});S.files={}
+S.files["/toast.config.lua"]=MINECFG
+S.files["/toast_mining_state"]='{x=0,y=0,z=0,dir=0,next=5,total=5,harvested=5,commandSerial=1,layout="strip2:4:2:2:1"}'
+ok,err=install(S,true,7)
+local mc=ok and load(S.files["/toast.config.lua"])().mine
+check("neue Minenmasse",mc and mc.length==50 and mc.height==3 and mc.tunnels==3,err)
+check("alter Fortschritt zurueckgesetzt",S.files["/toast_mining_state"]==nil)
+
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))

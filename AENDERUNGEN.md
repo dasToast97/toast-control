@@ -1,4 +1,23 @@
-# Toast Control 2.2 – Stabilität, Reset & sparsamer Fahrweg
+# Toast Control 2.3 – Stabilität, Reset, sparsamer Fahrweg & eigene Maße
+
+## Neu in 2.3: Maße beim Installieren einstellen
+
+Auf einer Turtle fragt der Installer nach der Aufgabe gleich die passenden Maße ab
+(Enter = Wert in Klammern behalten). Die Turtle steht dabei an ihrer Basis und
+schaut nach vorne aufs Feld bzw. in die Mine.
+
+- **Farm:** Länge nach vorne, Breite zur Seite (je 1–32, z. B. 10 × 4),
+  Seite rechts/links, Pflanze, Pause zwischen Runden.
+- **Wasser muss nicht eingetragen werden:** einzelne Stellen, ganze Reihen oder
+  gar kein Wasser – die Turtle erkennt es selbst und überspringt es.
+- **Mining:** Ganglänge, Höhe (1–5), Anzahl Gänge, Abstand, Seite rechts/links.
+- Beim Update: „Maße ändern? (j/n)“. Neue Minenmaße starten einen neuen Auftrag
+  (Turtle muss an der Basis stehen).
+
+Später ändern: Installer erneut ausführen oder `edit /toast.config.lua`
+(`farm.width/length/side`, `mine.length/height/tunnels/gap/side`).
+
+## Neu in 2.2: Energiesparender Mining-Fahrweg
 
 ## Neu in 2.2: Energiesparender Mining-Fahrweg
 

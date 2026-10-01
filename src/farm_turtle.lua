@@ -33,6 +33,9 @@ end
 assert(CFG.interval >= 1 and CFG.seedReserve >= 1 and CFG.seedReserve <= 256,
     "Ungueltige Wartezeit oder Saatgutreserve.")
 local crop = CROPS[CFG.crop]
+assert(CFG.side == nil or CFG.side == "right" or CFG.side == "left", "farm.side: right oder left.")
+local MIRROR = CFG.side == "left"
+CFG.water = CFG.water or {}
 local budget = CFG.width * CFG.length + CFG.width + CFG.length + 20
 
 local function readTable(path)
@@ -90,7 +93,7 @@ for _, arg in ipairs(args) do
     end
 end
 st.controller = config.controllerId
-local layout = CFG.width .. ":" .. CFG.length .. ":" .. CFG.crop
+local layout = CFG.width .. ":" .. CFG.length .. ":" .. CFG.crop .. (MIRROR and ":L" or "")
 for _,cell in ipairs(CFG.water) do layout = layout .. ":" .. cell.column .. "," .. cell.row end
 assert(not st.layout or st.layout == layout or (st.x == 0 and st.z == 0 and not st.pending),
     "Feldparameter nur an der Basis aendern. Bei versetzter Turtle --dock verwenden.")
@@ -195,7 +198,8 @@ end
 local function face(dir)
     while st.dir ~= dir do
         local left = (st.dir - dir) % 4 == 1
-        local ok, why = action("turn", left and turtle.turnLeft or turtle.turnRight,
+        -- side="left": Feld liegt links -> alle Drehungen gespiegelt.
+        local ok, why = action("turn", (left ~= MIRROR) and turtle.turnLeft or turtle.turnRight,
             function() st.dir = (st.dir + (left and 3 or 1)) % 4 end)
         if not ok then return false, why or "Drehen fehlgeschlagen" end
     end

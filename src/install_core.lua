@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Auswahl Update / Komplett neu
 --        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
 --        wget run <link> farm|mining|repeater
@@ -144,6 +144,83 @@ if not existing then
 end
 c.role=role;c.job=job or c.job or "auto"
 if job and (c.label==nil or c.label=="") then c.label=common.label(os.getComputerLabel and os.getComputerLabel() or "") end
+-- Masse fuer Farm bzw. Mine abfragen (Enter = Wert in Klammern behalten).
+local function ask(text,default,lo,hi)
+    while true do
+        write(text.." ["..tostring(default).."]: ")
+        local v=read()
+        if v=="" then return default end
+        local n=tonumber(v)
+        if n and n%1==0 and n>=lo and n<=hi then return n end
+        print("Bitte ganze Zahl von "..lo.." bis "..hi..".")
+    end
+end
+local function askSide(default)
+    while true do
+        write("Seite: r = rechts / l = links ["..(default=="left" and "l" or "r").."]: ")
+        local v=read():lower()
+        if v=="" then return default or "right" end
+        if v=="r" or v=="rechts" or v=="right" then return "right" end
+        if v=="l" or v=="links" or v=="left" then return "left" end
+    end
+end
+local layoutChanged=false
+local setup=role=="turtle" and (clean or not existing or requested)
+if role=="turtle" and not setup then
+    write((job=="farm" and "Feldmasse" or "Minenmasse").." aendern? (j/n) [n]: ")
+    setup=read():lower()=="j"
+end
+if setup then
+    print("")
+    print("Turtle steht an der Basis und schaut nach vorne")
+    print((job=="farm" and "aufs Feld." or "in die Mine."))
+    if job=="farm" then
+        local f=c.farm or {};c.farm=f
+        local before=textutils.serialize({f.width,f.length,f.side,f.crop})
+        f.length=ask("Feld-Laenge nach vorne (1-32)",f.length or 9,1,32)
+        f.width=ask("Feld-Breite zur Seite (1-32)",f.width or 9,1,32)
+        if f.width>1 then f.side=askSide(f.side) else f.side=f.side or "right" end
+        local crops={"wheat","carrots","potatoes","beetroot"}
+        local names={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete"}
+        local current=1;for i,v in ipairs(crops)do if v==f.crop then current=i end end
+        print("Pflanze: 1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
+        f.crop=crops[ask("Pflanze",current,1,4)]
+        f.interval=ask("Pause zwischen Runden in Sekunden",f.interval or 60,1,86400)
+        -- Wasser erkennt die Turtle selbst: einzelne Stellen, ganze Reihen oder gar keins.
+        f.water={}
+        print("Wasser im Feld wird automatisch erkannt.")
+        print(names[f.crop].."-Feld "..f.length.." x "..f.width.." nach "..(f.side=="left" and "links" or "rechts"))
+        layoutChanged=before~=textutils.serialize({f.width,f.length,f.side,f.crop})
+    else
+        local m=c.mine or {};c.mine=m
+        local before=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
+        m.length=ask("Ganglaenge nach vorne (1-1024)",m.length or 100,1,1024)
+        m.height=ask("Ganghoehe (1-5, 3 = am sparsamsten)",m.height or 3,1,5)
+        m.tunnels=ask("Anzahl Gaenge (1-64)",m.tunnels or 5,1,64)
+        if m.tunnels>1 then
+            m.gap=ask("Bloecke zwischen den Gaengen (0-16)",m.gap or 2,0,16)
+            m.side=askSide(m.side)
+        else m.gap=m.gap or 2;m.side=m.side or "right" end
+        local w=(m.tunnels-1)*(m.gap+1)+1
+        print("Mine: "..m.tunnels.." Gaenge x "..m.length.." lang x "..m.height.." hoch")
+        print("Gesamtbreite "..w.." Bloecke nach "..(m.side=="left" and "links" or "rechts"))
+        layoutChanged=before~=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
+    end
+    configChanged=true
+end
+-- Neue Masse bei vorhandenem Fortschritt: neuen Auftrag an der Basis beginnen.
+local resetProgress=false
+if layoutChanged and not clean and job=="mining" then
+    local stateFile=job=="farm" and "/toast_farm_state" or "/toast_mining_state"
+    if fs.exists(stateFile) or fs.exists(stateFile..".tmp") then
+        print("")
+        print("Neue Masse = neuer Auftrag. Die Turtle muss")
+        print("dafuer an ihrer Basis stehen (Blick nach vorne).")
+        write("Steht sie an der Basis? (j/n) [j]: ")
+        if read():lower()~="n" then resetProgress=stateFile
+        else printError("Dann vorher an die Basis stellen und danach: toast.lua --dock --new") end
+    end
+end
 common.load(c)
 local names={"toast.lua","toast_common.lua"}
 if role=="controller" then
@@ -176,6 +253,9 @@ fs.makeDir("/toast")
 for _,name in ipairs(names)do
     local path=name=="toast.lua" and "/toast.lua" or "/toast/"..name
     local f=assert(fs.open(path,"w"));f.write(code[name]);f.close()
+end
+if resetProgress then
+    for _,p in ipairs({resetProgress,resetProgress..".tmp"})do if fs.exists(p) then fs.delete(p) end end
 end
 if clean or not existing or requested or configChanged then
     local f=assert(fs.open("/toast.config.lua","w"))

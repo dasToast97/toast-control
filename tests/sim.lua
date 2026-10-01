@@ -40,6 +40,7 @@ function Sim.new(opts)
     local function inspect(kind)return function()
         local b=block(front(kind));if not b then return false,"No block" end
         local st={};if b=="minecraft:wheat_ripe" then return true,{name="minecraft:wheat",state={age=7}} end
+        if b=="minecraft:carrots_ripe" then return true,{name="minecraft:carrots",state={age=7}} end
         return true,{name=b,state=st}
     end end
     local function dig(kind)return function()
@@ -83,7 +84,12 @@ function Sim.new(opts)
         suck=function()return false end,
         refuel=function(n)local it=S.inv[S.sel];if not it or it.name~="minecraft:coal" then return false end
             n=math.min(n or it.count,it.count);it.count=it.count-n;S.fuel=S.fuel+80*n;if it.count==0 then S.inv[S.sel]=nil end;return true end,
-        placeDown=function()return false end,
+        placeDown=function()local x,y,z=S.p.x,S.p.y+1,S.p.z
+            if block(x,y,z) then return false end
+            local below=block(x,y+1,z);if below and below:find("water",1,true) then return false end
+            local it=S.inv[S.sel];if not it then return false end
+            it.count=it.count-1;if it.count==0 then S.inv[S.sel]=nil end
+            S.world[key(x,y,z)]="minecraft:planted";return true end,
         equipLeft=function()local it=S.inv[S.sel];if not it or not it.name:find("pickaxe") then return false end
             S.inv[S.sel]=nil;S.tool=true;return true end,
         equipRight=function()return false end,digDownCrop=nil,

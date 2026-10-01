@@ -8,6 +8,8 @@ common.modem()
 local R=cfg.recovery or {autoRetry=3,retryDelay=30,moveRetries=8}
 local C,FILE,args=cfg.mine,"/toast_mining_state",{...}
 local H,L,G=C.height,C.length,C.gap
+assert(C.side==nil or C.side=="right" or C.side=="left","mine.side: right oder left.")
+local MIRROR=C.side=="left"
 local width=(C.tunnels-1)*(G+1)+1
 -- Laufebene: bei 3+ Hoehe die mittlere Reihe (y=-1), sonst Bodenreihe (y=0).
 local WALK=H>=3 and -1 or 0
@@ -15,7 +17,7 @@ local WALK=H>=3 and -1 or 0
 local HIGH=H==4 and -2 or -3
 local area=H<=3 and L or 2*L          -- Schritte je Gang
 local cells=area*C.tunnels
-local layout="strip2:"..L..":"..H..":"..C.tunnels..":"..G
+local layout="strip2:"..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
 -- Schritt i -> Position (x,y,z) und ob oben/unten mit abgebaut wird.
 local function step(i)
     local t=math.floor((i-1)/area);local k=(i-1)%area;local x=t*(G+1)
@@ -125,7 +127,8 @@ end
 local function face(dir)
     while st.dir~=dir do
         local left=(st.dir-dir)%4==1
-        local ok,why=action("turn",left and turtle.turnLeft or turtle.turnRight,
+        -- side="left": Gaenge liegen links -> alle Drehungen gespiegelt.
+        local ok,why=action("turn",(left~=MIRROR) and turtle.turnLeft or turtle.turnRight,
             function()st.dir=(st.dir+(left and 3 or 1))%4 end)
         if not ok then return false,"Drehen fehlgeschlagen: "..tostring(why) end
     end

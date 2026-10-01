@@ -23,13 +23,15 @@ return {
         retryDelay = 30,              -- Sekunden Pause vor neuem Versuch
         moveRetries = 8,              -- Versuche, wenn Mob/Spieler den Weg blockiert
     },
+    -- Turtle steht an der Basis und schaut aufs Feld / in die Mine.
+    -- length = Bloecke nach vorne, width/tunnels = zur Seite (side = right/left).
     farm = {
-        width = 9, length = 9, crop = "wheat", interval = 60,
+        width = 9, length = 9, side = "right", crop = "wheat", interval = 60,
         seedReserve = 64, radioTimeout = 60,
-        water = { { column = 5, row = 5 } },
+        water = {},                   -- Wasser wird automatisch erkannt (egal wo, auch ganze Reihen)
     },
     mine = {
-        length = 100, height = 3, tunnels = 5, gap = 2,
+        length = 100, height = 3, tunnels = 5, gap = 2, side = "right",
         fuelTarget = 2000, radioTimeout = 60, freeSlots = 2, digRetries = 16,
         -- Alles wird abgebaut, Wasser/Lava werden durchfahren.
         -- Hier Bloecke eintragen, die die Turtle NICHT abbauen soll, z.B.

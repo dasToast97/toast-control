@@ -45,3 +45,11 @@ check("fertig trotz vollem Inventar",st.next==121 and not (S.last and S.last.fau
 local missing=0;for t=0,1 do for z=1,60 do for y=0,-2,-1 do if S.world[S.key(t*3,y,z)]~=false then missing=missing+1 end end end end
 check("trotzdem alles abgebaut",missing==0,missing)
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))
+print("Mine nach LINKS")
+local S=Sim.new({config=cfg(3,15,3,2):gsub("gap=2,","gap=2,side=\"left\","),fuel=20000,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1";Sim.run(S,20000)
+local st=load("return "..S.files["/toast_mining_state"])()
+local miss,right=0,0
+for t=0,2 do for z=1,15 do for y=0,-2,-1 do if S.world[S.key(-t*3,y,z)]~=false then miss=miss+1 end end end end
+for x=1,9 do for z=1,15 do if S.world[S.key(x,-1,z)]==false then right=right+1 end end end
+print((miss==0 and right==0 and st.next==46 and S.p.x==0 and S.p.z==0) and "  PASS links: alles abgebaut, rechts unberuehrt" or ("  FAIL links "..miss.." "..right.." "..st.next))
