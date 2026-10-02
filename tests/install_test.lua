@@ -47,7 +47,7 @@ local st=load("return "..S.files["/toast_mining_state"])()
 check("installierte Mine laeuft + setzt bei Zelle 3 fort",st.next==9,st.next.." "..tostring(S.result))
 
 print("B Turtle Komplett neu")
-S=Sim.new({config=MINECFG,input={"2","LOESCHEN","2","","","","","","","","n","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"2","LOESCHEN","2","","","","","","","","","n","j","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG;S.files["/toast_mining_state"]="{x=5}";S.files["/meinprog.lua"]="x"
 ok,err=install(S,true,7)
 check("laeuft durch",ok,err)
@@ -69,11 +69,11 @@ check("Zentrale-Name gespeichert",load(S.files["/toast.config.lua"])().name=="Ze
 check("Rolle Zentrale, ID 4, Dateien da",c.role=="controller" and c.controllerId==4 and S.files["/toast/toast_control.lua"] and not S.files["/farm_touch.lua"])
 
 print("E Kaputte Config wird ersetzt")
-S=Sim.new({config=MINECFG,input={"1","1","","","","","","","","n","j","n"}});S.files={["/toast.config.lua"]="return {kaputt"}
+S=Sim.new({config=MINECFG,input={"1","1","","","","","","","","","n","j","n"}});S.files={["/toast.config.lua"]="return {kaputt"}
 ok,err=install(S,true,7)
 check("laeuft durch + neue Farm-Config",ok and load(S.files["/toast.config.lua"])().job=="farm",err)
 print("F Neue Farm-Turtle: 10 lang x 4 breit, links, Karotten")
-S=Sim.new({config=MINECFG,input={"1","1","","Karotten Sued","10","4","l","2","30","n","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","1","","Karotten Sued","10","4","l","2","30","","n","j","n"}});S.files={}
 ok,err=install(S,true,7)
 local fc=ok and load(S.files["/toast.config.lua"])().farm
 check("Name gespeichert",ok and load(S.files["/toast.config.lua"])().name=="Karotten Sued")
@@ -95,7 +95,7 @@ check("zurueck an Basis",S.p.x==0 and S.p.z==0)
 check("Name in Statusmeldung",S.last and S.last.label=="Karotten Sued",S.last and S.last.label)
 
 print("G Minenmasse aendern -> neuer Auftrag")
-S=Sim.new({config=MINECFG,input={"1","j","","50","3","3","2","r","j","n","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","j","","50","3","3","2","r","","j","n","j","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG
 S.files["/toast_mining_state"]='{x=0,y=0,z=0,dir=0,next=5,total=5,harvested=5,commandSerial=1,layout="strip2:4:2:2:1"}'
 ok,err=install(S,true,7)
@@ -120,5 +120,13 @@ print("J Repeater-Update fragt nicht erneut")
 S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files={["/toast.config.lua"]='return {role="repeater",controllerId=4,autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},display={monitor="auto",textScale=0.5,pageSize=0},network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256}}'}
 ok,err=install(S,false,9)
 check("bleibt Repeater",ok and load(S.files["/toast.config.lua"])().role=="repeater" and S.files["/toast/repeater.lua"],err)
+
+print("K Chunkloader beim Einrichten waehlen (9 Chunks)")
+S=Sim.new({config=MINECFG,input={"1","j","","","","","","","9","n","j","n"}});S.files={["/toast.config.lua"]=MINECFG}
+ok,err=install(S,true,7)
+local kc2=ok and load(S.files["/toast.config.lua"])().chunkload
+check("chunkload gespeichert",kc2 and kc2.enabled==true and kc2.chunks==9 and kc2.wakeOnWorldLoad==true,err)
+local shown=false;for _,l in ipairs(S.log)do if l:find("47185 Fuel/h",1,true) then shown=true end end
+check("Kosten angezeigt",shown)
 
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))

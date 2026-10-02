@@ -1,4 +1,35 @@
-# Toast Control 2.4 – Stabilität, Reset, sparsamer Fahrweg & eigene Maße
+# Toast Control 2.5 – Stabilität, Reset, sparsamer Fahrweg, eigene Maße & Chunkloader
+
+## Neu in 2.5: Chunks laden mit CCChunkloader
+
+Farm- und Mining-Turtles können mit dem Mod **CCChunkloader** ihren Chunk selbst
+geladen halten und arbeiten weiter, auch wenn kein Spieler in der Nähe ist.
+
+**Anbau:** Chunkloader-Upgrade + Werkzeug (Spitzhacke/Hacke) an die Turtle,
+das **Funk-/Endermodem ins Inventar**. Die Turtle tauscht Werkzeug und Modem
+selbst: zum Abbauen das Werkzeug, alle 10 s kurz das Modem zum Funken, beim
+Warten an der Basis dauerhaft das Modem. Werkzeug und Modem werden nie abgeladen.
+
+**Config** (`chunkload` in `/toast.config.lua`, oder beim Installieren abgefragt):
+
+| chunks | geladen | Fuel pro Stunde | Kohle pro Stunde |
+|---|---|---|---|
+| 1 | nur eigener Chunk (wandert mit) | ~2.400 | ~30 |
+| 9 | 3 × 3 | ~47.000 | ~590 |
+| 21 | Radius 2,5 | ~176.000 | ~2.200 |
+
+1 Chunk reicht: Er wandert mit der Turtle mit. Geladen wird nur, solange die
+Turtle arbeitet, unterwegs ist oder auf einen neuen Versuch wartet – an der
+Basis ist er aus (außer `idle = true`). `wakeOnWorldLoad = true`: nach einem
+Serverneustart läuft sie von selbst weiter.
+
+**Anzeige:** Zentrale und Pocket zeigen pro Turtle „Chunks 1 -2400/h“ und in der
+Übersicht den Gesamtverbrauch. Der Fuelbedarf (Rückweg, Tankziel) rechnet den
+Chunkloader mit ein.
+
+**Absturz mitten im Schritt:** Weil der Chunkloader nebenbei Fuel abzieht, prüft
+die Mining-Turtle zusätzlich den Block vor sich. Ist es nicht eindeutig, meldet
+sie lieber „Position unklar“ (dann `toast.lua --dock`) als falsch weiterzufahren.
 
 ## Neu in 2.4: Ganghöhe bis 64
 

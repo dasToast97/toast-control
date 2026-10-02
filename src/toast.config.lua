@@ -24,6 +24,15 @@ return {
         retryDelay = 30,              -- Sekunden Pause vor neuem Versuch
         moveRetries = 8,              -- Versuche, wenn Mob/Spieler den Weg blockiert
     },
+    -- Chunks laden mit dem Mod CCChunkloader (nur Turtles). Anbau: Chunkloader-Upgrade
+    -- + Werkzeug; das Funkmodem kommt ins Inventar, die Turtle tauscht es selbst.
+    chunkload = {
+        enabled = false,              -- true = Turtle arbeitet weiter, auch ohne Spieler in der Naehe
+        chunks = 1,                   -- 1 (~2.400 Fuel/h), 9 (~47.000 Fuel/h) oder 21 (~176.000 Fuel/h)
+        idle = false,                 -- true = auch an der Basis geladen halten (kostet dauerhaft Fuel)
+        wakeOnWorldLoad = true,       -- nach Serverneustart von selbst weitermachen
+        reportEvery = 10,             -- alle x Sekunden Modem kurz anlegen und Status funken
+    },
     -- Turtle steht an der Basis und schaut aufs Feld / in die Mine.
     -- length = Bloecke nach vorne, width/tunnels = zur Seite (side = right/left).
     farm = {

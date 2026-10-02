@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining und Repeater.
@@ -72,7 +72,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="2.4",
+    version="2.5",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -138,6 +138,7 @@ function M.load(c)
     assert(M.number(n.commandTimeout)>=1 and M.number(n.commandTimeout)<=15,"commandTimeout: 1 bis 15.")
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
+    if c.chunkload~=nil then M.chunkConfig(c.chunkload) end
     -- "name" ist der neue, gut sichtbare Eintrag; "label" bleibt fuer alte Configs gueltig.
     if c.name~=nil then
         assert(type(c.name)=="string","name: Text in Anfuehrungszeichen, z.B. name = \"Mine Nord\"")
@@ -148,7 +149,8 @@ function M.load(c)
 end
 function M.workerConfig(c)
     return {role="turtle",controllerId=c.controllerId,turtleIds={os.getComputerID()},pocketIds={},
-        labels={},farm=c.farm,mine=c.mine,display=c.display,network=c.network,recovery=M.recovery(c.recovery)}
+        labels={},farm=c.farm,mine=c.mine,display=c.display,network=c.network,recovery=M.recovery(c.recovery),
+        chunkload=c.chunkload}
 end
 function M.refreshModems()
     local modems={peripheral.find("modem",function(_,m)
@@ -193,6 +195,75 @@ function M.log(text)
             f.close()
         end
     end)
+end
+-- ===== CCChunkloader (Mod) =====
+-- Anzahl Chunks -> Radius des Mods (Chunks mit Abstand < Radius werden geladen).
+M.CHUNK_RADIUS={[1]=0.5,[9]=1.5,[21]=2.5}
+M.MODEM_ITEMS={["computercraft:wireless_modem_normal"]=true,["computercraft:wireless_modem_advanced"]=true}
+-- Gleiche Formel wie im Mod (Standardwerte): 0.0333 * 2^Abstand pro Chunk und Tick.
+function M.chunkCostPerTick(radius)
+    local total,s=0,math.ceil(radius)+1
+    for x=-s,s do for z=-s,s do
+        local d=math.sqrt(x*x+z*z)
+        if d<radius then total=total+0.0333333*2^d end
+    end end
+    return total
+end
+function M.chunkFuelPerHour(chunks)
+    local r=M.CHUNK_RADIUS[chunks];if not r then return 0 end
+    return math.floor(M.chunkCostPerTick(r)*72000+0.5)
+end
+function M.chunkConfig(c)
+    c=type(c)=="table" and c or {}
+    local r={enabled=c.enabled==true,chunks=c.chunks or 1,idle=c.idle==true,
+        wake=c.wakeOnWorldLoad~=false,report=c.reportEvery or 10}
+    assert(type(c.enabled)=="nil" or type(c.enabled)=="boolean","chunkload.enabled: true oder false.")
+    assert(M.CHUNK_RADIUS[r.chunks],"chunkload.chunks: 1, 9 oder 21.")
+    assert(M.integer(r.report,3,120),"chunkload.reportEvery: 3 bis 120 Sekunden.")
+    r.radius=M.CHUNK_RADIUS[r.chunks]
+    return r
+end
+-- Ausruestung mit Chunkloader: Seite A = Chunkloader (bleibt immer dran),
+-- Seite B wechselt zwischen Werkzeug (zum Abbauen) und Modem (zum Funken).
+-- Das jeweils andere Teil liegt im Inventar.
+function M.gear(cl,tools)
+    local side
+    for _,s in ipairs({"left","right"}) do if peripheral.getType(s)=="chunkloader" then side=s end end
+    if not side then return nil,"Chunkloader-Upgrade nicht angebaut (oder chunkload.enabled=false setzen)." end
+    local g={side=side,other=side=="left" and "right" or "left",radius=0,cost=0}
+    local dev=peripheral.wrap(side)
+    local equip=g.other=="left" and turtle.equipLeft or turtle.equipRight
+    local function find(set)
+        for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then return i end end
+    end
+    local function swapIn(set)
+        local slot=find(set);if not slot then return false end
+        local prev=turtle.getSelectedSlot and turtle.getSelectedSlot()
+        turtle.select(slot);local ok=equip()
+        if prev then turtle.select(prev) end
+        return ok
+    end
+    function g.hasModem() return peripheral.getType(g.other)=="modem" or find(M.MODEM_ITEMS)~=nil end
+    function g.radio()
+        if peripheral.getType(g.other)=="modem" then return true end
+        local ok=swapIn(M.MODEM_ITEMS);if ok then M.refreshModems() end
+        return ok
+    end
+    function g.tool()
+        if peripheral.getType(g.other)~="modem" and not find(tools) then return true end
+        return swapIn(tools)
+    end
+    function g.set(r)
+        if r==g.radius then return true end
+        local ok=pcall(dev.setRadius,r)
+        if ok then g.radius=r;local okr,v=pcall(dev.getFuelRate);g.cost=okr and tonumber(v) or M.chunkCostPerTick(r) end
+        return ok
+    end
+    function g.perSecond() return g.cost*20 end
+    local okr,r=pcall(dev.getRadius);if okr and tonumber(r) then g.radius=tonumber(r) end
+    local okc,v=pcall(dev.getFuelRate);g.cost=okc and tonumber(v) or 0
+    pcall(dev.setWakeOnWorldLoad,cl.wake)
+    return g
 end
 -- Fehler, bei denen ein automatischer neuer Versuch gefaehrlich waere.
 function M.retryable(fault)
@@ -471,8 +542,10 @@ function M.new(screen,cfg)
         local entries=fleet.entries or {};local ids={}
         local farms,mines,online,faults,totalFarm,totalMine,fuel,seeds,slots=0,0,0,0,0,0,0,0,0
         local unlimited=false
+        local chunkFuel=0
         for _,id in ipairs(fleet.ids or {})do
             local e=entries[id] or {};local d=e.data or {}
+            if (ui.filter=="all" or e.job==ui.filter) and link and e.online and num(d.chunks)>0 then chunkFuel=chunkFuel+num(d.chunkFuel) end
             if e.job=="farm" then farms=farms+1 elseif e.job=="mining" then mines=mines+1 end
             if ui.filter=="all" or e.job==ui.filter then
                 ids[#ids+1]=id
@@ -505,12 +578,13 @@ function M.new(screen,cfg)
         if selected then
             text(1,7,(selected.job=="farm" and "Ernte " or "Beute ")..short(data.total)..
                 (selected.job=="farm" and " | Saat "..short(data.seeds) or " | Slots "..short(data.freeSlots)))
-            text(1,8,"Fuel "..(data.fuel=="unlimited" and "unbegrenzt" or short(data.fuel)).." | "..(selected.job=="farm" and "Runden " or "Gaenge ")..short(data.rounds))
+            text(1,8,"Fuel "..(data.fuel=="unlimited" and "unbegrenzt" or short(data.fuel)).." | "..(selected.job=="farm" and "Runden " or "Gaenge ")..short(data.rounds)
+                ..(data.chunks and (" | Chunks "..(data.chunks>0 and (data.chunks.." -"..short(data.chunkFuel).."/h") or "aus")) or ""))
             local pc=math.floor(math.max(0,math.min(1,num(data.scanned)/math.max(1,num(data.cells))))*100)
             text(1,9,"Fortschritt "..pc.."% | "..(selected.job=="farm" and "Pflanzen " or "Bloecke ")..short(data.harvested),colors.lightGray)
         else
             text(1,7,"Ernte "..short(totalFarm).." | Beute "..short(totalMine))
-            text(1,8,"Fuel "..(unlimited and "teils unbegrenzt" or short(fuel)))
+            text(1,8,"Fuel "..(unlimited and "teils unbegrenzt" or short(fuel))..(chunkFuel>0 and (" | Chunks -"..short(chunkFuel).."/h") or ""))
             text(1,9,"Saat "..short(seeds).." | Freie Slots "..short(slots),colors.lightGray)
         end
         local available=math.max(1,h-16)
@@ -680,7 +754,19 @@ local crop = CROPS[CFG.crop]
 assert(CFG.side == nil or CFG.side == "right" or CFG.side == "left", "farm.side: right oder left.")
 local MIRROR = CFG.side == "left"
 CFG.water = CFG.water or {}
+-- CCChunkloader: Chunkloader bleibt angebaut, Werkzeug <-> Modem werden getauscht.
+local TC = dofile("/toast_common.lua")
+local CL = TC.chunkConfig(config.chunkload)
+local GEAR
+if CL.enabled then
+    local why
+    GEAR, why = TC.gear(CL, TOOLS)
+    assert(GEAR, why)
+    assert(GEAR.radio(), "Chunkloader: Funk-/Endermodem ins Turtle-Inventar legen.")
+end
+local drainPerSec = CL.enabled and TC.chunkCostPerTick(CL.radius) * 20 or 0
 local budget = CFG.width * CFG.length + CFG.width + CFG.length + 20
+    + math.ceil(drainPerSec * (CFG.width * CFG.length * 1.5 + CFG.interval + 90))
 
 local function readTable(path)
     if not fs.exists(path) then return nil end
@@ -708,7 +794,7 @@ local function save()
     if fs.exists(STATE_FILE) then fs.delete(STATE_FILE) end
     fs.move(STATE_FILE .. ".tmp", STATE_FILE)
 end
-local function clearPending() st.pending, st.after, st.pendingFuel = nil, nil, nil end
+local function clearPending() st.pending, st.after, st.pendingFuel, st.pendingDrain = nil, nil, nil, nil end
 -- Unterbrochene Bewegung ueber den Fuelstand aufloesen.
 local function resolvePending()
     if not st.pending then return true end
@@ -716,6 +802,8 @@ local function resolvePending()
     if st.pending ~= "turn" and type(fuel) == "number" and type(st.pendingFuel) == "number"
         and type(st.after) == "table" then
         if fuel == st.pendingFuel then clearPending(); save(); return true end
+        -- Chunkloader zieht nebenbei Fuel ab: dann ist "1 weniger" nicht eindeutig.
+        if st.pendingDrain then return false end
         if fuel == st.pendingFuel - 1 then
             st.x, st.z, st.dir = st.after.x, st.after.z, st.after.dir
             clearPending(); save(); return true
@@ -803,6 +891,7 @@ local function receiveSlot(name)
     for i = 1, 16 do if turtle.getItemCount(i) == 0 then return i end end
 end
 local function equipTool()
+    if GEAR then return GEAR.tool() end
     for i = 1, 16 do
         local it = turtle.getItemDetail(i)
         if it and TOOLS[it.name] then
@@ -833,6 +922,7 @@ local function action(kind, fn, update)
     st.after = { x = st.x, z = st.z, dir = st.dir }
     st.x, st.z, st.dir = x, z, dir
     st.pending, st.pendingFuel = kind, turtle.getFuelLevel()
+    st.pendingDrain = GEAR ~= nil and GEAR.radius > 0 or nil
     save()
     local ok, why = fn()
     if ok then update() end
@@ -865,6 +955,12 @@ local function forward()
     end
     return false, "Weg blockiert: " .. tostring(last)
 end
+-- Chunks nur laden, solange die Turtle unterwegs ist / arbeitet / auf neuen Versuch wartet.
+local function chunkTick()
+    if not GEAR then return end
+    local need = run.mode ~= "off" or not isHome() or (run.fault ~= nil and run.retryAt ~= nil) or CL.idle
+    GEAR.set(need and CL.radius or 0)
+end
 local function goTo(x, z, interruptible)
     while st.x ~= x or st.z ~= z do
         if interruptible and not active() then return false, "stopped" end
@@ -874,6 +970,7 @@ local function goTo(x, z, interruptible)
         local ok, why = face(dir)
         if not ok then return false, why end
         if interruptible and not active() then return false, "stopped" end
+        chunkTick()
         ok, why = forward()
         if not ok then return false, why end
     end
@@ -896,7 +993,7 @@ local function unload()
     local keep = CFG.seedReserve
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
-        if item and not FUEL[item.name] and not TOOLS[item.name] then
+        if item and not FUEL[item.name] and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
             local amount = item.count
             if item.name == crop.seed then
                 local retained = math.min(keep, amount)
@@ -984,6 +1081,7 @@ local function prepare()
         if ok then ok, title, detail = refillSeeds() end
         if ok then return true end
         status(title, detail)
+        if GEAR then GEAR.radio() end
         for _ = 1, 10 do if not active() then return false, "stopped" end; sleep(0.2) end
     end
     return false, "stopped"
@@ -1027,6 +1125,15 @@ local function visit(x, z)
     if not planted then run.skipped = (run.skipped or 0) + 1 end
     return true
 end
+local sendStatus
+local lastRadio = os.clock()
+-- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
+-- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
+local function radioWindow()
+    if not GEAR or os.clock() - lastRadio < CL.report then return end
+    if GEAR.radio() then sendStatus(); sleep(1.5) end
+    lastRadio = os.clock()
+end
 local function scan()
     run.scanned, run.roundYield, run.roundPlants, run.waitUntil, run.skipped = 0, 0, 0, 0, 0
     if not prepare() then return false end
@@ -1037,8 +1144,10 @@ local function scan()
         if row % 2 == 0 then x = CFG.width - 1 - x end
         local done = false
         while not done and active() do
+            radioWindow()
             local fuel = turtle.getFuelLevel()
-            local need = math.abs(st.x - x) + math.abs(st.z - row) + x + row + 8
+            local dist = math.abs(st.x - x) + math.abs(st.z - row) + x + row
+            local need = dist * (1 + drainPerSec * 0.6) + 8 + math.ceil(drainPerSec * 90)
             if fuel ~= "unlimited" and fuel < need then
                 if not prepare() then return false end
             end
@@ -1070,6 +1179,7 @@ local function scan()
         local ok2, title, detail = unload()
         if ok2 then return true end
         status(title, detail)
+        if GEAR then GEAR.radio() end
         for _ = 1, 10 do if not active() then return false end; sleep(0.2) end
     end
     return false
@@ -1100,6 +1210,8 @@ local function idle()
     else
         status("Bereit", "START: Dauerbetrieb | 1 RUNDE: einmal ernten.")
     end
+    if GEAR then GEAR.radio() end
+    chunkTick()
 end
 local function worker()
     while true do
@@ -1110,7 +1222,9 @@ local function worker()
             if complete and run.mode == "once" then finish() end
             if complete and active() then
                 run.waitUntil = os.clock() + CFG.interval
+                if GEAR then GEAR.radio() end
                 while active() and run.waitUntil > os.clock() do
+                    chunkTick()
                     status("Warten", "Naechster Feldscan startet automatisch."
                         .. ((run.skipped or 0) > 0 and (" " .. run.skipped .. " Felder ohne Acker.") or ""))
                     sleep(0.2)
@@ -1130,13 +1244,15 @@ local function snapshot()
         fault = run.fault, retries = run.retries,
         contactAge = math.max(0, math.floor(os.clock() - run.lastContact)),
         fuel = turtle.getFuelLevel(), budget = budget, seeds = count(crop.seed),
+        chunks = GEAR and (GEAR.radius > 0 and CL.chunks or 0) or nil,
+        chunkFuel = GEAR and math.floor(GEAR.perSecond() * 3600 + 0.5) or nil,
         freeSlots = freeSlots(), x = st.x, z = st.z, total = st.total or 0,
         harvested = st.harvested or 0, rounds = st.rounds or 0,
         roundYield = run.roundYield, roundPlants = run.roundPlants,
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())) }
 end
-local function sendStatus() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
+sendStatus = function() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
 local function reset()
     run.mode, run.fault, run.lastMode, run.retries, run.retryAt, run.waitUntil = "off", nil, nil, 0, nil, 0
     st.lastMode = nil
@@ -1179,10 +1295,11 @@ end
 local function heartbeat()
     while true do common.refreshModems(); sendStatus(); sleep(2) end
 end
-pcall(equipTool)
+if not GEAR then pcall(equipTool) end
 term.clear(); term.setCursorPos(1, 1)
 print("TOAST FARM 2.1 - Turtle #" .. os.getComputerID())
 print("Zentrale #" .. st.controller .. " | " .. crop.label)
+if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
 print("Q: Stopp + Heimfahrt. Ctrl+T: Programmabbruch.")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
 local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat) end)
@@ -1277,6 +1394,16 @@ FILES["mine_turtle.lua"]=[======[
 -- Neu: Positions-Wiederherstellung nach Absturz, RESET, Auto-Retry, Mob-Blockaden.
 local common=dofile("/mine_common.lua")
 local cfg=common.load();assert(cfg.role=="turtle","Mining Turtle erforderlich.")
+-- CCChunkloader: Chunkloader bleibt angebaut, Spitzhacke <-> Modem werden getauscht.
+local TC=dofile("/toast_common.lua")
+local CL=TC.chunkConfig(cfg.chunkload)
+local GEAR
+if CL.enabled then
+    local why
+    GEAR,why=TC.gear(CL,{['minecraft:diamond_pickaxe']=true,['minecraft:netherite_pickaxe']=true})
+    assert(GEAR,why)
+    assert(GEAR.radio(),"Chunkloader: Funk-/Endermodem ins Turtle-Inventar legen.")
+end
 common.modem()
 local R=cfg.recovery or {autoRetry=3,retryDelay=30,moveRetries=8}
 local C,FILE,args=cfg.mine,"/toast_mining_state",{...}
@@ -1331,7 +1458,7 @@ local function save()
     local f=assert(fs.open(FILE..".tmp","w"));f.write(textutils.serialize(st));f.close()
     if fs.exists(FILE) then fs.delete(FILE) end;fs.move(FILE..".tmp",FILE)
 end
-local function clearPending() st.pending,st.after,st.pendingFuel=nil,nil,nil end
+local function clearPending() st.pending,st.after,st.pendingFuel,st.pendingDrain=nil,nil,nil,nil end
 -- Unterbrochene Bewegung ueber den Fuelstand aufloesen:
 -- Fuel unveraendert = Schritt nicht ausgefuehrt, Fuel -1 = Schritt ausgefuehrt.
 local function resolvePending()
@@ -1339,6 +1466,22 @@ local function resolvePending()
     local fuel=turtle.getFuelLevel()
     if st.pending~="turn" and type(fuel)=="number" and type(st.pendingFuel)=="number" and type(st.after)=="table" then
         if fuel==st.pendingFuel then clearPending();save();return true end
+        -- Chunkloader zieht nebenbei Fuel ab: dann ist "1 weniger" nicht eindeutig.
+        -- Pruefen: Vor dem Schritt war das Zielfeld frei geraeumt. Steht jetzt in
+        -- Fahrtrichtung massiver Block, steht die Turtle sicher schon auf dem Zielfeld.
+        if st.pendingDrain then
+            if fuel<st.pendingFuel then
+                local probe=({forward=turtle.inspect,up=turtle.inspectUp,down=turtle.inspectDown})[st.pending]
+                local okp,b=false,nil
+                if probe then okp,b=probe() end
+                local solid=okp and type(b)=="table" and type(b.name)=="string"
+                    and not b.name:find("water",1,true) and not b.name:find("lava",1,true)
+                if solid then
+                    local a=st.after;st.x,st.y,st.z,st.dir=a.x,a.y,a.z,a.dir;clearPending();save();return true
+                end
+            end
+            return false
+        end
         if fuel==st.pendingFuel-1 then
             local a=st.after;st.x,st.y,st.z,st.dir=a.x,a.y,a.z,a.dir;clearPending();save();return true
         end
@@ -1404,7 +1547,8 @@ local function action(kind,fn,update)
     local x,y,z,dir=st.x,st.y,st.z,st.dir
     update();st.after={x=st.x,y=st.y,z=st.z,dir=st.dir}
     st.x,st.y,st.z,st.dir=x,y,z,dir
-    st.pending,st.pendingFuel=kind,turtle.getFuelLevel();save()
+    st.pending,st.pendingFuel=kind,turtle.getFuelLevel()
+    st.pendingDrain=GEAR~=nil and GEAR.radius>0 or nil;save()
     local ok,why=fn();if ok then update() end
     clearPending();save();return ok,why
 end
@@ -1422,6 +1566,7 @@ end
 -- (auf der Seite OHNE Modem).
 local TOOLS={['minecraft:diamond_pickaxe']=true,['minecraft:netherite_pickaxe']=true}
 local function equipTool()
+    if GEAR then return GEAR.tool() end
     for i=1,16 do
         local it=turtle.getItemDetail(i)
         if it and TOOLS[it.name] then
@@ -1473,10 +1618,21 @@ local function homeDistance()
     if st.z==0 then return 0 end
     return math.abs(st.y-WALK)+math.max(0,st.z-1)+st.x+math.abs(WALK)+1
 end
+-- Chunks nur laden, solange die Turtle unterwegs ist / arbeitet / auf neuen Versuch wartet.
+local function chunkTick()
+    if not GEAR then return end
+    local need=run.mode~="off" or not homePosition() or (run.fault~=nil and run.retryAt~=nil) or CL.idle
+    GEAR.set(need and CL.radius or 0)
+end
+local function reserve()
+    local drain=GEAR and GEAR.perSecond() or 0
+    return homeDistance()*(1+drain*0.6)+12+math.ceil(drain*90)
+end
 local function move(kind,interruptible)
+    chunkTick()
     if interruptible and not active() then return false,"stopped" end
     local fuel=turtle.getFuelLevel()
-    if interruptible and (freeSlots()<C.freeSlots or (fuel~="unlimited" and fuel<homeDistance()+12)) then return false,"resupply" end
+    if interruptible and (freeSlots()<C.freeSlots or (fuel~="unlimited" and fuel<reserve())) then return false,"resupply" end
     local inspect,dig,fn,update,attack
     if kind=="up" then inspect,dig,fn,attack=turtle.inspectUp,turtle.digUp,turtle.up,turtle.attackUp;update=function()st.y=st.y-1 end
     elseif kind=="down" then inspect,dig,fn,attack=turtle.inspectDown,turtle.digDown,turtle.down,turtle.attackDown;update=function()st.y=st.y+1 end
@@ -1547,7 +1703,7 @@ local function unload()
     if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
     for i=1,16 do
         local item=turtle.getItemDetail(i)
-        if item and not TOOLS[item.name] then
+        if item and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
             if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
             turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
             local delivered=before-turtle.getItemCount(i)
@@ -1595,6 +1751,7 @@ local function supplies()
         if ok then return true end
         if why=="stopped" then return false,why end
         status(why,"Problem an Basis beheben. STOP bricht Warten ab.")
+        if GEAR then GEAR.radio() end
         sleep(1)
     end
     return false,"stopped"
@@ -1625,16 +1782,29 @@ local function idle()
         end
     elseif st.next>cells then status("Fertig","Neuer Auftrag: toast.lua --new")
     else status("Bereit","START setzt fort | 1 GANG: aktuellen Gang") end
+    if GEAR then GEAR.radio() end
+    chunkTick()
+end
+local sendStatus
+local lastRadio=os.clock()
+-- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
+-- Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
+local function radioWindow()
+    if not GEAR or os.clock()-lastRadio<CL.report then return end
+    if GEAR.radio() then sendStatus();sleep(1.5) end
+    lastRadio=os.clock()
 end
 local function work()
     while true do
+        chunkTick()
         if not run.recovery then
             if active() then
+                radioWindow()
                 if st.next>cells then finish();status("Fertig","Neuer Auftrag: toast.lua --new")
                 else
                     local ok,why=true
                     local fuel=turtle.getFuelLevel()
-                    if homePosition() or freeSlots()<C.freeSlots or (fuel~="unlimited" and fuel<homeDistance()+12) then
+                    if homePosition() or freeSlots()<C.freeSlots or (fuel~="unlimited" and fuel<reserve()) then
                         ok,why=supplies()
                     end
                     if ok and active() then
@@ -1667,10 +1837,11 @@ local function snapshot()
         mode=run.mode,recovery=run.recovery,ack=st.commandSerial or 0,fault=run.fault,retries=run.retries,
         contactAge=math.max(0,math.floor(os.clock()-run.lastContact)),radioTimeout=C.radioTimeout,pollToken=run.pollToken,
         width=width,length=C.length,height=C.height,tunnels=C.tunnels,gap=C.gap,fuel=turtle.getFuelLevel(),freeSlots=freeSlots(),
+        chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
         x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
-local function sendStatus()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end
+sendStatus=function()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end
 local function reset()
     run.mode,run.fault,run.lastMode,run.retries,run.retryAt="off",nil,nil,0,nil
     st.lastMode=nil
@@ -1705,11 +1876,12 @@ local function listener()
     end
 end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
-pcall(equipTool)
+if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
 print("TOAST MINING 2.4 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
 print("Zentrale #"..cfg.controllerId)
+if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
 print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
 local ok,why=pcall(function()parallel.waitForAll(work,listener,heartbeat)end)
@@ -1898,6 +2070,15 @@ return {
         retryDelay = 30,              -- Sekunden Pause vor neuem Versuch
         moveRetries = 8,              -- Versuche, wenn Mob/Spieler den Weg blockiert
     },
+    -- Chunks laden mit dem Mod CCChunkloader (nur Turtles). Anbau: Chunkloader-Upgrade
+    -- + Werkzeug; das Funkmodem kommt ins Inventar, die Turtle tauscht es selbst.
+    chunkload = {
+        enabled = false,              -- true = Turtle arbeitet weiter, auch ohne Spieler in der Naehe
+        chunks = 1,                   -- 1 (~2.400 Fuel/h), 9 (~47.000 Fuel/h) oder 21 (~176.000 Fuel/h)
+        idle = false,                 -- true = auch an der Basis geladen halten (kostet dauerhaft Fuel)
+        wakeOnWorldLoad = true,       -- nach Serverneustart von selbst weitermachen
+        reportEvery = 10,             -- alle x Sekunden Modem kurz anlegen und Status funken
+    },
     -- Turtle steht an der Basis und schaut aufs Feld / in die Mine.
     -- length = Bloecke nach vorne, width/tunnels = zur Seite (side = right/left).
     farm = {
@@ -1917,7 +2098,7 @@ return {
     },
 }
 ]======]
--- TOAST CONTROL 2.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Auswahl Update / Komplett neu
 --        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
 --        wget run <link> farm|mining|repeater
@@ -2148,6 +2329,30 @@ if setup then
         print("Mine: "..m.tunnels.." Gaenge x "..m.length.." lang x "..m.height.." hoch")
         print("Gesamtbreite "..w.." Bloecke nach "..(m.side=="left" and "links" or "rechts"))
         layoutChanged=before~=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
+    end
+    -- Chunkloader (Mod CCChunkloader)
+    local cl=type(c.chunkload)=="table" and c.chunkload or {};c.chunkload=cl
+    print("")
+    print("Chunks laden (Mod CCChunkloader)?")
+    print("0 = aus")
+    for _,n in ipairs({1,9,21}) do
+        local f=common.chunkFuelPerHour(n)
+        print(n.." = "..n.." Chunk"..(n>1 and "s" or "").."  ~"..f.." Fuel/h (~"..math.ceil(f/80).." Kohle/h)")
+    end
+    local cur=cl.enabled and (cl.chunks or 1) or 0
+    while true do
+        write("Auswahl ["..cur.."]: ")
+        local v=read();local n=v=="" and cur or tonumber(v)
+        if n==0 then cl.enabled=false;break end
+        if common.CHUNK_RADIUS[n] then cl.enabled=true;cl.chunks=n;break end
+        print("Bitte 0, 1, 9 oder 21.")
+    end
+    if cl.enabled then
+        if cl.wakeOnWorldLoad==nil then cl.wakeOnWorldLoad=true end
+        cl.reportEvery=cl.reportEvery or 10;cl.idle=cl.idle==true
+        print("Anbau: Chunkloader-Upgrade + "..(job=="farm" and "Werkzeug" or "Spitzhacke")..",")
+        print("Funkmodem ins Turtle-Inventar legen.")
+        print("Tipp: 1 Chunk reicht, er wandert mit.")
     end
     configChanged=true
 end

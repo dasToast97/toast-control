@@ -36,7 +36,19 @@ local crop = CROPS[CFG.crop]
 assert(CFG.side == nil or CFG.side == "right" or CFG.side == "left", "farm.side: right oder left.")
 local MIRROR = CFG.side == "left"
 CFG.water = CFG.water or {}
+-- CCChunkloader: Chunkloader bleibt angebaut, Werkzeug <-> Modem werden getauscht.
+local TC = dofile("/toast_common.lua")
+local CL = TC.chunkConfig(config.chunkload)
+local GEAR
+if CL.enabled then
+    local why
+    GEAR, why = TC.gear(CL, TOOLS)
+    assert(GEAR, why)
+    assert(GEAR.radio(), "Chunkloader: Funk-/Endermodem ins Turtle-Inventar legen.")
+end
+local drainPerSec = CL.enabled and TC.chunkCostPerTick(CL.radius) * 20 or 0
 local budget = CFG.width * CFG.length + CFG.width + CFG.length + 20
+    + math.ceil(drainPerSec * (CFG.width * CFG.length * 1.5 + CFG.interval + 90))
 
 local function readTable(path)
     if not fs.exists(path) then return nil end
@@ -64,7 +76,7 @@ local function save()
     if fs.exists(STATE_FILE) then fs.delete(STATE_FILE) end
     fs.move(STATE_FILE .. ".tmp", STATE_FILE)
 end
-local function clearPending() st.pending, st.after, st.pendingFuel = nil, nil, nil end
+local function clearPending() st.pending, st.after, st.pendingFuel, st.pendingDrain = nil, nil, nil, nil end
 -- Unterbrochene Bewegung ueber den Fuelstand aufloesen.
 local function resolvePending()
     if not st.pending then return true end
@@ -72,6 +84,8 @@ local function resolvePending()
     if st.pending ~= "turn" and type(fuel) == "number" and type(st.pendingFuel) == "number"
         and type(st.after) == "table" then
         if fuel == st.pendingFuel then clearPending(); save(); return true end
+        -- Chunkloader zieht nebenbei Fuel ab: dann ist "1 weniger" nicht eindeutig.
+        if st.pendingDrain then return false end
         if fuel == st.pendingFuel - 1 then
             st.x, st.z, st.dir = st.after.x, st.after.z, st.after.dir
             clearPending(); save(); return true
@@ -159,6 +173,7 @@ local function receiveSlot(name)
     for i = 1, 16 do if turtle.getItemCount(i) == 0 then return i end end
 end
 local function equipTool()
+    if GEAR then return GEAR.tool() end
     for i = 1, 16 do
         local it = turtle.getItemDetail(i)
         if it and TOOLS[it.name] then
@@ -189,6 +204,7 @@ local function action(kind, fn, update)
     st.after = { x = st.x, z = st.z, dir = st.dir }
     st.x, st.z, st.dir = x, z, dir
     st.pending, st.pendingFuel = kind, turtle.getFuelLevel()
+    st.pendingDrain = GEAR ~= nil and GEAR.radius > 0 or nil
     save()
     local ok, why = fn()
     if ok then update() end
@@ -221,6 +237,12 @@ local function forward()
     end
     return false, "Weg blockiert: " .. tostring(last)
 end
+-- Chunks nur laden, solange die Turtle unterwegs ist / arbeitet / auf neuen Versuch wartet.
+local function chunkTick()
+    if not GEAR then return end
+    local need = run.mode ~= "off" or not isHome() or (run.fault ~= nil and run.retryAt ~= nil) or CL.idle
+    GEAR.set(need and CL.radius or 0)
+end
 local function goTo(x, z, interruptible)
     while st.x ~= x or st.z ~= z do
         if interruptible and not active() then return false, "stopped" end
@@ -230,6 +252,7 @@ local function goTo(x, z, interruptible)
         local ok, why = face(dir)
         if not ok then return false, why end
         if interruptible and not active() then return false, "stopped" end
+        chunkTick()
         ok, why = forward()
         if not ok then return false, why end
     end
@@ -252,7 +275,7 @@ local function unload()
     local keep = CFG.seedReserve
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
-        if item and not FUEL[item.name] and not TOOLS[item.name] then
+        if item and not FUEL[item.name] and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
             local amount = item.count
             if item.name == crop.seed then
                 local retained = math.min(keep, amount)
@@ -340,6 +363,7 @@ local function prepare()
         if ok then ok, title, detail = refillSeeds() end
         if ok then return true end
         status(title, detail)
+        if GEAR then GEAR.radio() end
         for _ = 1, 10 do if not active() then return false, "stopped" end; sleep(0.2) end
     end
     return false, "stopped"
@@ -383,6 +407,15 @@ local function visit(x, z)
     if not planted then run.skipped = (run.skipped or 0) + 1 end
     return true
 end
+local sendStatus
+local lastRadio = os.clock()
+-- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
+-- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
+local function radioWindow()
+    if not GEAR or os.clock() - lastRadio < CL.report then return end
+    if GEAR.radio() then sendStatus(); sleep(1.5) end
+    lastRadio = os.clock()
+end
 local function scan()
     run.scanned, run.roundYield, run.roundPlants, run.waitUntil, run.skipped = 0, 0, 0, 0, 0
     if not prepare() then return false end
@@ -393,8 +426,10 @@ local function scan()
         if row % 2 == 0 then x = CFG.width - 1 - x end
         local done = false
         while not done and active() do
+            radioWindow()
             local fuel = turtle.getFuelLevel()
-            local need = math.abs(st.x - x) + math.abs(st.z - row) + x + row + 8
+            local dist = math.abs(st.x - x) + math.abs(st.z - row) + x + row
+            local need = dist * (1 + drainPerSec * 0.6) + 8 + math.ceil(drainPerSec * 90)
             if fuel ~= "unlimited" and fuel < need then
                 if not prepare() then return false end
             end
@@ -426,6 +461,7 @@ local function scan()
         local ok2, title, detail = unload()
         if ok2 then return true end
         status(title, detail)
+        if GEAR then GEAR.radio() end
         for _ = 1, 10 do if not active() then return false end; sleep(0.2) end
     end
     return false
@@ -456,6 +492,8 @@ local function idle()
     else
         status("Bereit", "START: Dauerbetrieb | 1 RUNDE: einmal ernten.")
     end
+    if GEAR then GEAR.radio() end
+    chunkTick()
 end
 local function worker()
     while true do
@@ -466,7 +504,9 @@ local function worker()
             if complete and run.mode == "once" then finish() end
             if complete and active() then
                 run.waitUntil = os.clock() + CFG.interval
+                if GEAR then GEAR.radio() end
                 while active() and run.waitUntil > os.clock() do
+                    chunkTick()
                     status("Warten", "Naechster Feldscan startet automatisch."
                         .. ((run.skipped or 0) > 0 and (" " .. run.skipped .. " Felder ohne Acker.") or ""))
                     sleep(0.2)
@@ -486,13 +526,15 @@ local function snapshot()
         fault = run.fault, retries = run.retries,
         contactAge = math.max(0, math.floor(os.clock() - run.lastContact)),
         fuel = turtle.getFuelLevel(), budget = budget, seeds = count(crop.seed),
+        chunks = GEAR and (GEAR.radius > 0 and CL.chunks or 0) or nil,
+        chunkFuel = GEAR and math.floor(GEAR.perSecond() * 3600 + 0.5) or nil,
         freeSlots = freeSlots(), x = st.x, z = st.z, total = st.total or 0,
         harvested = st.harvested or 0, rounds = st.rounds or 0,
         roundYield = run.roundYield, roundPlants = run.roundPlants,
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())) }
 end
-local function sendStatus() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
+sendStatus = function() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
 local function reset()
     run.mode, run.fault, run.lastMode, run.retries, run.retryAt, run.waitUntil = "off", nil, nil, 0, nil, 0
     st.lastMode = nil
@@ -535,10 +577,11 @@ end
 local function heartbeat()
     while true do common.refreshModems(); sendStatus(); sleep(2) end
 end
-pcall(equipTool)
+if not GEAR then pcall(equipTool) end
 term.clear(); term.setCursorPos(1, 1)
 print("TOAST FARM 2.1 - Turtle #" .. os.getComputerID())
 print("Zentrale #" .. st.controller .. " | " .. crop.label)
+if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
 print("Q: Stopp + Heimfahrt. Ctrl+T: Programmabbruch.")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
 local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat) end)

@@ -1,5 +1,5 @@
 local M={
-    version="2.4",
+    version="2.5",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -65,6 +65,7 @@ function M.load(c)
     assert(M.number(n.commandTimeout)>=1 and M.number(n.commandTimeout)<=15,"commandTimeout: 1 bis 15.")
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
+    if c.chunkload~=nil then M.chunkConfig(c.chunkload) end
     -- "name" ist der neue, gut sichtbare Eintrag; "label" bleibt fuer alte Configs gueltig.
     if c.name~=nil then
         assert(type(c.name)=="string","name: Text in Anfuehrungszeichen, z.B. name = \"Mine Nord\"")
@@ -75,7 +76,8 @@ function M.load(c)
 end
 function M.workerConfig(c)
     return {role="turtle",controllerId=c.controllerId,turtleIds={os.getComputerID()},pocketIds={},
-        labels={},farm=c.farm,mine=c.mine,display=c.display,network=c.network,recovery=M.recovery(c.recovery)}
+        labels={},farm=c.farm,mine=c.mine,display=c.display,network=c.network,recovery=M.recovery(c.recovery),
+        chunkload=c.chunkload}
 end
 function M.refreshModems()
     local modems={peripheral.find("modem",function(_,m)
@@ -120,6 +122,75 @@ function M.log(text)
             f.close()
         end
     end)
+end
+-- ===== CCChunkloader (Mod) =====
+-- Anzahl Chunks -> Radius des Mods (Chunks mit Abstand < Radius werden geladen).
+M.CHUNK_RADIUS={[1]=0.5,[9]=1.5,[21]=2.5}
+M.MODEM_ITEMS={["computercraft:wireless_modem_normal"]=true,["computercraft:wireless_modem_advanced"]=true}
+-- Gleiche Formel wie im Mod (Standardwerte): 0.0333 * 2^Abstand pro Chunk und Tick.
+function M.chunkCostPerTick(radius)
+    local total,s=0,math.ceil(radius)+1
+    for x=-s,s do for z=-s,s do
+        local d=math.sqrt(x*x+z*z)
+        if d<radius then total=total+0.0333333*2^d end
+    end end
+    return total
+end
+function M.chunkFuelPerHour(chunks)
+    local r=M.CHUNK_RADIUS[chunks];if not r then return 0 end
+    return math.floor(M.chunkCostPerTick(r)*72000+0.5)
+end
+function M.chunkConfig(c)
+    c=type(c)=="table" and c or {}
+    local r={enabled=c.enabled==true,chunks=c.chunks or 1,idle=c.idle==true,
+        wake=c.wakeOnWorldLoad~=false,report=c.reportEvery or 10}
+    assert(type(c.enabled)=="nil" or type(c.enabled)=="boolean","chunkload.enabled: true oder false.")
+    assert(M.CHUNK_RADIUS[r.chunks],"chunkload.chunks: 1, 9 oder 21.")
+    assert(M.integer(r.report,3,120),"chunkload.reportEvery: 3 bis 120 Sekunden.")
+    r.radius=M.CHUNK_RADIUS[r.chunks]
+    return r
+end
+-- Ausruestung mit Chunkloader: Seite A = Chunkloader (bleibt immer dran),
+-- Seite B wechselt zwischen Werkzeug (zum Abbauen) und Modem (zum Funken).
+-- Das jeweils andere Teil liegt im Inventar.
+function M.gear(cl,tools)
+    local side
+    for _,s in ipairs({"left","right"}) do if peripheral.getType(s)=="chunkloader" then side=s end end
+    if not side then return nil,"Chunkloader-Upgrade nicht angebaut (oder chunkload.enabled=false setzen)." end
+    local g={side=side,other=side=="left" and "right" or "left",radius=0,cost=0}
+    local dev=peripheral.wrap(side)
+    local equip=g.other=="left" and turtle.equipLeft or turtle.equipRight
+    local function find(set)
+        for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then return i end end
+    end
+    local function swapIn(set)
+        local slot=find(set);if not slot then return false end
+        local prev=turtle.getSelectedSlot and turtle.getSelectedSlot()
+        turtle.select(slot);local ok=equip()
+        if prev then turtle.select(prev) end
+        return ok
+    end
+    function g.hasModem() return peripheral.getType(g.other)=="modem" or find(M.MODEM_ITEMS)~=nil end
+    function g.radio()
+        if peripheral.getType(g.other)=="modem" then return true end
+        local ok=swapIn(M.MODEM_ITEMS);if ok then M.refreshModems() end
+        return ok
+    end
+    function g.tool()
+        if peripheral.getType(g.other)~="modem" and not find(tools) then return true end
+        return swapIn(tools)
+    end
+    function g.set(r)
+        if r==g.radius then return true end
+        local ok=pcall(dev.setRadius,r)
+        if ok then g.radius=r;local okr,v=pcall(dev.getFuelRate);g.cost=okr and tonumber(v) or M.chunkCostPerTick(r) end
+        return ok
+    end
+    function g.perSecond() return g.cost*20 end
+    local okr,r=pcall(dev.getRadius);if okr and tonumber(r) then g.radius=tonumber(r) end
+    local okc,v=pcall(dev.getFuelRate);g.cost=okc and tonumber(v) or 0
+    pcall(dev.setWakeOnWorldLoad,cl.wake)
+    return g
 end
 -- Fehler, bei denen ein automatischer neuer Versuch gefaehrlich waere.
 function M.retryable(fault)

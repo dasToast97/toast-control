@@ -30,8 +30,10 @@ function M.new(screen,cfg)
         local entries=fleet.entries or {};local ids={}
         local farms,mines,online,faults,totalFarm,totalMine,fuel,seeds,slots=0,0,0,0,0,0,0,0,0
         local unlimited=false
+        local chunkFuel=0
         for _,id in ipairs(fleet.ids or {})do
             local e=entries[id] or {};local d=e.data or {}
+            if (ui.filter=="all" or e.job==ui.filter) and link and e.online and num(d.chunks)>0 then chunkFuel=chunkFuel+num(d.chunkFuel) end
             if e.job=="farm" then farms=farms+1 elseif e.job=="mining" then mines=mines+1 end
             if ui.filter=="all" or e.job==ui.filter then
                 ids[#ids+1]=id
@@ -64,12 +66,13 @@ function M.new(screen,cfg)
         if selected then
             text(1,7,(selected.job=="farm" and "Ernte " or "Beute ")..short(data.total)..
                 (selected.job=="farm" and " | Saat "..short(data.seeds) or " | Slots "..short(data.freeSlots)))
-            text(1,8,"Fuel "..(data.fuel=="unlimited" and "unbegrenzt" or short(data.fuel)).." | "..(selected.job=="farm" and "Runden " or "Gaenge ")..short(data.rounds))
+            text(1,8,"Fuel "..(data.fuel=="unlimited" and "unbegrenzt" or short(data.fuel)).." | "..(selected.job=="farm" and "Runden " or "Gaenge ")..short(data.rounds)
+                ..(data.chunks and (" | Chunks "..(data.chunks>0 and (data.chunks.." -"..short(data.chunkFuel).."/h") or "aus")) or ""))
             local pc=math.floor(math.max(0,math.min(1,num(data.scanned)/math.max(1,num(data.cells))))*100)
             text(1,9,"Fortschritt "..pc.."% | "..(selected.job=="farm" and "Pflanzen " or "Bloecke ")..short(data.harvested),colors.lightGray)
         else
             text(1,7,"Ernte "..short(totalFarm).." | Beute "..short(totalMine))
-            text(1,8,"Fuel "..(unlimited and "teils unbegrenzt" or short(fuel)))
+            text(1,8,"Fuel "..(unlimited and "teils unbegrenzt" or short(fuel))..(chunkFuel>0 and (" | Chunks -"..short(chunkFuel).."/h") or ""))
             text(1,9,"Saat "..short(seeds).." | Freie Slots "..short(slots),colors.lightGray)
         end
         local available=math.max(1,h-16)

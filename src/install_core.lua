@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Auswahl Update / Komplett neu
 --        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
 --        wget run <link> farm|mining|repeater
@@ -229,6 +229,30 @@ if setup then
         print("Mine: "..m.tunnels.." Gaenge x "..m.length.." lang x "..m.height.." hoch")
         print("Gesamtbreite "..w.." Bloecke nach "..(m.side=="left" and "links" or "rechts"))
         layoutChanged=before~=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
+    end
+    -- Chunkloader (Mod CCChunkloader)
+    local cl=type(c.chunkload)=="table" and c.chunkload or {};c.chunkload=cl
+    print("")
+    print("Chunks laden (Mod CCChunkloader)?")
+    print("0 = aus")
+    for _,n in ipairs({1,9,21}) do
+        local f=common.chunkFuelPerHour(n)
+        print(n.." = "..n.." Chunk"..(n>1 and "s" or "").."  ~"..f.." Fuel/h (~"..math.ceil(f/80).." Kohle/h)")
+    end
+    local cur=cl.enabled and (cl.chunks or 1) or 0
+    while true do
+        write("Auswahl ["..cur.."]: ")
+        local v=read();local n=v=="" and cur or tonumber(v)
+        if n==0 then cl.enabled=false;break end
+        if common.CHUNK_RADIUS[n] then cl.enabled=true;cl.chunks=n;break end
+        print("Bitte 0, 1, 9 oder 21.")
+    end
+    if cl.enabled then
+        if cl.wakeOnWorldLoad==nil then cl.wakeOnWorldLoad=true end
+        cl.reportEvery=cl.reportEvery or 10;cl.idle=cl.idle==true
+        print("Anbau: Chunkloader-Upgrade + "..(job=="farm" and "Werkzeug" or "Spitzhacke")..",")
+        print("Funkmodem ins Turtle-Inventar legen.")
+        print("Tipp: 1 Chunk reicht, er wandert mit.")
     end
     configChanged=true
 end

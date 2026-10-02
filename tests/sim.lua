@@ -5,7 +5,27 @@ local Sim={}
 function Sim.new(opts)
     local S={T=0,timers={},nextTimer=1,queue={},files={},world={},inv={},sel=1,log={},sent={},
         p={x=0,y=0,z=0,dir=0},tool=opts.tool~=false,fuel=opts.fuel or 5000,mobs=0,crashAtMove=nil,moves=0,chestBelow=0,coal=opts.coal or 640,
-        input=opts.input or {},polling=true,actions=opts.actions or {}}
+        input=opts.input or {},polling=true,actions=opts.actions or {},deferred={},chestNames={}}
+    -- Ausruestung: zwei Seiten wie in CC:Tweaked
+    S.equip=opts.gear or {left=(opts.tool~=false) and "minecraft:diamond_pickaxe" or nil,right="computercraft:wireless_modem_advanced"}
+    local function isTool(n)return n and (n:find("pickaxe",1,true) or n:find("_hoe",1,true)) end
+    function S.hasTool()return isTool(S.equip.left) or isTool(S.equip.right) end
+    function S.sideType(side)local n=S.equip[side];if not n then return nil end
+        if n:find("wireless_modem",1,true) then return "modem" end
+        if n=="ccchunkloader:chunkloader" then return "chunkloader" end end
+    function S.modemSide()for _,sd in ipairs({"left","right"})do if S.sideType(sd)=="modem" then return sd end end end
+    S.tool=S.hasTool() and true or false
+    -- Chunkloader-Nachbau (Formel wie im Mod)
+    local function cost(r)local t,sx=0,math.ceil(r)+1;for x=-sx,sx do for z=-sx,sx do local d=math.sqrt(x*x+z*z);if d<r then t=t+0.0333333*2^d end end end;return t end
+    S.cl={radius=opts.clRadius or 0,debt=0,wake=nil,history={}}
+    S.clDev={setRadius=function(r)S.cl.radius=r;S.cl.history[#S.cl.history+1]=r;return r end,getRadius=function()return S.cl.radius end,
+        getFuelRate=function()return cost(S.cl.radius)end,setWakeOnWorldLoad=function(b)S.cl.wake=b end,getWakeOnWorldLoad=function()return S.cl.wake end}
+    function S.drain(dt)
+        if S.sideType("left")~="chunkloader" and S.sideType("right")~="chunkloader" then return end
+        if S.cl.radius<=0 or S.fuel<=0 then return end
+        S.cl.debt=S.cl.debt+cost(S.cl.radius)*20*dt
+        local n=math.floor(S.cl.debt);if n>0 then S.fuel=math.max(0,S.fuel-n);S.cl.debt=S.cl.debt-n;S.drained=(S.drained or 0)+n end
+    end
     -- Dateien
     for _,n in ipairs({"toast.lua"})do S.files["/"..n]=readReal(SRC..n)end
     for _,n in ipairs({"toast_common.lua","mine_turtle.lua","farm_turtle.lua"})do S.files["/toast/"..n]=readReal(SRC..n)end
@@ -45,7 +65,7 @@ function Sim.new(opts)
     end end
     local function dig(kind)return function()
         local x,y,z=front(kind);local b=block(x,y,z);if not b then return false,"Nothing to dig" end
-        if not S.tool then return false,"No tool to dig with" end
+        if not S.hasTool() then return false,"No tool to dig with" end
         if b=="minecraft:bedrock" then return false,"Unbreakable block detected" end
         if b:find("lava",1,true) or b:find("water",1,true) then return false,"Nothing to dig here" end
         S.world[key(x,y,z)]=false;add(b=="minecraft:stone" and "minecraft:cobblestone" or b,1);return true
@@ -74,7 +94,7 @@ function Sim.new(opts)
         getItemDetail=function(i)i=i or S.sel;local it=S.inv[i];return it and {name=it.name,count=it.count} end,
         dropDown=function(n)local it=S.inv[S.sel];if not it then return false end
             if block(S.p.x,S.p.y+1,S.p.z)~="minecraft:chest" then return false end
-            n=math.min(n or it.count,it.count);it.count=it.count-n;S.chestBelow=S.chestBelow+n
+            n=math.min(n or it.count,it.count);it.count=it.count-n;S.chestBelow=S.chestBelow+n;S.chestNames[it.name]=true
             if it.count==0 then S.inv[S.sel]=nil end;return true end,
         dropUp=function(n)local it=S.inv[S.sel];if not it then return false end
             n=math.min(n or it.count,it.count);it.count=it.count-n;S.coal=S.coal+n;if it.count==0 then S.inv[S.sel]=nil end;return true end,
@@ -90,10 +110,23 @@ function Sim.new(opts)
             local it=S.inv[S.sel];if not it then return false end
             it.count=it.count-1;if it.count==0 then S.inv[S.sel]=nil end
             S.world[key(x,y,z)]="minecraft:planted";return true end,
-        equipLeft=function()local it=S.inv[S.sel];if not it or not it.name:find("pickaxe") then return false end
-            S.inv[S.sel]=nil;S.tool=true;return true end,
-        equipRight=function()return false end,digDownCrop=nil,
+        equipLeft=function()return S.equipSide("left")end,
+        equipRight=function()return S.equipSide("right")end,
+        getSelectedSlot=function()return S.sel end,digDownCrop=nil,
     }
+    function S.equipSide(side)
+        local it=S.inv[S.sel];local cur=S.equip[side]
+        if it then
+            local ok=isTool(it.name) or it.name:find("wireless_modem",1,true) or it.name=="ccchunkloader:chunkloader"
+            if not ok then return false,"Not a valid upgrade" end
+            if it.count>1 then return false end
+        end
+        S.equip[side]=it and it.name or nil
+        S.inv[S.sel]=cur and {name=cur,count=1} or nil
+        S.tool=S.hasTool() and true or false
+        S.equipCount=(S.equipCount or 0)+1
+        return true
+    end
     return S
 end
 -- Serialisierung wie textutils
@@ -131,9 +164,13 @@ function Sim.env(S)
     G.os.pullEvent=function(f)local ev=table.pack(coroutine.yield(f));if ev[1]=="terminate" then error("Terminated",0)end;return table.unpack(ev,1,ev.n)end
     G.sleep=function(t)local id=G.os.startTimer(t);repeat local _,p=G.os.pullEvent("timer") until p==id end
     G.turtle=S.turtle;G.pocket=nil
-    G.peripheral={find=function(t,f)if t=="modem" then local m={isWireless=function()return true end};if not f or f("back",m) then return m end end end,
-        getName=function()return "back"end,getType=function(side)return side=="right" and "modem" or nil end}
-    G.rednet={open=function()end,send=function(id,msg,p)S.sent[#S.sent+1]={id=id,msg=msg,p=p};S.last=msg;return true end,
+    G.peripheral={find=function(t,f)if t=="modem" then local sd=S.modemSide();if not sd then return nil end
+            local m={isWireless=function()return true end,_side=sd};if not f or f(sd,m) then return m end end
+            if t=="monitor" then return nil end end,
+        getName=function(m)return m and m._side or "right" end,getType=function(side)return S.sideType(side)end,
+        wrap=function(side)if S.sideType(side)=="chunkloader" then return S.clDev end end}
+    G.rednet={open=function()end,send=function(id,msg,p)if not S.modemSide() then return false end
+            S.sent[#S.sent+1]={id=id,msg=msg,p=p};S.last=msg;return true end,
         broadcast=function()end,host=function()end,unhost=function()end,lookup=function()end}
     G.term={clear=function()end,setCursorPos=function()end,getSize=function()return 39,13 end,
         setBackgroundColor=function()end,setTextColor=function()end,write=function()end}
@@ -189,20 +226,26 @@ function Sim.run(S,limit,args)
             filter=r[2]
         end
         -- geplante Aktionen
-        if #S.queue>0 then ev=table.remove(S.queue,1)
+        if #S.deferred>0 and S.modemSide() then ev=table.remove(S.deferred,1)
+        elseif #S.queue>0 then ev=table.remove(S.queue,1)
+            -- Funk nur mit angebautem Modem: Befehl warten lassen (Zentrale wiederholt ihn).
+            if ev[1]=="rednet_message" and not S.modemSide() then S.deferred[#S.deferred+1]=ev;ev={n=0,"sim_noop"} end
         else
             local best,bt=nil,math.huge
             for id,t in pairs(S.timers)do if t<bt then best,bt=id,t end end
             local nextAct=S.actions[1] and S.actions[1].t or math.huge
             local tgt=math.min(bt,S.polling and nextPoll or math.huge,nextAct)
             if tgt==math.huge then S.result="stuck";return S end
+            local before=S.T
             S.T=math.max(S.T,tgt)
+            S.drain(S.T-before)
             if S.actions[1] and S.actions[1].t<=S.T then
                 local a=table.remove(S.actions,1);a.fn(S)
                 ev={n=0,"sim_noop"}
             elseif S.polling and nextPoll<=S.T then
                 nextPoll=nextPoll+1
-                ev=table.pack("rednet_message",4,{kind="poll"},S.protocol)
+                if S.modemSide() then ev=table.pack("rednet_message",4,{kind="poll"},S.protocol)
+                else ev={n=0,"sim_noop"} end
             else
                 S.timers[best]=nil;ev=table.pack("timer",best)
             end
