@@ -1,5 +1,5 @@
 -- Mini-CraftOS-Simulator fuer Toast-Turtles: Welt, fs, Timer, rednet, Supervisor.
-local SRC=arg[1] or "/home/claude/toast/"
+local SRC=os.getenv("TOASTSRC") or "/home/claude/toast/"
 local function readReal(p)local f=assert(io.open(p,"rb"));local s=f:read("a");f:close();return s end
 local Sim={}
 function Sim.new(opts)

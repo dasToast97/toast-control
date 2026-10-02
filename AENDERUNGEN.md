@@ -1,4 +1,37 @@
-# Toast Control 2.5 – Stabilität, Reset, sparsamer Fahrweg, eigene Maße & Chunkloader
+# Toast Control 2.6 – Stabilität, Reset, sparsamer Fahrweg, eigene Maße & Chunkloader
+
+## Neu in 2.6: Rückweg und Hinweg beim Mining neu
+
+**Behoben: Turtle blieb auf dem Rückweg hängen** („Rückweg blockiert / Inventar
+voll“). Zwei Ursachen:
+- Mit vollem Inventar wurde auf dem Rückweg nichts abgebaut – genau dann fährt
+  sie aber zurück. Jetzt räumt sie auf dem Rückweg **immer** frei (passt nichts
+  mehr ins Inventar, fällt der Block als Item auf den Boden), wartet länger auf
+  nachrutschenden Kies/Sand und wartet, wenn eine andere Turtle im Weg steht.
+- Der Rückweg lief immer unten/vorne entlang – bei hohen Gängen (jeder zweite
+  Gang wird von oben nach unten abgebaut) mitten durch noch festen Stein.
+
+**Neuer Wegplaner:** Die Turtle weiß, welche Felder schon frei sind (fertige
+Schritte, Querwege zwischen den Gängen, alle selbst gefahrenen Strecken) und
+vergleicht für Hin- und Rückweg mehrere Wege: durch die fertigen Gänge zurück,
+über den vorderen Querweg, oder eine Mischung. Freiräumen kostet kein Fuel,
+zählt also kaum; mit fast vollem Inventar bevorzugt sie freie Wege, damit
+nichts verloren geht.
+
+Simulation mit schnell vollem Inventar (viele Heimfahrten):
+
+| Mine (Höhe × Länge × Gänge) | 2.5 | 2.6 |
+|---|---|---|
+| 3 × 30 × 3 | fertig, 798 Fuel | fertig, 806 Fuel |
+| 6 × 25 × 3 | **hängt** | fertig, 1.288 Fuel |
+| 9 × 20 × 4 | **hängt** | fertig, 1.900 Fuel |
+| 20 × 15 × 3 | **hängt** | fertig, 2.758 Fuel |
+| 64 × 8 × 3 | **hängt** | fertig, 8.176 Fuel |
+| 4 × 30 × 2 | **hängt** | fertig, 704 Fuel |
+| Kies im Rückweg + volles Inventar | – | fertig |
+
+Außerdem: Im Leerlauf an der Basis wird der Zustand nicht mehr ständig neu
+gespeichert (weniger Festplattenzugriffe).
 
 ## Neu in 2.5: Chunks laden mit CCChunkloader
 

@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining und Repeater.
@@ -72,7 +72,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="2.5",
+    version="2.6",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1388,7 +1388,7 @@ function M.serial(n) return integer(n,1,9007199254740991) end
 return M
 ]======]
 FILES["mine_turtle.lua"]=[======[
--- Toast Mining 2.4: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
+-- Toast Mining 2.6: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
 -- Fahrweg 2.2: Turtle baut oben/unten beim Vorwaertsfahren mit ab (1 Fuel je Block),
 -- Gaenge werden in Schlangenlinie verbunden, Heimfahrt nur wenn noetig.
 -- Neu: Positions-Wiederherstellung nach Absturz, RESET, Auto-Retry, Mob-Blockaden.
@@ -1590,33 +1590,172 @@ local function blockReason(b)
     if protected[b.name] or hard[b.name] then return "Geschuetzter Block: "..b.name end
 end
 local function clear(inspect,dig,interruptible)
-    for _=1,C.digRetries do
+    -- Rueckweg (nicht unterbrechbar): immer freiraeumen, auch mit vollem Inventar
+    -- (Block faellt dann als Item auf den Boden) und laenger auf Kies/Sand warten.
+    local tries=interruptible and C.digRetries or math.max(64,C.digRetries)
+    for _=1,tries do
         if interruptible and not active() then return false,"stopped" end
         local exists,b=inspect()
         if not exists or liquid[b.name] then return true end
-        local reason=blockReason(b);if reason then return false,reason end
-        if freeSlots()==0 then
-            if interruptible then return false,"resupply" end
-            return false,"Inventar voll / Rueckweg pruefen"
+        local reason=blockReason(b)
+        if reason and hard[b.name] and not interruptible then
+            sleep(2)                    -- andere Turtle im Weg: abwarten, sie faehrt weiter
+        elseif reason then return false,reason
+        elseif interruptible and freeSlots()==0 then return false,"resupply"
+        else
+            local ok,why=dig()
+            if not ok and tostring(why):find("No tool",1,true) then
+                if not equipTool() then return false,NO_TOOL end
+                ok,why=dig()
+            end
+            if not ok then
+                if tostring(why):find("No tool",1,true) then return false,NO_TOOL end
+                return false,"Nicht abbaubar: "..b.name.." / "..tostring(why)
+            end
+            st.harvested=(st.harvested or 0)+1;save();sleep(0.1)
         end
-        local ok,why=dig()
-        if not ok and tostring(why):find("No tool",1,true) then
-            if not equipTool() then return false,NO_TOOL end
-            ok,why=dig()
-        end
-        if not ok then
-            if tostring(why):find("No tool",1,true) then return false,NO_TOOL end
-            return false,"Nicht abbaubar: "..b.name.." / "..tostring(why)
-        end
-        st.harvested=(st.harvested or 0)+1;save();sleep(0.1)
     end
     local exists,b=inspect();if not exists or liquid[b.name] then return true end
     return false,blockReason(b) or "Zu viel nachrutschender Kies/Sand"
 end
 local DX,DZ={[0]=0,1,0,-1},{[0]=1,0,-1,0}
+-- ===== Wegplanung =====
+-- Die Turtle weiss, welche Felder schon frei sind: fertige Schritte (aus st.next),
+-- Querwege zwischen den Gaengen und alle selbst gefahrenen Strecken (st.segs).
+-- Fuer Hin- und Rueckweg werden mehrere Wege bewertet und der beste genommen.
+st.segs=type(st.segs)=="table" and st.segs or {}
+local SEGMAX=48
+local function tunnelX(k) return k*(G+1) end
+local function firstY(k) return PASS[k%2==0 and 0 or P-1].y end
+local function lastY(k) return PASS[k%2==0 and P-1 or 0].y end
+local function zStart(k) return (k*P)%2==0 and 1 or L end
+local function zEnd(k) return (k*P+P-1)%2==0 and L or 1 end
+local function onSeg(x,y,z)
+    for _,g in ipairs(st.segs) do
+        if g.a=="x" then if y==g.y and z==g.z and x>=g.lo and x<=g.hi then return true end
+        elseif g.a=="y" then if x==g.x and z==g.z and y>=g.lo and y<=g.hi then return true end
+        elseif x==g.x and y==g.y and z>=g.lo and z<=g.hi then return true end
+    end
+    return false
+end
+local function addSeg(a,x,y,z,from,to)
+    if from==to then return end
+    local lo,hi=math.min(from,to),math.max(from,to)
+    for i=#st.segs,1,-1 do
+        local g=st.segs[i]
+        local same=g.a==a and (a=="x" and g.y==y and g.z==z or a=="y" and g.x==x and g.z==z or a=="z" and g.x==x and g.y==y)
+        if same and g.hi>=lo-1 and g.lo<=hi+1 then lo,hi=math.min(lo,g.lo),math.max(hi,g.hi);table.remove(st.segs,i) end
+    end
+    st.segs[#st.segs+1]={a=a,x=x,y=y,z=z,lo=lo,hi=hi}
+    while #st.segs>SEGMAX do table.remove(st.segs,1) end
+end
+local function cellDug(x,y,z)
+    if z==0 then return x==0 and y==0 end
+    if y>0 or y<-(H-1) or z<1 or z>L or x<0 or x>=width then return onSeg(x,y,z) end
+    local k=math.floor(x/(G+1))
+    if x==tunnelX(k) and k<C.tunnels then
+        local b=math.floor(-y/3);local pi=k%2==0 and b or P-1-b
+        local g=k*P+pi;local j=g%2==0 and z-1 or L-z
+        if k*area+pi*L+j+1<st.next then return true end
+    elseif k+1<C.tunnels and z==zEnd(k) and y==lastY(k) and st.next>(k+1)*area+1 then
+        return true                     -- Querweg von Gang k nach k+1
+    end
+    return onSeg(x,y,z)
+end
+-- Bewertung: Zuege + Gewicht * noch abzubauende Felder
+local function partialTunnel() if st.next>cells then return C.tunnels end return math.floor((st.next-1)/area) end
+local function score(legs,w)
+    local x,y,z=st.x,st.y,st.z;local moves,digs=0,0
+    local pt=partialTunnel()
+    for _,lg in ipairs(legs) do
+        local a,v=lg[1],lg[2]
+        local cur=a=="x" and x or (a=="y" and y or z)
+        local d=v>cur and 1 or -1
+        -- Schnell: Strecke komplett in einem fertigen Gang (innerhalb der Gangmasse) ist frei.
+        local k=math.floor(x/(G+1))
+        if a~="x" and x==tunnelX(k) and k<pt and z>=1 and (a=="y" or v>=1) then
+            moves=moves+math.abs(v-cur);cur=v
+        end
+        while cur~=v do
+            cur=cur+d;moves=moves+1
+            if not cellDug(a=="x" and cur or x,a=="y" and cur or y,a=="z" and cur or z) then digs=digs+1 end
+        end
+        if a=="x" then x=v elseif a=="y" then y=v else z=v end
+    end
+    return moves+w*digs,moves,digs
+end
+-- Wie weit ist der vordere Querweg (z=1, Laufebene) schon frei? -> Gangnummer
+local function frontReach()
+    local reach=0
+    for x=1,width-1 do
+        if not cellDug(x,WALK,1) then break end
+        if x%(G+1)==0 then reach=x/(G+1) end
+    end
+    return reach
+end
+-- Nur sinnvolle Umstiegs-Gaenge pruefen: ganz durch die Gaenge, bis zum Ende des
+-- freien Querwegs, oder direkt vorne (ggf. mit Freiraeumen).
+local function viaList(k)
+    local list,seen={},{}
+    for _,j in ipairs({0,math.min(k,frontReach()),k}) do
+        if not seen[j] then seen[j]=true;list[#list+1]=j end
+    end
+    return list
+end
+-- Rueckweg-Kandidaten: durch die Gaenge zurueck bis Gang j, dann vorne (z=1) am Querweg zur Basis.
+local function homeCandidates()
+    if st.z==0 then return {{}} end
+    local k=math.max(0,math.min(C.tunnels-1,math.floor(st.x/(G+1))))
+    local pre={}
+    if st.x~=tunnelX(k) then pre[1]={"x",tunnelX(k)} end
+    local out={}
+    for _,j in ipairs(viaList(k)) do
+        local legs={}
+        for _,l in ipairs(pre) do legs[#legs+1]=l end
+        for m=k,j+1,-1 do
+            legs[#legs+1]={"y",firstY(m)};legs[#legs+1]={"z",zStart(m)};legs[#legs+1]={"x",tunnelX(m-1)}
+        end
+        legs[#legs+1]={"y",WALK};legs[#legs+1]={"z",1};legs[#legs+1]={"x",0}
+        legs[#legs+1]={"y",0};legs[#legs+1]={"z",0}
+        out[#out+1]=legs
+    end
+    return out
+end
+local function best(cands,w)
+    local bl,bs,bm=nil,math.huge,0
+    for _,legs in ipairs(cands) do
+        local sc,m=score(legs,w)
+        if sc<bs then bl,bs,bm=legs,sc,m end
+    end
+    return bl or {},bm
+end
+-- Vom Gangstart (Basis) zum Ziel: vorne am Querweg bis Gang j, dann durch die Gaenge.
+local function workCandidates(x,y,z)
+    local tw=math.floor(x/(G+1))
+    local out={}
+    for _,j in ipairs(viaList(tw)) do
+        local legs={{"z",1},{"y",WALK},{"x",tunnelX(j)}}
+        for m=j,tw-1 do
+            legs[#legs+1]={"y",lastY(m)};legs[#legs+1]={"z",zEnd(m)};legs[#legs+1]={"x",tunnelX(m+1)}
+        end
+        legs[#legs+1]={"y",firstY(tw)};legs[#legs+1]={"z",z};legs[#legs+1]={"y",y}
+        out[#out+1]=legs
+    end
+    return out
+end
+-- Gewicht fuers Freiraeumen: kostet kein Fuel, nur Zeit -> fast egal (0.1).
+-- Mit (fast) vollem Inventar wuerde Abgebautes aber auf den Boden fallen ->
+-- dann eher freie Wege nehmen (0.5).
+local function digWeight() return freeSlots()<=1 and 0.5 or 0.1 end
+local hc={next=-1,n=0}
 local function homeDistance()
     if st.z==0 then return 0 end
-    return math.abs(st.y-WALK)+math.max(0,st.z-1)+st.x+math.abs(WALK)+1
+    if hc.next~=st.next or hc.n>=40 then
+        local _,m=best(homeCandidates(),digWeight())
+        hc={next=st.next,x=st.x,y=st.y,z=st.z,m=m,n=0}
+    end
+    hc.n=hc.n+1
+    return hc.m+math.abs(st.x-hc.x)+math.abs(st.y-hc.y)+math.abs(st.z-hc.z)
 end
 -- Chunks nur laden, solange die Turtle unterwegs ist / arbeitet / auf neuen Versuch wartet.
 local function chunkTick()
@@ -1672,29 +1811,52 @@ local function chain(...)
     for _,f in ipairs({...}) do local ok,why=f();if not ok then return false,why end end
     return true
 end
--- Kuerzester Weg ueber bereits freie Gaenge: Laufebene -> eigener Gang bis vorne ->
--- vordere Querreihe -> Zielgang -> Zielhoehe. Niemals senkrecht an der Basis (Kisten!).
+-- Legs ausfuehren; gefahrene Strecken merken (auch teilweise), damit spaetere
+-- Wege sie als frei kennen.
+local function runLegs(legs,i)
+    if #legs==0 then return true end
+    for _,lg in ipairs(legs) do
+        local a,v=lg[1],lg[2]
+        local sx,sy,sz=st.x,st.y,st.z
+        local ok,why
+        if a=="x" then ok,why=lineX(v,i) elseif a=="y" then ok,why=vertical(v,i) else ok,why=lineZ(v,i) end
+        if a=="x" then addSeg("x",nil,sy,sz,sx,st.x) elseif a=="y" then addSeg("y",sx,nil,sz,sy,st.y)
+        else addSeg("z",sx,sy,nil,sz,st.z) end
+        if not ok then save();return false,why end
+    end
+    save();return true
+end
 local function routeTo(x,y,z,i)
-    return chain(
-        function() if st.z==0 then return lineZ(1,i) end return true end,
-        function() if st.x~=x then return chain(function()return vertical(WALK,i)end,
-            function()return lineZ(1,i)end,function()return lineX(x,i)end) end return true end,
-        function() if st.z~=z then return chain(function()return vertical(WALK,i)end,
-            function()return lineZ(z,i)end) end return true end,
-        function() return vertical(y,i) end)
+    local cands={}
+    if st.z==0 then cands=workCandidates(x,y,z)
+    else
+        -- Schon im Zielgang: direkt ueber die erste Schicht zum Ziel.
+        if st.x==tunnelX(math.floor(x/(G+1))) and x==st.x then
+            cands[#cands+1]={{"y",firstY(math.floor(x/(G+1)))},{"z",z},{"y",y}}
+        end
+        -- Sonst (oder falls kuerzer): erst zur Basis-Einfahrt, dann wie von der Basis.
+        local h=best(homeCandidates(),digWeight())
+        for _,w in ipairs(workCandidates(x,y,z)) do
+            local legs={}
+            for n=1,#h-1 do legs[#legs+1]=h[n] end     -- ohne den letzten Schritt in die Basis
+            for n=2,#w do legs[#legs+1]=w[n] end
+            cands[#cands+1]=legs
+        end
+    end
+    local legs=best(cands,0.1)
+    return runLegs(legs,i)
 end
 -- Naechster Schritt direkt (auch Querweg am Gangende): Hoehe, dann x, dann z.
 local function direct(x,y,z,i)
     return chain(function()return vertical(y,i)end,function()return lineX(x,i)end,function()return lineZ(z,i)end)
 end
 local function home()
+    if homePosition() and st.dir==0 then return true end
     status("Rueckkehr",run.fault or "Fahre ueber freigelegte Wege zur Basis.")
-    local ok,why=true
-    if st.z>0 then
-        ok,why=chain(function()return vertical(WALK,false)end,function()return lineZ(1,false)end,
-            function()return lineX(0,false)end,function()return vertical(0,false)end,function()return lineZ(0,false)end)
-    end
+    local legs=best(homeCandidates(),digWeight())
+    local ok,why=runLegs(legs,false)
     if ok then ok,why=face(0) end
+    hc.next=-1
     return ok,why
 end
 local containers={['minecraft:chest']=true,['minecraft:trapped_chest']=true,['minecraft:barrel']=true}
@@ -1878,7 +2040,7 @@ end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
 if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
-print("TOAST MINING 2.4 / Turtle #"..os.getComputerID())
+print("TOAST MINING 2.6 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
 print("Zentrale #"..cfg.controllerId)
 if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
@@ -2098,7 +2260,7 @@ return {
     },
 }
 ]======]
--- TOAST CONTROL 2.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Auswahl Update / Komplett neu
 --        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
 --        wget run <link> farm|mining|repeater
