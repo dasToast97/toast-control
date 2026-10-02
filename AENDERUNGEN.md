@@ -1,4 +1,15 @@
-# Toast Control 2.3 – Stabilität, Reset, sparsamer Fahrweg & eigene Maße
+# Toast Control 2.4 – Stabilität, Reset, sparsamer Fahrweg & eigene Maße
+
+## Neu in 2.4: Ganghöhe bis 64
+
+Die Mining-Turtle baut jetzt Gänge bis 64 Blöcke hoch. Sie arbeitet in
+Schichten zu je 3 Blöcken: in der Mitte fahren, oben und unten mitabbauen.
+Die Schichten sind in Schlangenlinie verbunden (vor, hoch, zurück, hoch ...),
+der nächste Gang beginnt oben und arbeitet sich nach unten.
+
+Am sparsamsten sind Vielfache von 3 (3, 6, 9 ... 63): etwa 0,5 Fuel pro
+abgebautem Block. Bis Höhe 3 ist der Fahrweg genau wie in 2.2; laufende
+Aufträge mit Höhe 4–5 werden übernommen (angefangener Gang wird neu befahren).
 
 ## Neu: Weiterarbeiten ohne Zentrale
 
@@ -31,7 +42,7 @@ schaut nach vorne aufs Feld bzw. in die Mine.
   Seite rechts/links, Pflanze, Pause zwischen Runden.
 - **Wasser muss nicht eingetragen werden:** einzelne Stellen, ganze Reihen oder
   gar kein Wasser – die Turtle erkennt es selbst und überspringt es.
-- **Mining:** Ganglänge, Höhe (1–5), Anzahl Gänge, Abstand, Seite rechts/links.
+- **Mining:** Ganglänge, Höhe (1–64), Anzahl Gänge, Abstand, Seite rechts/links.
 - Beim Update: „Maße ändern? (j/n)“. Neue Minenmaße starten einen neuen Auftrag
   (Turtle muss an der Basis stehen).
 

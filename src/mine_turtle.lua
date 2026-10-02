@@ -1,4 +1,4 @@
--- Toast Mining 2.2: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
+-- Toast Mining 2.4: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
 -- Fahrweg 2.2: Turtle baut oben/unten beim Vorwaertsfahren mit ab (1 Fuel je Block),
 -- Gaenge werden in Schlangenlinie verbunden, Heimfahrt nur wenn noetig.
 -- Neu: Positions-Wiederherstellung nach Absturz, RESET, Auto-Retry, Mob-Blockaden.
@@ -11,25 +11,35 @@ local H,L,G=C.height,C.length,C.gap
 assert(C.side==nil or C.side=="right" or C.side=="left","mine.side: right oder left.")
 local MIRROR=C.side=="left"
 local width=(C.tunnels-1)*(G+1)+1
--- Laufebene: bei 3+ Hoehe die mittlere Reihe (y=-1), sonst Bodenreihe (y=0).
-local WALK=H>=3 and -1 or 0
--- Bei 4-5 Hoehe: Rueckweg auf oberer Ebene baut die restlichen Reihen ab.
-local HIGH=H==4 and -2 or -3
-local area=H<=3 and L or 2*L          -- Schritte je Gang
+-- Schichten zu je 3 Bloecken: Turtle faehrt in der Mitte und baut oben/unten mit ab.
+-- Schicht p deckt Reihen 3p..3p+2 ab (Reihe r = y -r). Letzte Schicht ggf. 1-2 hoch.
+local P=math.ceil(H/3)
+local PASS={}
+for p=0,P-1 do
+    local r0=3*p;local rem=math.min(3,H-r0)
+    if rem==3 then PASS[p]={y=-(r0+1),up=true,down=true}
+    else PASS[p]={y=-r0,up=rem==2,down=false} end
+end
+local WALK=PASS[0].y                    -- Laufebene zur Basis (unterste Schicht)
+local area=P*L                          -- Schritte je Gang
 local cells=area*C.tunnels
-local layout="strip2:"..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
+local tag=H<=3 and "strip2:" or "strip3:"   -- bis Hoehe 3 identisch zu 2.2
+local layout=tag..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
 -- Schritt i -> Position (x,y,z) und ob oben/unten mit abgebaut wird.
+-- Schlangenlinie in z UND in der Hoehe: Gang 1 Schichten unten->oben,
+-- Gang 2 oben->unten usw.; jede Schicht startet dort, wo die vorige endete.
 local function step(i)
     local t=math.floor((i-1)/area);local k=(i-1)%area;local x=t*(G+1)
-    if H<=3 then
-        local z=t%2==0 and k+1 or L-k     -- Schlangenlinie: hin, rueber, zurueck
-        return x,WALK,z,H>=2,H==3
-    end
-    if k<L then return x,WALK,k+1,true,true end
-    return x,HIGH,L-(k-L),true,false
+    local pi=math.floor(k/L);local j=k%L
+    local p=t%2==0 and pi or P-1-pi
+    local g=t*P+pi
+    local z=g%2==0 and j+1 or L-j
+    local q=PASS[p]
+    return x,q.y,z,q.up,q.down
 end
 local st={x=0,y=0,z=0,dir=0,next=1,total=0,harvested=0,commandSerial=0,layout=layout}
 local oldLayout="strip:"..L..":"..H..":"..C.tunnels..":"..G
+local oldLayout22="strip2:"..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
 local function readTable(path)
     if not fs.exists(path) then return nil end
     local f=fs.open(path,"r");if not f then return nil end
@@ -75,8 +85,8 @@ for _,arg in ipairs(args) do
     else error("Start: toast.lua [--dock] [--new]",0) end
 end
 -- Fortschritt aus der alten Version uebernehmen: angefangener Gang wird neu befahren.
-if st.layout==oldLayout then
-    local t=math.floor((st.next-1)/L)
+if st.layout==oldLayout or (st.layout==oldLayout22 and oldLayout22~=layout) then
+    local t=math.floor((st.next-1)/(st.layout==oldLayout and L or (H<=3 and L or 2*L)))
     st.next=math.min(cells+1,t*area+1);st.layout=layout;st.accessHigh=nil
 end
 assert(st.layout==layout,"Abbaumasse geaendert: an Basis mit --new neuen Auftrag bestaetigen.")
@@ -424,7 +434,7 @@ end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
 pcall(equipTool)
 term.clear();term.setCursorPos(1,1)
-print("TOAST MINING 2.2 / Turtle #"..os.getComputerID())
+print("TOAST MINING 2.4 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
 print("Zentrale #"..cfg.controllerId)
 print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")

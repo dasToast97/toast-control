@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining und Repeater.
@@ -72,7 +72,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="2.3",
+    version="2.4",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1271,7 +1271,7 @@ function M.serial(n) return integer(n,1,9007199254740991) end
 return M
 ]======]
 FILES["mine_turtle.lua"]=[======[
--- Toast Mining 2.2: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
+-- Toast Mining 2.4: Strip-Mining mit parallelen Gaengen, mit eigener Basis.
 -- Fahrweg 2.2: Turtle baut oben/unten beim Vorwaertsfahren mit ab (1 Fuel je Block),
 -- Gaenge werden in Schlangenlinie verbunden, Heimfahrt nur wenn noetig.
 -- Neu: Positions-Wiederherstellung nach Absturz, RESET, Auto-Retry, Mob-Blockaden.
@@ -1284,25 +1284,35 @@ local H,L,G=C.height,C.length,C.gap
 assert(C.side==nil or C.side=="right" or C.side=="left","mine.side: right oder left.")
 local MIRROR=C.side=="left"
 local width=(C.tunnels-1)*(G+1)+1
--- Laufebene: bei 3+ Hoehe die mittlere Reihe (y=-1), sonst Bodenreihe (y=0).
-local WALK=H>=3 and -1 or 0
--- Bei 4-5 Hoehe: Rueckweg auf oberer Ebene baut die restlichen Reihen ab.
-local HIGH=H==4 and -2 or -3
-local area=H<=3 and L or 2*L          -- Schritte je Gang
+-- Schichten zu je 3 Bloecken: Turtle faehrt in der Mitte und baut oben/unten mit ab.
+-- Schicht p deckt Reihen 3p..3p+2 ab (Reihe r = y -r). Letzte Schicht ggf. 1-2 hoch.
+local P=math.ceil(H/3)
+local PASS={}
+for p=0,P-1 do
+    local r0=3*p;local rem=math.min(3,H-r0)
+    if rem==3 then PASS[p]={y=-(r0+1),up=true,down=true}
+    else PASS[p]={y=-r0,up=rem==2,down=false} end
+end
+local WALK=PASS[0].y                    -- Laufebene zur Basis (unterste Schicht)
+local area=P*L                          -- Schritte je Gang
 local cells=area*C.tunnels
-local layout="strip2:"..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
+local tag=H<=3 and "strip2:" or "strip3:"   -- bis Hoehe 3 identisch zu 2.2
+local layout=tag..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
 -- Schritt i -> Position (x,y,z) und ob oben/unten mit abgebaut wird.
+-- Schlangenlinie in z UND in der Hoehe: Gang 1 Schichten unten->oben,
+-- Gang 2 oben->unten usw.; jede Schicht startet dort, wo die vorige endete.
 local function step(i)
     local t=math.floor((i-1)/area);local k=(i-1)%area;local x=t*(G+1)
-    if H<=3 then
-        local z=t%2==0 and k+1 or L-k     -- Schlangenlinie: hin, rueber, zurueck
-        return x,WALK,z,H>=2,H==3
-    end
-    if k<L then return x,WALK,k+1,true,true end
-    return x,HIGH,L-(k-L),true,false
+    local pi=math.floor(k/L);local j=k%L
+    local p=t%2==0 and pi or P-1-pi
+    local g=t*P+pi
+    local z=g%2==0 and j+1 or L-j
+    local q=PASS[p]
+    return x,q.y,z,q.up,q.down
 end
 local st={x=0,y=0,z=0,dir=0,next=1,total=0,harvested=0,commandSerial=0,layout=layout}
 local oldLayout="strip:"..L..":"..H..":"..C.tunnels..":"..G
+local oldLayout22="strip2:"..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
 local function readTable(path)
     if not fs.exists(path) then return nil end
     local f=fs.open(path,"r");if not f then return nil end
@@ -1348,8 +1358,8 @@ for _,arg in ipairs(args) do
     else error("Start: toast.lua [--dock] [--new]",0) end
 end
 -- Fortschritt aus der alten Version uebernehmen: angefangener Gang wird neu befahren.
-if st.layout==oldLayout then
-    local t=math.floor((st.next-1)/L)
+if st.layout==oldLayout or (st.layout==oldLayout22 and oldLayout22~=layout) then
+    local t=math.floor((st.next-1)/(st.layout==oldLayout and L or (H<=3 and L or 2*L)))
     st.next=math.min(cells+1,t*area+1);st.layout=layout;st.accessHigh=nil
 end
 assert(st.layout==layout,"Abbaumasse geaendert: an Basis mit --new neuen Auftrag bestaetigen.")
@@ -1697,7 +1707,7 @@ end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
 pcall(equipTool)
 term.clear();term.setCursorPos(1,1)
-print("TOAST MINING 2.2 / Turtle #"..os.getComputerID())
+print("TOAST MINING 2.4 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
 print("Zentrale #"..cfg.controllerId)
 print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")
@@ -1739,7 +1749,7 @@ function M.load(c)
     assert(#c.turtleIds>0, "Mindestens eine turtleIds-ID eintragen.")
     c.labels=c.labels or {}; assert(type(c.labels)=="table","labels muss eine Tabelle sein.")
     local f=c.mine; assert(type(f)=="table", "mine fehlt.")
-    assert(integer(f.length,1,1024) and integer(f.height,1,5) and integer(f.tunnels,1,64) and integer(f.gap,0,16), "Strip: length 1-1024, height 1-5, tunnels 1-64, gap 0-16.")
+    assert(integer(f.length,1,1024) and integer(f.height,1,64) and integer(f.tunnels,1,64) and integer(f.gap,0,16), "Strip: length 1-1024, height 1-64, tunnels 1-64, gap 0-16.")
     assert(integer(f.fuelTarget,100,20000), "fuelTarget: 100 bis 20000.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(integer(f.freeSlots,2,8), "freeSlots: 2 bis 8.")
@@ -1907,7 +1917,7 @@ return {
     },
 }
 ]======]
--- TOAST CONTROL 2.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Auswahl Update / Komplett neu
 --        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
 --        wget run <link> farm|mining|repeater
@@ -2128,7 +2138,7 @@ if setup then
         local m=c.mine or {};c.mine=m
         local before=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
         m.length=ask("Ganglaenge nach vorne (1-1024)",m.length or 100,1,1024)
-        m.height=ask("Ganghoehe (1-5, 3 = am sparsamsten)",m.height or 3,1,5)
+        m.height=ask("Ganghoehe (1-64; 3, 6, 9 ... am sparsamsten)",m.height or 3,1,64)
         m.tunnels=ask("Anzahl Gaenge (1-64)",m.tunnels or 5,1,64)
         if m.tunnels>1 then
             m.gap=ask("Bloecke zwischen den Gaengen (0-16)",m.gap or 2,0,16)

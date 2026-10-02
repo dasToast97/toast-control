@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Auswahl Update / Komplett neu
 --        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
 --        wget run <link> farm|mining|repeater
@@ -219,7 +219,7 @@ if setup then
         local m=c.mine or {};c.mine=m
         local before=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
         m.length=ask("Ganglaenge nach vorne (1-1024)",m.length or 100,1,1024)
-        m.height=ask("Ganghoehe (1-5, 3 = am sparsamsten)",m.height or 3,1,5)
+        m.height=ask("Ganghoehe (1-64; 3, 6, 9 ... am sparsamsten)",m.height or 3,1,64)
         m.tunnels=ask("Anzahl Gaenge (1-64)",m.tunnels or 5,1,64)
         if m.tunnels>1 then
             m.gap=ask("Bloecke zwischen den Gaengen (0-16)",m.gap or 2,0,16)
