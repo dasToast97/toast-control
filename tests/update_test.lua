@@ -25,7 +25,7 @@ Sim.env=orig
 local st=load("return "..S.files["/toast_mining_state"])()
 local cfg=load(S.files["/toast.config.lua"])()
 local log=table.concat(S.log," | ")
-check("Download von GitHub",S.httpCalls==1 and S.url:find("raw.githubusercontent.com/dasToast97/toast%-control/main/install.lua"),S.url)
+check("Download von GitHub",S.httpCalls==2 and S.url:find("raw.githubusercontent.com/dasToast97/toast%-control/main/install.lua"),S.url)
 check("installiert + neu gestartet",log:find("Update fertig",1,true)~=nil,tail(S))
 check("Config behalten",cfg.name=="Mine U" and cfg.mine.length==12)
 check("Autostart behalten",S.files["/startup.lua"]=='shell.run("/toast.lua")\n')
@@ -129,7 +129,7 @@ Sim.run(S,60)
 Sim.env=orig2
 local rlog=table.concat(S.log," | ")
 check("meldet sich (Beacon)",(S.beacons or 0)>=1 and S.lastBeacon.info.role=="repeater" and S.lastBeacon.info.pos.x==5,S.beacons)
-check("Update geladen + neu gestartet",S.dl==1 and rlog:find("Update fertig",1,true)~=nil,tostring(S.dl).." "..rlog:sub(-300))
+check("Update geladen + neu gestartet",S.dl==2 and rlog:find("Update fertig",1,true)~=nil,tostring(S.dl).." "..rlog:sub(-300))
 check("bleibt Repeater",load(S.files["/toast.config.lua"])().role=="repeater")
 print("U9 GitHub liefert noch die alte Datei -> nicht installieren")
 do
@@ -142,6 +142,22 @@ do
   local c9=G9.dofile("/toast/toast_common.lua")
   local ok,why=c9.selfUpdate(nil,"9.9")
   check("alte Datei abgelehnt",ok==false and tostring(why):find("3.4.1",1,true)~=nil,why)
-  check("3x versucht",gets==3,gets)
+  check("3x versucht",gets==6,gets)
+end
+print("U10 Fester Link ueber Commit-Kennung + kein Zurueckstufen")
+do
+  local S9=Sim.new({config=""});local G9=Sim.env(S9);G9.turtle=nil
+  S9.files["/toast/toast_common.lua"]=io.open("/home/claude/toast/toast_common.lua"):read("a")
+  local urls={}
+  local SHA=string.rep("ab",20)
+  G9.http={get=function(u,hd) urls[#urls+1]=u
+    if u:find("api.github.com",1,true) then return {readAll=function() return SHA.."\n" end,close=function() end} end
+    local body="-- TOAST CONTROL 0.1 alt\n"..string.rep("-- x\n",400)
+    return {readAll=function() return body end,close=function() end} end}
+  G9.sleep=function() end
+  local c9=G9.dofile("/toast/toast_common.lua")
+  local ok,why=c9.selfUpdate(nil,nil)
+  check("Datei ueber Commit-Kennung geladen",urls[2]==c9.rawBase..SHA.."/install.lua",urls[2])
+  check("alte Version wird nicht installiert",ok==false and tostring(why):find("0.1",1,true)~=nil,why)
 end
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

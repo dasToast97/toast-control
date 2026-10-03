@@ -1,3 +1,10 @@
+# Toast Control 3.6.4
+
+- Updates laden die Datei jetzt über die **Commit-Kennung** (fester Link) statt
+  über `main`. Damit liefert GitHub nie mehr eine alte Datei aus dem
+  Zwischenspeicher. Klappt das nicht, wird der normale Link genommen.
+- Ein Gerät stuft sich nie mehr auf eine ältere Version zurück.
+
 # Toast Control 3.6.3
 
 - **Fehler behoben:** Farm-Turtles mit 3.6.1/3.6.2 stürzten beim Update-Befehl ab

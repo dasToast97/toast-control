@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.6.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,14 +129,15 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.6.3",
+    version="3.6.4",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true,update=true},
     updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
     versionUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/version.txt",
-    versionUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/version.txt",
+    shaUrl="https://api.github.com/repos/dasToast97/toast-control/commits/main",
+    rawBase="https://raw.githubusercontent.com/dasToast97/toast-control/",
 }
 -- Standardwerte fuer Stabilitaet. Fehlen sie in einer alten Config, werden sie ergaenzt.
 M.recoveryDefaults={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8}
@@ -667,6 +668,16 @@ function M.newer(a,b)
     end
     return false
 end
+-- Aktuelle Datei ohne GitHub-Zwischenspeicher: Commit-Kennung (SHA) holen
+-- und die Datei genau dieses Stands laden. Klappt das nicht: normaler Link.
+function M.freshUrl(file,try)
+    local ok,h=pcall(http.get,M.shaUrl,{["Accept"]="application/vnd.github.sha",["User-Agent"]="toast-control"})
+    if ok and h then
+        local sha=tostring(h.readAll() or ""):match("^%s*(%x+)%s*$");h.close()
+        if sha and #sha==40 then return M.rawBase..sha.."/"..file end
+    end
+    return M.rawBase.."main/"..file.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000)..(try or "")
+end
 -- want = Version, die die Zentrale erwartet. GitHub liefert nach einem neuen
 -- Stand manchmal noch ein paar Minuten die alte Datei aus dem Zwischenspeicher:
 -- dann bis zu 3x nachladen, sonst NICHT die alte Version installieren
@@ -678,12 +689,15 @@ function M.selfUpdate(statusFn,want)
     local code
     for try=1,3 do
         say("Update","Lade neue Version ..."..(try>1 and (" (Versuch "..try..")") or ""))
-        local ok,h=pcall(http.get,M.updateUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000)..try)
+        local ok,h=pcall(http.get,M.freshUrl("install.lua",try))
         if not ok or not h then return false,"Download fehlgeschlagen" end
         code=h.readAll();h.close()
         if type(code)~="string" or #code<1000 then return false,"Download leer" end
         local got=code:match("^%-%- TOAST CONTROL ([%d%.]+)")
-        if not want or not got or not M.newer(want,got) then break end
+        -- nie auf eine aeltere Version zurueck (alte Datei aus GitHubs Zwischenspeicher)
+        if got and M.newer(M.version,got) then
+            if try==3 then return false,"GitHub liefert alte v"..got..", diese hat v"..M.version end
+        elseif not want or not got or not M.newer(want,got) then break end
         if try==3 then return false,"GitHub liefert noch v"..got.." statt v"..want..", spaeter nochmal" end
         sleep(10)
     end
@@ -6194,7 +6208,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.6.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
