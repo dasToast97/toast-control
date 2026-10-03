@@ -109,4 +109,17 @@ local rlog=table.concat(S.log," | ")
 check("meldet sich (Beacon)",(S.beacons or 0)>=1 and S.lastBeacon.info.role=="repeater" and S.lastBeacon.info.pos.x==5,S.beacons)
 check("Update geladen + neu gestartet",S.dl==1 and rlog:find("Update fertig",1,true)~=nil,tostring(S.dl).." "..rlog:sub(-300))
 check("bleibt Repeater",load(S.files["/toast.config.lua"])().role=="repeater")
+print("U9 GitHub liefert noch die alte Datei -> nicht installieren")
+do
+  local S9=Sim.new({config=""});local G9=Sim.env(S9);G9.turtle=nil
+  S9.files["/toast/toast_common.lua"]=io.open("/home/claude/toast/toast_common.lua"):read("a")
+  local gets=0
+  G9.http={get=function() gets=gets+1;local body="-- TOAST CONTROL 3.4.1 alt\n"..string.rep("-- x\n",400)
+    return {readAll=function() return body end,close=function() end} end}
+  G9.sleep=function() end
+  local c9=G9.dofile("/toast/toast_common.lua")
+  local ok,why=c9.selfUpdate(nil,"9.9")
+  check("alte Datei abgelehnt",ok==false and tostring(why):find("3.4.1",1,true)~=nil,why)
+  check("3x versucht",gets==3,gets)
+end
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

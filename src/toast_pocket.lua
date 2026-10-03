@@ -54,7 +54,7 @@ local function loop()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             notice="Update wird installiert ...";draw()
-            local ok,why=common.selfUpdate()
+            local ok,why=common.selfUpdate(nil,b.target)
             if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
         elseif e=="timer" and a==timer then
             poll()

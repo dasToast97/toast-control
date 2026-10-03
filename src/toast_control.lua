@@ -98,7 +98,7 @@ local function loop()
                     model.notice="Update fertig: alle "..done.."/"..total.." auf v"..run.target
                 else
                     model.notice="Alle fertig ("..done.."/"..total.."), Zentrale installiert ...";draw()
-                    local ok,why=common.selfUpdate()
+                    local ok,why=common.selfUpdate(nil,run.target)
                     if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
                 end
             end

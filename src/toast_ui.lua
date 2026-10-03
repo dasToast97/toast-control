@@ -32,6 +32,24 @@ local function short(n)
     if math.abs(n)>=10000 then return string.format("%.1fk",n/1000) end
     return tostring(math.floor(n))
 end
+-- Spielzeit "11:08" (leer, wenn nicht verfuegbar)
+local function clockText()
+    if not (textutils and textutils.formatTime and os.time) then return "" end
+    local ok,t=pcall(function() return textutils.formatTime(os.time(),true) end)
+    t=ok and tostring(t) or ""
+    if #t==4 then t="0"..t end
+    return t
+end
+M.clockText=clockText
+-- Rechte Kopfzeile: laengste Variante, die in "room" Zeichen passt
+local function headRight(room,online,total,clock)
+    local opts={online.."/"..total.." online  "..clock.." ",online.."/"..total.." online "..clock.." ",
+        online.."/"..total.."  "..clock.." ",online.."/"..total.." "..clock.." ",clock.." ",online.."/"..total.." "}
+    if clock=="" then opts={online.."/"..total.." online ",online.."/"..total.." "} end
+    for _,o in ipairs(opts) do if #o<=room then return o end end
+    return ""
+end
+M.headRight=headRight
 -- ===== Aufgaben: Name, Hauptwert und Detailzeilen je Job =====
 local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Waechter"}
 local function wait(rows,d) if num(d.wait)>0 then rows[#rows+1]={"Naechste",num(d.wait).." s"} end end
@@ -167,8 +185,13 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     local label,kind=M.state(e,link)
     local name=e and e.label~="" and e.label or ("Turtle #"..id)
     P.fill(1,colors.blue)
+    local clock=clockText()
+    local tag=(e and JOB[jobOf(e)].name or "").." #"..id
+    local rt=tag.."  "..clock.." "
+    if #name+#rt+2>w then rt=clock~="" and (clock.." ") or (tag.." ") end
+    if #name+#rt+2>w then name=name:sub(1,math.max(1,w-#rt-2)) end
     P.text(2,1,name,colors.white,colors.blue)
-    P.right(1,(e and JOB[jobOf(e)].name or "").." #"..id.." ",colors.white,colors.blue)
+    P.right(1,rt,colors.white,colors.blue)
     if not e then
         P.text(1,3,"Turtle #"..id.." ist der Zentrale",colors.orange)
         P.text(1,4,"(noch) nicht bekannt.",colors.orange)
@@ -267,11 +290,8 @@ function M.drawInfo(screen,fleet,link,st,show)
     -- Kopf
     P.fill(1,colors.blue)
     local online=0;for _,l in ipairs(list) do if l.kind~="off" then online=online+1 end end
-    local clock=""
-    if textutils and textutils.formatTime and os.time then
-        local ok,t=pcall(function() return textutils.formatTime(os.time(),true) end);if ok then clock=t end
-    end
-    local rt=link and (online.."/"..#list.." online"..(clock~="" and ("  "..clock) or "").." ") or "keine Verbindung "
+    local clock=clockText()
+    local rt=link and headRight(w-7,online,#list,clock) or "keine Verbindung "
     local title=JOB[show] and JOB[show].plural or "Uebersicht"
     P.text(2,1,(#rt+10+#title<=w) and ("TOAST  "..title) or "TOAST",colors.white,colors.blue)
     P.right(1,rt,link and colors.white or colors.orange,colors.blue)
@@ -513,11 +533,14 @@ function M.new(screen,cfg)
             text(x,1," "..lab.." ",up and colors.white or colors.blue,up and colors.red or colors.lightBlue)
             ui.buttons[#ui.buttons+1]={x=x,y=1,w=#lab+2,action="update",enabled=link}
         end
+        -- rechts: online + Uhr (auf kleinen Pockets gekuerzt: "7/8 11:08")
+        local room=w-(ui.canUpdate~=false and 16 or 7)
+        local clock=clockText()
         if link and ui.filter=="net" and fleet.nodes then
             local on=0;for _,id in ipairs(fleet.nodes.ids) do if fleet.nodes.entries[id].online then on=on+1 end end
-            right(1,on.."/"..#fleet.nodes.ids.." online ",colors.white,colors.blue)
-        elseif link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
-        else right(1,"keine Verbindung ",colors.orange,colors.blue) end
+            right(1,headRight(room,on,#fleet.nodes.ids,clock),colors.white,colors.blue)
+        elseif link then right(1,headRight(room,online,#ids,clock),colors.white,colors.blue)
+        else right(1,(#clock>0 and room>=#clock+18) and ("keine Verbindung  "..clock.." ") or "keine Verbindung ",colors.orange,colors.blue) end
         -- Reiter
         -- Reiter: Alle + jede Aufgabe, die es gibt (Farm und Mine immer)
         local total=0;for _,j in ipairs(ORDER) do total=total+count[j] end

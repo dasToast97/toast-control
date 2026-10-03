@@ -100,8 +100,9 @@ function W.new(o)
     local radioTimeout=C.radioTimeout or 60
     function w.active()
         if run.updateReq then
+            local want=type(run.updateReq)=="string" and run.updateReq or nil
             run.updateReq=false
-            local ok,why=common.selfUpdate(w.status)
+            local ok,why=common.selfUpdate(w.status,want)
             if not ok then w.status("Update fehlgeschlagen",tostring(why));common.log("Update: "..tostring(why)) end
         end
         if run.mode~="off" and radioTimeout>0 and os.clock()-run.lastContact>radioTimeout then w.fail("Funkverbindung verloren") end
@@ -455,7 +456,7 @@ function W.new(o)
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
                         st.commandSerial=b.serial
-                        if b.action=="update" then run.updateReq=true;w.status("Update","Wird gleich installiert ...")
+                        if b.action=="update" then run.updateReq=type(b.target)=="string" and b.target or true;w.status("Update","Wird gleich installiert ...")
                         elseif b.action=="stop" then w.finish();run.fault,run.retries,run.retryAt=nil,0,nil
                         elseif b.action=="reset" then reset()
                         elseif not run.recovery then

@@ -68,7 +68,7 @@ local function loop()
         elseif e=="rednet_message" and common and toastCfg and common.isUpdateFor(toastCfg,name,channel) then
             -- Update-Befehl der Zentrale (name=Absender, channel=Nachricht)
             cleanup()
-            local ok,why=common.selfUpdate()
+            local ok,why=common.selfUpdate(nil,type(channel)=="table" and channel.target or nil)
             if not ok then common.log("Update: "..tostring(why)) end
             scan()
         elseif e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return

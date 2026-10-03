@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.6",
+    version="3.6.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -656,14 +656,26 @@ function M.newer(a,b)
     end
     return false
 end
-function M.selfUpdate(statusFn)
+-- want = Version, die die Zentrale erwartet. GitHub liefert nach einem neuen
+-- Stand manchmal noch ein paar Minuten die alte Datei aus dem Zwischenspeicher:
+-- dann bis zu 3x nachladen, sonst NICHT die alte Version installieren
+-- (die Zentrale schickt das Update spaeter nochmal).
+function M.selfUpdate(statusFn,want)
     local say=statusFn or function() end
     if not http then return false,"HTTP im Spiel/Server aus" end
-    say("Update","Lade neue Version ...")
-    local ok,h=pcall(http.get,M.updateUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000))
-    if not ok or not h then return false,"Download fehlgeschlagen" end
-    local code=h.readAll();h.close()
-    if type(code)~="string" or #code<1000 then return false,"Download leer" end
+    want=type(want)=="string" and want:match("^[%d%.]+$") or nil
+    local code
+    for try=1,3 do
+        say("Update","Lade neue Version ..."..(try>1 and (" (Versuch "..try..")") or ""))
+        local ok,h=pcall(http.get,M.updateUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000)..try)
+        if not ok or not h then return false,"Download fehlgeschlagen" end
+        code=h.readAll();h.close()
+        if type(code)~="string" or #code<1000 then return false,"Download leer" end
+        local got=code:match("^%-%- TOAST CONTROL ([%d%.]+)")
+        if not want or not got or not M.newer(want,got) then break end
+        if try==3 then return false,"GitHub liefert noch v"..got.." statt v"..want..", spaeter nochmal" end
+        sleep(10)
+    end
     local fn,why=load(code,"@install","t",_ENV)
     if not fn then return false,"Installer defekt: "..tostring(why) end
     say("Update","Installiere ...")
@@ -1505,7 +1517,7 @@ local function loop()
                     model.notice="Update fertig: alle "..done.."/"..total.." auf v"..run.target
                 else
                     model.notice="Alle fertig ("..done.."/"..total.."), Zentrale installiert ...";draw()
-                    local ok,why=common.selfUpdate()
+                    local ok,why=common.selfUpdate(nil,run.target)
                     if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
                 end
             end
@@ -1728,7 +1740,7 @@ function M.new(cfg)
             if only==nil or only==id then
                 local e=m.entries[id]
                 serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
-                m.pending[id]={message={kind="command",action="update",serial=serial},at=os.clock(),job=d.job,ttl=180}
+                m.pending[id]={message={kind="command",action="update",serial=serial,target=version},at=os.clock(),job=d.job,ttl=180}
                 dispatch(id,m.pending[id].message,d.job)
                 if m.online(id) then run.ids[#run.ids+1]=id;run.before[id]=versionOf(id) end
                 count=count+1
@@ -1740,7 +1752,7 @@ function M.new(cfg)
         for nid in pairs(targets) do
             if only==nil or only==nid then
                 serial=serial+1;count=count+1
-                send(nid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
+                send(nid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial,target=version},common.remoteProtocol)
                 if nodeOnline(nid) then run.ids[#run.ids+1]=nid;run.before[nid]=versionOf(nid) end
             end
         end
@@ -1768,7 +1780,7 @@ function M.new(cfg)
         local function check(id,online)
             local v=versionOf(id)
             if online and v and v~="?" and common.newer(common.version,v) and os.clock()-(m.healAt[id] or -1e9)>300 then
-                m.healAt[id]=os.clock();m.startUpdate(id)
+                m.healAt[id]=os.clock();m.startUpdate(id,common.version)
             end
         end
         for id in pairs(devices) do check(id,m.online(id)) end
@@ -1813,6 +1825,24 @@ local function short(n)
     if math.abs(n)>=10000 then return string.format("%.1fk",n/1000) end
     return tostring(math.floor(n))
 end
+-- Spielzeit "11:08" (leer, wenn nicht verfuegbar)
+local function clockText()
+    if not (textutils and textutils.formatTime and os.time) then return "" end
+    local ok,t=pcall(function() return textutils.formatTime(os.time(),true) end)
+    t=ok and tostring(t) or ""
+    if #t==4 then t="0"..t end
+    return t
+end
+M.clockText=clockText
+-- Rechte Kopfzeile: laengste Variante, die in "room" Zeichen passt
+local function headRight(room,online,total,clock)
+    local opts={online.."/"..total.." online  "..clock.." ",online.."/"..total.." online "..clock.." ",
+        online.."/"..total.."  "..clock.." ",online.."/"..total.." "..clock.." ",clock.." ",online.."/"..total.." "}
+    if clock=="" then opts={online.."/"..total.." online ",online.."/"..total.." "} end
+    for _,o in ipairs(opts) do if #o<=room then return o end end
+    return ""
+end
+M.headRight=headRight
 -- ===== Aufgaben: Name, Hauptwert und Detailzeilen je Job =====
 local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Waechter"}
 local function wait(rows,d) if num(d.wait)>0 then rows[#rows+1]={"Naechste",num(d.wait).." s"} end end
@@ -1948,8 +1978,13 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     local label,kind=M.state(e,link)
     local name=e and e.label~="" and e.label or ("Turtle #"..id)
     P.fill(1,colors.blue)
+    local clock=clockText()
+    local tag=(e and JOB[jobOf(e)].name or "").." #"..id
+    local rt=tag.."  "..clock.." "
+    if #name+#rt+2>w then rt=clock~="" and (clock.." ") or (tag.." ") end
+    if #name+#rt+2>w then name=name:sub(1,math.max(1,w-#rt-2)) end
     P.text(2,1,name,colors.white,colors.blue)
-    P.right(1,(e and JOB[jobOf(e)].name or "").." #"..id.." ",colors.white,colors.blue)
+    P.right(1,rt,colors.white,colors.blue)
     if not e then
         P.text(1,3,"Turtle #"..id.." ist der Zentrale",colors.orange)
         P.text(1,4,"(noch) nicht bekannt.",colors.orange)
@@ -2048,11 +2083,8 @@ function M.drawInfo(screen,fleet,link,st,show)
     -- Kopf
     P.fill(1,colors.blue)
     local online=0;for _,l in ipairs(list) do if l.kind~="off" then online=online+1 end end
-    local clock=""
-    if textutils and textutils.formatTime and os.time then
-        local ok,t=pcall(function() return textutils.formatTime(os.time(),true) end);if ok then clock=t end
-    end
-    local rt=link and (online.."/"..#list.." online"..(clock~="" and ("  "..clock) or "").." ") or "keine Verbindung "
+    local clock=clockText()
+    local rt=link and headRight(w-7,online,#list,clock) or "keine Verbindung "
     local title=JOB[show] and JOB[show].plural or "Uebersicht"
     P.text(2,1,(#rt+10+#title<=w) and ("TOAST  "..title) or "TOAST",colors.white,colors.blue)
     P.right(1,rt,link and colors.white or colors.orange,colors.blue)
@@ -2294,11 +2326,14 @@ function M.new(screen,cfg)
             text(x,1," "..lab.." ",up and colors.white or colors.blue,up and colors.red or colors.lightBlue)
             ui.buttons[#ui.buttons+1]={x=x,y=1,w=#lab+2,action="update",enabled=link}
         end
+        -- rechts: online + Uhr (auf kleinen Pockets gekuerzt: "7/8 11:08")
+        local room=w-(ui.canUpdate~=false and 16 or 7)
+        local clock=clockText()
         if link and ui.filter=="net" and fleet.nodes then
             local on=0;for _,id in ipairs(fleet.nodes.ids) do if fleet.nodes.entries[id].online then on=on+1 end end
-            right(1,on.."/"..#fleet.nodes.ids.." online ",colors.white,colors.blue)
-        elseif link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
-        else right(1,"keine Verbindung ",colors.orange,colors.blue) end
+            right(1,headRight(room,on,#fleet.nodes.ids,clock),colors.white,colors.blue)
+        elseif link then right(1,headRight(room,online,#ids,clock),colors.white,colors.blue)
+        else right(1,(#clock>0 and room>=#clock+18) and ("keine Verbindung  "..clock.." ") or "keine Verbindung ",colors.orange,colors.blue) end
         -- Reiter
         -- Reiter: Alle + jede Aufgabe, die es gibt (Farm und Mine immer)
         local total=0;for _,j in ipairs(ORDER) do total=total+count[j] end
@@ -2695,7 +2730,7 @@ local function loop()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             notice="Update wird installiert ...";draw()
-            local ok,why=common.selfUpdate()
+            local ok,why=common.selfUpdate(nil,b.target)
             if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
         elseif e=="timer" and a==timer then
             poll()
@@ -2782,7 +2817,7 @@ local function loop()
             fleet,seen=b.fleet,os.clock()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="update" and b.controllerId==cfg.controllerId then
-            local ok,why=common.selfUpdate()
+            local ok,why=common.selfUpdate(nil,b.target)
             if not ok then common.log("Update: "..tostring(why)) end
         elseif e=="timer" and a==timer then
             poll();draw();timer=os.startTimer(cfg.network.pollInterval)
@@ -2999,8 +3034,9 @@ end
 local function isHome() return st.x == 0 and st.z == 0 end
 local function maybeUpdate()
     if not run.updateReq then return end
+    local want = type(run.updateReq) == "string" and run.updateReq or nil
     run.updateReq = false
-    local ok, why = TC.selfUpdate(function(a, b) run.status, run.detail = a, b end)
+    local ok, why = TC.selfUpdate(function(a, b) run.status, run.detail = a, b end, want)
     if not ok then run.status, run.detail = "Update fehlgeschlagen", tostring(why); TC.log("Update: " .. tostring(why)) end
 end
 local function active()
@@ -3376,7 +3412,7 @@ local function listener()
                 if message.serial > (st.commandSerial or 0) then
                     st.commandSerial = message.serial
                     if message.action == "update" then
-                        run.updateReq = true; run.status, run.detail = "Update", "Wird gleich installiert ..."
+                        run.updateReq = type(b.target) == "string" and b.target or true; run.status, run.detail = "Update", "Wird gleich installiert ..."
                     elseif message.action == "stop" then
                         finish(); run.fault, run.retries, run.retryAt = nil, 0, nil
                     elseif message.action == "reset" then reset()
@@ -3727,8 +3763,9 @@ end
 -- Update-Knopf der Zentrale: nur zwischen zwei Schritten ausfuehren (sicherer Punkt)
 local function maybeUpdate()
     if not run.updateReq then return end
+    local want=type(run.updateReq)=="string" and run.updateReq or nil
     run.updateReq=false
-    local ok,why=TC.selfUpdate(function(a,b) run.status,run.detail=a,b end)
+    local ok,why=TC.selfUpdate(function(a,b) run.status,run.detail=a,b end,want)
     if not ok then run.status,run.detail="Update fehlgeschlagen",tostring(why);TC.log("Update: "..tostring(why)) end
 end
 local function active()
@@ -4508,7 +4545,7 @@ local function listener()
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
                     st.commandSerial=b.serial
-                    if b.action=="update" then run.updateReq=true;run.status,run.detail="Update","Wird gleich installiert ..."
+                    if b.action=="update" then run.updateReq=type(b.target)=="string" and b.target or true;run.status,run.detail="Update","Wird gleich installiert ..."
                     elseif b.action=="stop" then finish();run.fault,run.retries,run.retryAt=nil,0,nil
                     elseif b.action=="reset" then reset()
                     elseif not run.recovery and st.next<=cells then
@@ -4688,7 +4725,7 @@ local function loop()
         elseif e=="rednet_message" and common and toastCfg and common.isUpdateFor(toastCfg,name,channel) then
             -- Update-Befehl der Zentrale (name=Absender, channel=Nachricht)
             cleanup()
-            local ok,why=common.selfUpdate()
+            local ok,why=common.selfUpdate(nil,type(channel)=="table" and channel.target or nil)
             if not ok then common.log("Update: "..tostring(why)) end
             scan()
         elseif e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return
@@ -4826,8 +4863,9 @@ function W.new(o)
     local radioTimeout=C.radioTimeout or 60
     function w.active()
         if run.updateReq then
+            local want=type(run.updateReq)=="string" and run.updateReq or nil
             run.updateReq=false
-            local ok,why=common.selfUpdate(w.status)
+            local ok,why=common.selfUpdate(w.status,want)
             if not ok then w.status("Update fehlgeschlagen",tostring(why));common.log("Update: "..tostring(why)) end
         end
         if run.mode~="off" and radioTimeout>0 and os.clock()-run.lastContact>radioTimeout then w.fail("Funkverbindung verloren") end
@@ -5181,7 +5219,7 @@ function W.new(o)
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
                         st.commandSerial=b.serial
-                        if b.action=="update" then run.updateReq=true;w.status("Update","Wird gleich installiert ...")
+                        if b.action=="update" then run.updateReq=type(b.target)=="string" and b.target or true;w.status("Update","Wird gleich installiert ...")
                         elseif b.action=="stop" then w.finish();run.fault,run.retries,run.retryAt=nil,0,nil
                         elseif b.action=="reset" then reset()
                         elseif not run.recovery then
@@ -6134,7 +6172,7 @@ while true do
         draw()
     elseif e=="peripheral" or e=="peripheral_detach" then modems=wireless();draw()
     elseif e=="rednet_message" and common.isUpdateFor(cfg,a,b) then
-        local ok,why=common.selfUpdate()
+        local ok,why=common.selfUpdate(nil,b.target)
         if not ok then common.log("Update: "..tostring(why)) end
     elseif e=="timer" and a==timer then
         cfg.gps.x,cfg.gps.y,cfg.gps.z,cfg.gps.set=x,y,z,true
@@ -6145,7 +6183,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

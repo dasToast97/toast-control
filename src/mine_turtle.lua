@@ -236,8 +236,9 @@ end
 -- Update-Knopf der Zentrale: nur zwischen zwei Schritten ausfuehren (sicherer Punkt)
 local function maybeUpdate()
     if not run.updateReq then return end
+    local want=type(run.updateReq)=="string" and run.updateReq or nil
     run.updateReq=false
-    local ok,why=TC.selfUpdate(function(a,b) run.status,run.detail=a,b end)
+    local ok,why=TC.selfUpdate(function(a,b) run.status,run.detail=a,b end,want)
     if not ok then run.status,run.detail="Update fehlgeschlagen",tostring(why);TC.log("Update: "..tostring(why)) end
 end
 local function active()
@@ -1017,7 +1018,7 @@ local function listener()
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
                     st.commandSerial=b.serial
-                    if b.action=="update" then run.updateReq=true;run.status,run.detail="Update","Wird gleich installiert ..."
+                    if b.action=="update" then run.updateReq=type(b.target)=="string" and b.target or true;run.status,run.detail="Update","Wird gleich installiert ..."
                     elseif b.action=="stop" then finish();run.fault,run.retries,run.retryAt=nil,0,nil
                     elseif b.action=="reset" then reset()
                     elseif not run.recovery and st.next<=cells then

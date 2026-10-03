@@ -1,5 +1,5 @@
 local M={
-    version="3.6",
+    version="3.6.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -526,14 +526,26 @@ function M.newer(a,b)
     end
     return false
 end
-function M.selfUpdate(statusFn)
+-- want = Version, die die Zentrale erwartet. GitHub liefert nach einem neuen
+-- Stand manchmal noch ein paar Minuten die alte Datei aus dem Zwischenspeicher:
+-- dann bis zu 3x nachladen, sonst NICHT die alte Version installieren
+-- (die Zentrale schickt das Update spaeter nochmal).
+function M.selfUpdate(statusFn,want)
     local say=statusFn or function() end
     if not http then return false,"HTTP im Spiel/Server aus" end
-    say("Update","Lade neue Version ...")
-    local ok,h=pcall(http.get,M.updateUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000))
-    if not ok or not h then return false,"Download fehlgeschlagen" end
-    local code=h.readAll();h.close()
-    if type(code)~="string" or #code<1000 then return false,"Download leer" end
+    want=type(want)=="string" and want:match("^[%d%.]+$") or nil
+    local code
+    for try=1,3 do
+        say("Update","Lade neue Version ..."..(try>1 and (" (Versuch "..try..")") or ""))
+        local ok,h=pcall(http.get,M.updateUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000)..try)
+        if not ok or not h then return false,"Download fehlgeschlagen" end
+        code=h.readAll();h.close()
+        if type(code)~="string" or #code<1000 then return false,"Download leer" end
+        local got=code:match("^%-%- TOAST CONTROL ([%d%.]+)")
+        if not want or not got or not M.newer(want,got) then break end
+        if try==3 then return false,"GitHub liefert noch v"..got.." statt v"..want..", spaeter nochmal" end
+        sleep(10)
+    end
     local fn,why=load(code,"@install","t",_ENV)
     if not fn then return false,"Installer defekt: "..tostring(why) end
     say("Update","Installiere ...")

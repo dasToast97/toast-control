@@ -65,7 +65,7 @@ while true do
         draw()
     elseif e=="peripheral" or e=="peripheral_detach" then modems=wireless();draw()
     elseif e=="rednet_message" and common.isUpdateFor(cfg,a,b) then
-        local ok,why=common.selfUpdate()
+        local ok,why=common.selfUpdate(nil,b.target)
         if not ok then common.log("Update: "..tostring(why)) end
     elseif e=="timer" and a==timer then
         cfg.gps.x,cfg.gps.y,cfg.gps.z,cfg.gps.set=x,y,z,true

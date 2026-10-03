@@ -1,3 +1,12 @@
+# Toast Control 3.6.1
+
+- **Uhr oben rechts** überall: Zentrale, Pocket, Infoscreen-Übersicht und
+  Infoscreen-Detailseite einer Turtle. Auf dem Pocket kürzer („5/6 14:05“).
+- Update sicherer: Die Zentrale schickt die erwartete Version mit. Liefert
+  GitHub kurz nach einem neuen Stand noch die alte Datei aus dem Zwischenspeicher,
+  lädt das Gerät bis zu 3x nach und installiert die alte Version nicht.
+  Nachzügler werden von der Zentrale automatisch nochmal angestoßen.
+
 # Toast Control 3.6
 
 ## Neu in 3.6: Aushub-Turtle (Räume, Schächte, Kugeln …)

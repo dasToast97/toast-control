@@ -176,7 +176,7 @@ function M.new(cfg)
             if only==nil or only==id then
                 local e=m.entries[id]
                 serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
-                m.pending[id]={message={kind="command",action="update",serial=serial},at=os.clock(),job=d.job,ttl=180}
+                m.pending[id]={message={kind="command",action="update",serial=serial,target=version},at=os.clock(),job=d.job,ttl=180}
                 dispatch(id,m.pending[id].message,d.job)
                 if m.online(id) then run.ids[#run.ids+1]=id;run.before[id]=versionOf(id) end
                 count=count+1
@@ -188,7 +188,7 @@ function M.new(cfg)
         for nid in pairs(targets) do
             if only==nil or only==nid then
                 serial=serial+1;count=count+1
-                send(nid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
+                send(nid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial,target=version},common.remoteProtocol)
                 if nodeOnline(nid) then run.ids[#run.ids+1]=nid;run.before[nid]=versionOf(nid) end
             end
         end
@@ -216,7 +216,7 @@ function M.new(cfg)
         local function check(id,online)
             local v=versionOf(id)
             if online and v and v~="?" and common.newer(common.version,v) and os.clock()-(m.healAt[id] or -1e9)>300 then
-                m.healAt[id]=os.clock();m.startUpdate(id)
+                m.healAt[id]=os.clock();m.startUpdate(id,common.version)
             end
         end
         for id in pairs(devices) do check(id,m.online(id)) end
