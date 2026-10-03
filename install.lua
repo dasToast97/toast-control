@@ -132,8 +132,8 @@ M.DEFAULTS={
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
-    farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=64,radioTimeout=60,water={}},
-    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,radioTimeout=60,
+    farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
 }
 local function copy(v)
@@ -202,6 +202,7 @@ function M.configText(c)
             {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
             {"tunnels","Anzahl Gaenge (1-64)"},{"gap","Bloecke zwischen den Gaengen (0-16)"},
             {"side","Gaenge nach \"right\" oder \"left\""},{"sideDig","nur gap = 0: seitlich mitabbauen"},
+            {"useCoal","true = gefundene Kohle direkt als Fuel"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
@@ -209,7 +210,7 @@ function M.configText(c)
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
             {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot"},
-            {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut, das behalten wird"},
+            {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
     end
     if role=="turtle" then
@@ -532,7 +533,7 @@ function S.new(common)
     -- ---- Zusammenfassungen ----
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
-            ..(m.sideDig and m.gap==0 and " +seitl" or "")
+            ..(m.sideDig and m.gap==0 and " +seitl" or "")..(m.useCoal~=false and " +Kohle" or "")
     end
     local function farmText(f)
         return f.length.."x"..f.width.." "..sideName(f.side).." "..(common.CROP_NAMES[f.crop] or f.crop)
@@ -559,6 +560,9 @@ function S.new(common)
                 m.sideDig=yesno("Seitlich mitabbauen?",m.sideDig==true)
             else m.sideDig=false end
         else m.sideDig=false end
+        hint("Kohle aus der Mine: direkt verbrennen")
+        hint("(spart Fahrten) oder abliefern.")
+        m.useCoal=yesno("Gefundene Kohle als Fuel nutzen?",m.useCoal~=false)
     end
     local function editFarm(c)
         local f=c.farm
@@ -572,7 +576,9 @@ function S.new(common)
         hint("1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
         f.crop=crops[ask("Pflanze",cur,1,4)]
         f.interval=ask("Pause zwischen Runden (s)",f.interval,1,86400)
-        f.seedReserve=f.seedReserve or 64
+        hint("Saatgut aus der Ernte wird behalten.")
+        hint("0 = automatisch passend zum Feld")
+        f.seedReserve=ask("Saatgut behalten (0-256)",f.seedReserve or 0,0,256)
         f.water={}
     end
     local function editChunks(c,job)
@@ -1125,6 +1131,7 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     else
         rows={{"Gaenge fertig",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "")},{"Abgebaut",short(d.harvested).." Bloecke"},
             {"Abgebaut / Stunde",perH},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
+        if d.useCoal then rows[#rows+1]={"Kohle verbrannt",short(d.coal).."  (+"..short(num(d.coal)*80).." Fuel)"} end
     end
     rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
     if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks.."  (-"..short(d.chunkFuel).." Fuel/h)") or "aus"} end
@@ -1443,6 +1450,7 @@ function M.new(screen,cfg)
             else
                 rows={{"Gaenge",short(d.rounds).." fertig"},{"Abgebaut",short(d.harvested).." Bloecke"},
                     {"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
+                if d.useCoal then rows[#rows+1]={"Kohle -> Fuel",short(d.coal).." Stueck"} end
             end
             rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
             if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).."/h") or "aus"} end
@@ -1796,12 +1804,20 @@ for _, n in ipairs({ CFG.width, CFG.length }) do
     assert(type(n) == "number" and n >= 1 and n <= 32 and n % 1 == 0,
         "Feldmasse muessen ganze Zahlen zwischen 1 und 32 sein.")
 end
-assert(CFG.interval >= 1 and CFG.seedReserve >= 1 and CFG.seedReserve <= 256,
+assert(CFG.interval >= 1 and CFG.seedReserve >= 0 and CFG.seedReserve <= 256,
     "Ungueltige Wartezeit oder Saatgutreserve.")
 local crop = CROPS[CFG.crop]
 assert(CFG.side == nil or CFG.side == "right" or CFG.side == "left", "farm.side: right oder left.")
 local MIRROR = CFG.side == "left"
 CFG.water = CFG.water or {}
+-- Saatgut aus der Ernte wird behalten und wieder gepflanzt.
+-- seedReserve = 0 (Standard): automatisch so viel, wie das Feld Pflanzstellen hat
+-- (mind. 16, max. 3 Stapel). Die Saatgutkiste hinten wird dann nur noch gebraucht,
+-- wenn die Turtle gar kein Saatgut mehr hat.
+local RESERVE = CFG.seedReserve
+if RESERVE == 0 then
+    RESERVE = math.max(16, math.min(192, CFG.width * CFG.length - #CFG.water))
+end
 -- CCChunkloader: Chunkloader bleibt angebaut, Werkzeug <-> Modem werden getauscht.
 local TC = dofile("/toast_common.lua")
 local CL = TC.chunkConfig(config.chunkload)
@@ -2038,7 +2054,7 @@ local function unload()
     if not container(turtle.inspectDown) then
         return false, "Lager fehlt", "Kiste oder Fass direkt UNTER die Basis setzen."
     end
-    local keep = CFG.seedReserve
+    local keep = RESERVE
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
         if item and not FUEL[item.name] and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
@@ -2095,17 +2111,17 @@ local function refuel()
     return false, "Treibstoff fehlt", "Mehr Kohle / Holzkohle in die obere Kiste legen."
 end
 local function refillSeeds()
-    if count(crop.seed) >= CFG.seedReserve then return true end
+    if count(crop.seed) >= RESERVE then return true end
     local ok, why = face(2)
     if not ok then return false, "Drehen fehlgeschlagen", why end
     local exists = container(turtle.inspect)
     local badItem = false
     if exists then
-        while count(crop.seed) < CFG.seedReserve do
+        while count(crop.seed) < RESERVE do
             local slot = receiveSlot(crop.seed)
             if not slot then break end
             turtle.select(slot)
-            if not turtle.suck(CFG.seedReserve - count(crop.seed)) then break end
+            if not turtle.suck(math.min(64, RESERVE - count(crop.seed))) then break end
             local item = turtle.getItemDetail(slot)
             if not item or item.name ~= crop.seed then turtle.drop(); badItem = true; break end
         end
@@ -2392,7 +2408,7 @@ function M.load(c)
     local f=c.farm; assert(type(f)=="table", "farm fehlt.")
     assert(integer(f.width,1,32) and integer(f.length,1,32), "Feldgroesse: 1 bis 32.")
     assert(({wheat=true,carrots=true,potatoes=true,beetroot=true})[f.crop], "Unbekannte crop.")
-    assert(integer(f.interval,1,86400) and integer(f.seedReserve,1,256), "interval/seedReserve ungueltig.")
+    assert(integer(f.interval,1,86400) and integer(f.seedReserve,0,256), "interval/seedReserve ungueltig.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(type(f.water)=="table", "farm.water muss eine Liste sein (auch {} erlaubt).")
     local cells={}
@@ -2715,6 +2731,29 @@ local function equipTool()
     return false
 end
 local NO_TOOL="Keine Spitzhacke: Diamant-Spitzhacke in die Turtle legen"
+local FUELS={['minecraft:coal']=80,['minecraft:charcoal']=80,['minecraft:coal_block']=800}
+-- mine.useCoal: abgebaute Kohle sofort verbrennen, solange der Tank Platz hat.
+-- Spart Fahrten zur Brennstoffkiste. Nur zwischen zwei Bewegungen (kein
+-- offener Schritt), damit die Positions-Pruefung ueber den Fuelstand stimmt.
+local function burnCoal()
+    if not C.useCoal or st.pending then return end
+    local limit=turtle.getFuelLimit()
+    if limit=="unlimited" or turtle.getFuelLevel()=="unlimited" then return end
+    local burned=0
+    for i=1,16 do
+        local item=turtle.getItemDetail(i)
+        local value=item and FUELS[item.name]
+        if value then
+            turtle.select(i)
+            while turtle.getItemCount(i)>0 and turtle.getFuelLevel()+value<=limit do
+                if not turtle.refuel(1) then break end
+                burned=burned+1
+            end
+        end
+    end
+    if burned>0 then st.coal=(st.coal or 0)+burned;save() end
+    turtle.select(1)
+end
 local function freeSlots()
     local n=0;for i=1,16 do if turtle.getItemCount(i)==0 then n=n+1 end end;return n
 end
@@ -2745,7 +2784,9 @@ local function clear(inspect,dig,interruptible)
                 if tostring(why):find("No tool",1,true) then return false,NO_TOOL end
                 return false,"Nicht abbaubar: "..b.name.." / "..tostring(why)
             end
-            st.harvested=(st.harvested or 0)+1;save();sleep(0.1)
+            st.harvested=(st.harvested or 0)+1;save()
+            if C.useCoal and b.name:find("coal_ore",1,true) then sleep(0.1);burnCoal() end
+            sleep(0.1)
         end
     end
     local exists,b=inspect();if not exists or liquid[b.name] then return true end
@@ -3143,6 +3184,7 @@ local containers={['minecraft:chest']=true,['minecraft:trapped_chest']=true,['mi
 local function container(fn)local ok,b=fn();return ok and containers[b.name] end
 local function unload()
     if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
+    burnCoal()      -- uebrige Kohle zuerst in den Tank (falls eingeschaltet)
     for i=1,16 do
         local item=turtle.getItemDetail(i)
         if item and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
@@ -3159,7 +3201,6 @@ local minimum=2*(width+C.length)+4*C.height+40
 local fuelTarget=math.max(C.fuelTarget,minimum)
 local limit=turtle.getFuelLimit()
 assert(limit=="unlimited" or fuelTarget<=limit,"Fuelbedarf groesser als Tank; Config/Feld verkleinern.")
-local FUELS={['minecraft:coal']=80,['minecraft:charcoal']=80,['minecraft:coal_block']=800}
 local function refuel()
     if turtle.getFuelLevel()=="unlimited" then return true end
     local value=80
@@ -3294,7 +3335,7 @@ local function snapshot()
         contactAge=math.max(0,math.floor(os.clock()-run.lastContact)),radioTimeout=C.radioTimeout,pollToken=run.pollToken,
         width=width,length=C.length,height=C.height,tunnels=C.tunnels,gap=C.gap,fuel=turtle.getFuelLevel(),freeSlots=freeSlots(),
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
-        x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,
+        x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
 sendStatus=function()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end
@@ -3381,6 +3422,7 @@ function M.load(c)
     assert(integer(f.length,1,1024) and integer(f.height,1,64) and integer(f.tunnels,1,64) and integer(f.gap,0,16), "Strip: length 1-1024, height 1-64, tunnels 1-64, gap 0-16.")
     assert(integer(f.fuelTarget,100,20000), "fuelTarget: 100 bis 20000.")
     assert(f.sideDig==nil or type(f.sideDig)=="boolean", "sideDig: true oder false.")
+    assert(f.useCoal==nil or type(f.useCoal)=="boolean", "useCoal: true oder false.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(integer(f.freeSlots,2,8), "freeSlots: 2 bis 8.")
     assert(integer(f.digRetries,1,64), "digRetries: 1 bis 64.")

@@ -68,7 +68,8 @@ function Sim.new(opts)
         if not S.hasTool() then return false,"No tool to dig with" end
         if b=="minecraft:bedrock" then return false,"Unbreakable block detected" end
         if b:find("lava",1,true) or b:find("water",1,true) then return false,"Nothing to dig here" end
-        S.world[key(x,y,z)]=false;add(b=="minecraft:stone" and "minecraft:cobblestone" or b,1);return true
+        S.world[key(x,y,z)]=false;if b=="minecraft:wheat_ripe" and S.seedDrops then add("minecraft:wheat",1);add("minecraft:wheat_seeds",S.seedDrops);return true end
+        add(b=="minecraft:stone" and "minecraft:cobblestone" or b:find("coal_ore",1,true) and "minecraft:coal" or b,1);return true
     end end
     local function mv(kind)return function()
         if S.fuel<=0 then return false,"Out of fuel" end

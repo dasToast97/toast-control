@@ -52,7 +52,7 @@ function S.new(common)
     -- ---- Zusammenfassungen ----
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
-            ..(m.sideDig and m.gap==0 and " +seitl" or "")
+            ..(m.sideDig and m.gap==0 and " +seitl" or "")..(m.useCoal~=false and " +Kohle" or "")
     end
     local function farmText(f)
         return f.length.."x"..f.width.." "..sideName(f.side).." "..(common.CROP_NAMES[f.crop] or f.crop)
@@ -79,6 +79,9 @@ function S.new(common)
                 m.sideDig=yesno("Seitlich mitabbauen?",m.sideDig==true)
             else m.sideDig=false end
         else m.sideDig=false end
+        hint("Kohle aus der Mine: direkt verbrennen")
+        hint("(spart Fahrten) oder abliefern.")
+        m.useCoal=yesno("Gefundene Kohle als Fuel nutzen?",m.useCoal~=false)
     end
     local function editFarm(c)
         local f=c.farm
@@ -92,7 +95,9 @@ function S.new(common)
         hint("1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
         f.crop=crops[ask("Pflanze",cur,1,4)]
         f.interval=ask("Pause zwischen Runden (s)",f.interval,1,86400)
-        f.seedReserve=f.seedReserve or 64
+        hint("Saatgut aus der Ernte wird behalten.")
+        hint("0 = automatisch passend zum Feld")
+        f.seedReserve=ask("Saatgut behalten (0-256)",f.seedReserve or 0,0,256)
         f.water={}
     end
     local function editChunks(c,job)

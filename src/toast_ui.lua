@@ -128,6 +128,7 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     else
         rows={{"Gaenge fertig",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "")},{"Abgebaut",short(d.harvested).." Bloecke"},
             {"Abgebaut / Stunde",perH},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
+        if d.useCoal then rows[#rows+1]={"Kohle verbrannt",short(d.coal).."  (+"..short(num(d.coal)*80).." Fuel)"} end
     end
     rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
     if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks.."  (-"..short(d.chunkFuel).." Fuel/h)") or "aus"} end
@@ -446,6 +447,7 @@ function M.new(screen,cfg)
             else
                 rows={{"Gaenge",short(d.rounds).." fertig"},{"Abgebaut",short(d.harvested).." Bloecke"},
                     {"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
+                if d.useCoal then rows[#rows+1]={"Kohle -> Fuel",short(d.coal).." Stueck"} end
             end
             rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
             if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).."/h") or "aus"} end

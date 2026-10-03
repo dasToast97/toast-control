@@ -38,8 +38,8 @@ M.DEFAULTS={
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
-    farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=64,radioTimeout=60,water={}},
-    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,radioTimeout=60,
+    farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
 }
 local function copy(v)
@@ -108,6 +108,7 @@ function M.configText(c)
             {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
             {"tunnels","Anzahl Gaenge (1-64)"},{"gap","Bloecke zwischen den Gaengen (0-16)"},
             {"side","Gaenge nach \"right\" oder \"left\""},{"sideDig","nur gap = 0: seitlich mitabbauen"},
+            {"useCoal","true = gefundene Kohle direkt als Fuel"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
@@ -115,7 +116,7 @@ function M.configText(c)
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
             {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot"},
-            {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut, das behalten wird"},
+            {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
     end
     if role=="turtle" then

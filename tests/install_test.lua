@@ -73,7 +73,7 @@ ok,err=install(S,true,7)
 check("neue Farm-Config",ok and cfgOf(S).job=="farm",err)
 
 print("F Neue Farm: Name, 10 x 4, links, Karotten, Pause 30")
-S=Sim.new({config=MINECFG,input={"1","1","4","1","Karotten Sued","3","10","4","l","2","30","","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","1","4","1","Karotten Sued","3","10","4","l","2","30","","","j","n"}});S.files={}
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Name + Feld gespeichert",kc and kc.name=="Karotten Sued" and kc.farm.length==10 and kc.farm.width==4 and kc.farm.side=="left"
@@ -93,7 +93,7 @@ check("Feld links abgeerntet, Wasser uebersprungen",fs_.rounds==1 and left==0 an
 check("Name in Statusmeldung",S.last and S.last.label=="Karotten Sued")
 
 print("G Minenmasse aendern -> neuer Auftrag")
-S=Sim.new({config=MINECFG,input={"1","j","3","50","3","3","2","r","","j","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","j","3","50","3","3","2","r","","","j","n","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG
 S.files["/toast_mining_state"]='{x=0,y=0,z=0,dir=0,next=5,total=5,harvested=5,commandSerial=1,layout="strip2:4:2:2:1"}'
 ok,err=install(S,true,7)
@@ -121,13 +121,13 @@ local shown=false;for _,l in ipairs(S.log)do if l:find("47185 Fuel/h",1,true) th
 check("Kosten angezeigt",shown)
 
 print("L Abstand 0 -> seitlich mitabbauen")
-S=Sim.new({config=MINECFG,input={"1","j","3","40","6","8","0","r","j","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
+S=Sim.new({config=MINECFG,input={"1","j","3","40","6","8","0","r","j","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
 ok,err=install(S,true,7)
 local lm=ok and cfgOf(S).mine
 check("sideDig gespeichert",lm and lm.gap==0 and lm.sideDig==true and lm.tunnels==8,err)
 
 print("M Ungueltige Eingabe wird abgefangen")
-S=Sim.new({config=MINECFG,input={"1","j","3","abc","5000","40","","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
+S=Sim.new({config=MINECFG,input={"1","j","3","abc","5000","40","","","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
 ok,err=install(S,true,7)
 check("Laenge 40 trotz Falscheingaben",ok and cfgOf(S).mine.length==40,err)
 

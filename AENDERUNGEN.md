@@ -1,5 +1,22 @@
 # Toast Control 2.9
 
+## Neu: Kohle als Fuel (Mine) und Saatgut automatisch (Farm)
+
+**Mine – gefundene Kohle direkt verbrennen** (`mine.useCoal`, Standard: an).
+Im Menü unter „Mine“: „Gefundene Kohle als Fuel nutzen?“.
+- An: Baut die Turtle Kohleerz ab, wandert die Kohle sofort in den Tank,
+  solange er Platz hat (max. 20.000 Fuel). Spart Fahrten zur Brennstoffkiste.
+  Übrige Kohle wird vor dem Abladen ebenfalls verbrannt.
+- Aus: Kohle landet wie bisher in der Ausgabekiste.
+- In den Details steht „Kohle verbrannt“ mit der Menge.
+
+**Farm – Saatgut aus der Ernte behalten** (`farm.seedReserve`, Standard jetzt 0 = auto).
+Geerntetes Saatgut wird direkt wieder gepflanzt. Beim Abladen behält die
+Turtle automatisch so viel, wie das Feld Pflanzstellen hat (mind. 16,
+max. 192); nur der Rest kommt in die Kiste. Die Saatgutkiste hinten braucht
+es nur noch, wenn die Turtle gar kein Saatgut mehr hat. Eigener Wert
+(1–256) weiterhin im Menü unter „Feld“ möglich.
+
 ## Neu in 2.9 – Bedienung mit Tastatur (Pocket in der Hand, Zentrale)
 
 Pocket und Zentrale lassen sich komplett mit den Tasten steuern, Antippen

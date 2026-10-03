@@ -30,12 +30,20 @@ for _, n in ipairs({ CFG.width, CFG.length }) do
     assert(type(n) == "number" and n >= 1 and n <= 32 and n % 1 == 0,
         "Feldmasse muessen ganze Zahlen zwischen 1 und 32 sein.")
 end
-assert(CFG.interval >= 1 and CFG.seedReserve >= 1 and CFG.seedReserve <= 256,
+assert(CFG.interval >= 1 and CFG.seedReserve >= 0 and CFG.seedReserve <= 256,
     "Ungueltige Wartezeit oder Saatgutreserve.")
 local crop = CROPS[CFG.crop]
 assert(CFG.side == nil or CFG.side == "right" or CFG.side == "left", "farm.side: right oder left.")
 local MIRROR = CFG.side == "left"
 CFG.water = CFG.water or {}
+-- Saatgut aus der Ernte wird behalten und wieder gepflanzt.
+-- seedReserve = 0 (Standard): automatisch so viel, wie das Feld Pflanzstellen hat
+-- (mind. 16, max. 3 Stapel). Die Saatgutkiste hinten wird dann nur noch gebraucht,
+-- wenn die Turtle gar kein Saatgut mehr hat.
+local RESERVE = CFG.seedReserve
+if RESERVE == 0 then
+    RESERVE = math.max(16, math.min(192, CFG.width * CFG.length - #CFG.water))
+end
 -- CCChunkloader: Chunkloader bleibt angebaut, Werkzeug <-> Modem werden getauscht.
 local TC = dofile("/toast_common.lua")
 local CL = TC.chunkConfig(config.chunkload)
@@ -272,7 +280,7 @@ local function unload()
     if not container(turtle.inspectDown) then
         return false, "Lager fehlt", "Kiste oder Fass direkt UNTER die Basis setzen."
     end
-    local keep = CFG.seedReserve
+    local keep = RESERVE
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
         if item and not FUEL[item.name] and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
@@ -329,17 +337,17 @@ local function refuel()
     return false, "Treibstoff fehlt", "Mehr Kohle / Holzkohle in die obere Kiste legen."
 end
 local function refillSeeds()
-    if count(crop.seed) >= CFG.seedReserve then return true end
+    if count(crop.seed) >= RESERVE then return true end
     local ok, why = face(2)
     if not ok then return false, "Drehen fehlgeschlagen", why end
     local exists = container(turtle.inspect)
     local badItem = false
     if exists then
-        while count(crop.seed) < CFG.seedReserve do
+        while count(crop.seed) < RESERVE do
             local slot = receiveSlot(crop.seed)
             if not slot then break end
             turtle.select(slot)
-            if not turtle.suck(CFG.seedReserve - count(crop.seed)) then break end
+            if not turtle.suck(math.min(64, RESERVE - count(crop.seed))) then break end
             local item = turtle.getItemDetail(slot)
             if not item or item.name ~= crop.seed then turtle.drop(); badItem = true; break end
         end

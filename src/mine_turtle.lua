@@ -277,6 +277,29 @@ local function equipTool()
     return false
 end
 local NO_TOOL="Keine Spitzhacke: Diamant-Spitzhacke in die Turtle legen"
+local FUELS={['minecraft:coal']=80,['minecraft:charcoal']=80,['minecraft:coal_block']=800}
+-- mine.useCoal: abgebaute Kohle sofort verbrennen, solange der Tank Platz hat.
+-- Spart Fahrten zur Brennstoffkiste. Nur zwischen zwei Bewegungen (kein
+-- offener Schritt), damit die Positions-Pruefung ueber den Fuelstand stimmt.
+local function burnCoal()
+    if not C.useCoal or st.pending then return end
+    local limit=turtle.getFuelLimit()
+    if limit=="unlimited" or turtle.getFuelLevel()=="unlimited" then return end
+    local burned=0
+    for i=1,16 do
+        local item=turtle.getItemDetail(i)
+        local value=item and FUELS[item.name]
+        if value then
+            turtle.select(i)
+            while turtle.getItemCount(i)>0 and turtle.getFuelLevel()+value<=limit do
+                if not turtle.refuel(1) then break end
+                burned=burned+1
+            end
+        end
+    end
+    if burned>0 then st.coal=(st.coal or 0)+burned;save() end
+    turtle.select(1)
+end
 local function freeSlots()
     local n=0;for i=1,16 do if turtle.getItemCount(i)==0 then n=n+1 end end;return n
 end
@@ -307,7 +330,9 @@ local function clear(inspect,dig,interruptible)
                 if tostring(why):find("No tool",1,true) then return false,NO_TOOL end
                 return false,"Nicht abbaubar: "..b.name.." / "..tostring(why)
             end
-            st.harvested=(st.harvested or 0)+1;save();sleep(0.1)
+            st.harvested=(st.harvested or 0)+1;save()
+            if C.useCoal and b.name:find("coal_ore",1,true) then sleep(0.1);burnCoal() end
+            sleep(0.1)
         end
     end
     local exists,b=inspect();if not exists or liquid[b.name] then return true end
@@ -705,6 +730,7 @@ local containers={['minecraft:chest']=true,['minecraft:trapped_chest']=true,['mi
 local function container(fn)local ok,b=fn();return ok and containers[b.name] end
 local function unload()
     if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
+    burnCoal()      -- uebrige Kohle zuerst in den Tank (falls eingeschaltet)
     for i=1,16 do
         local item=turtle.getItemDetail(i)
         if item and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
@@ -721,7 +747,6 @@ local minimum=2*(width+C.length)+4*C.height+40
 local fuelTarget=math.max(C.fuelTarget,minimum)
 local limit=turtle.getFuelLimit()
 assert(limit=="unlimited" or fuelTarget<=limit,"Fuelbedarf groesser als Tank; Config/Feld verkleinern.")
-local FUELS={['minecraft:coal']=80,['minecraft:charcoal']=80,['minecraft:coal_block']=800}
 local function refuel()
     if turtle.getFuelLevel()=="unlimited" then return true end
     local value=80
@@ -856,7 +881,7 @@ local function snapshot()
         contactAge=math.max(0,math.floor(os.clock()-run.lastContact)),radioTimeout=C.radioTimeout,pollToken=run.pollToken,
         width=width,length=C.length,height=C.height,tunnels=C.tunnels,gap=C.gap,fuel=turtle.getFuelLevel(),freeSlots=freeSlots(),
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
-        x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,
+        x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
 sendStatus=function()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end
