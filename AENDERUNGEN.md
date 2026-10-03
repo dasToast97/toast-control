@@ -1,3 +1,8 @@
+# Toast Control 3.6.2
+
+- Zentrale/Infoscreen/Repeater ohne GPS-Position: klarer Hinweis am Computer,
+  wie man die Koordinaten von Hand einträgt (`toast.lua config` -> GPS).
+
 # Toast Control 3.6.1
 
 - **Uhr oben rechts** überall: Zentrale, Pocket, Infoscreen-Übersicht und

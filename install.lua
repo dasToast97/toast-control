@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.6.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.6.1",
+    version="3.6.2",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -517,6 +517,17 @@ function M.gpsHost(c,quiet)
     if not g.set and g.auto and gps and gps.locate then
         if not quiet then print("GPS: suche eigene Position ...") end
         local ok,x,y,z=pcall(gps.locate,2)
+        if not (ok and x) and not quiet then
+            if term.isColor and term.isColor() then term.setTextColor(colors.orange) end
+            print("GPS: keine Position gefunden (normal,")
+            print("solange es keine 4 GPS-Sender gibt).")
+            print("Laeuft trotzdem, nur ohne GPS-Senden.")
+            print("Eintragen: Strg+T halten, dann")
+            print("  toast.lua config  -> GPS")
+            print("Koordinaten: F3 auf diesen Computer")
+            print("schauen ('Targeted Block').")
+            if term.isColor and term.isColor() then term.setTextColor(colors.white) end
+        end
         if ok and x then
             g.x,g.y,g.z,g.set=math.floor(x+0.5),math.floor(y+0.5),math.floor(z+0.5),true
             pcall(function()
@@ -6183,7 +6194,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.6.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
