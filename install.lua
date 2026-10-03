@@ -5716,7 +5716,13 @@ local function config(path)
 end
 local oldFarm,oldMine=config("/farm.config.lua"),config("/mine.config.lua")
 local existing=config("/toast.config.lua")
-assert(not auto or existing,"Auto-Update: keine gueltige Config - bitte von Hand installieren.")
+-- Neues Geraet ohne Config: "auto" geht nicht ohne Angaben -> normale Einrichtung
+if auto and not existing then
+    if internal then error("Auto-Update: keine gueltige Config.",0) end
+    auto=false
+    warn("Noch nicht eingerichtet: normale Installation.")
+    sleep(1)
+end
 if existing and not pcall(function()
     local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info" or copy.role=="gps") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.

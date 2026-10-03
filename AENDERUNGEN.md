@@ -1,6 +1,8 @@
 # Toast Control 3.4
 
 ## 3.4.1
+- `… install.lua auto` auf einem **neuen** Gerät (ohne Config) startet jetzt die
+  normale Einrichtung mit Fragen, statt mit Fehler abzubrechen.
 - `wget run <link> auto` von Hand: installiert ohne Fragen **und startet Toast
   danach wieder** (vorher blieb das Gerät nach dem Update an der Eingabe stehen).
 

@@ -250,4 +250,11 @@ do local G=env(S,true,7);local ran;G.shell={run=function(p)ran=p end}
   local f=assert(load(src,"@inst","t",G));local okA=pcall(f,"auto","intern")
   check("intern: kein Start",okA and ran==nil) end
 
+print("X3 'auto' auf neuer Turtle: normale Einrichtung statt Fehler")
+S=Sim.new({config=MINECFG,input={"2","4","","j","n"}});S.files={}
+ok,err=install(S,true,7,{"auto"})
+kc=ok and cfgOf(S)
+check("neue Mining-Turtle eingerichtet",kc and kc.job=="mining" and kc.controllerId==4,err)
+check("Autostart gefragt + angelegt",S.files["/startup.lua"]~=nil)
+
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))
