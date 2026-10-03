@@ -49,7 +49,7 @@ local function runOnce()
         },{__index=_ENV})
         return assert(loadfile("/toast/"..name.."_turtle.lua","t",env))(table.unpack(args))
     end
-    local program=({controller="toast_control.lua",pocket="toast_pocket.lua",repeater="repeater.lua",info="toast_info.lua"})[cfg.role]
+    local program=({controller="toast_control.lua",pocket="toast_pocket.lua",repeater="repeater.lua",info="toast_info.lua",gps="toast_gps.lua"})[cfg.role]
     return assert(loadfile("/toast/"..program,"t",_ENV))(table.unpack(args))
 end
 

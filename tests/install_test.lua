@@ -213,4 +213,28 @@ check("neue Laenge 9 gespeichert",kc and kc.mine.length==9,err)
 check("alter Fortschritt geloescht",S.files["/toast_mining_state"]==nil)
 check("Programme noch da",S.files["/toast/mine_turtle.lua"]~=nil)
 
+print("W Computer ohne Monitor: 4 = GPS-Sender, Koordinaten eingeben")
+S=Sim.new({config=MINECFG,input={"1","4","1","GPS Nord","2","100","70","-20","","","j","n"}});S.files={}
+ok,err=install(S,false,40)
+kc=ok and cfgOf(S)
+check("GPS-Config",kc and kc.role=="gps" and kc.gps.x==100 and kc.gps.y==70 and kc.gps.z==-20 and kc.gps.auto==true and kc.name=="GPS Nord",err)
+check("GPS-Programm installiert",S.files["/toast/toast_gps.lua"]~=nil and S.files["/startup.lua"]~=nil)
+-- GPS-Sender beantwortet PING
+local G=Sim.env(S);G.turtle=nil;G.os.getComputerID=function()return 40 end
+local sent={}
+local modem={isWireless=function()return true end,open=function()end,transmit=function(ch,rep,msg)sent[#sent+1]={ch,rep,msg}end}
+G.peripheral.getNames=function()return {"top"} end
+G.peripheral.getType=function(n)return n=="top" and "modem" or nil end
+G.peripheral.wrap=function(n)return n=="top" and modem or nil end
+G.textutils.formatTime=function()return "12:00" end;G.os.time=function()return 12 end
+G.term.isColor=function()return true end
+local co=coroutine.create(function() return assert(G.loadfile("/toast.lua","t",G))() end)
+local function resume(...) local r=table.pack(coroutine.resume(co,...));if not r[1] then error(r[2]) end;return r end
+resume()
+resume("modem_message","top",65534,4711,"PING",12.5)
+check("Antwort mit Koordinaten",#sent==1 and sent[1][1]==4711 and sent[1][2]==65534 and sent[1][3][1]==100 and sent[1][3][2]==70 and sent[1][3][3]==-20,
+  sent[1] and table.concat(sent[1][3] or {},","))
+resume("modem_message","top",65534,4711,"PING",nil)
+check("ohne Entfernung (Kabel) keine Antwort",#sent==1)
+
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))

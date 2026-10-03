@@ -52,7 +52,7 @@ local function runOnce()
         },{__index=_ENV})
         return assert(loadfile("/toast/"..name.."_turtle.lua","t",env))(table.unpack(args))
     end
-    local program=({controller="toast_control.lua",pocket="toast_pocket.lua",repeater="repeater.lua",info="toast_info.lua"})[cfg.role]
+    local program=({controller="toast_control.lua",pocket="toast_pocket.lua",repeater="repeater.lua",info="toast_info.lua",gps="toast_gps.lua"})[cfg.role]
     return assert(loadfile("/toast/"..program,"t",_ENV))(table.unpack(args))
 end
 
@@ -167,7 +167,8 @@ M.DEFAULTS={
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
-    base={set=false,x=0,y=64,z=0,facing="north"},
+    base={set=false,x=0,y=64,z=0,facing="north",dimension="auto"},
+    gps={auto=true,x=0,y=64,z=0},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
@@ -180,7 +181,7 @@ local function copy(v)
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,base=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -225,7 +226,7 @@ function M.configText(c)
     end
     local role,job=c.role,c.job
     local what=role=="turtle" and ("Turtle / "..(M.JOB_NAMES[job] or tostring(job))) or
-        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role] or tostring(role)
+        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[role] or tostring(role)
     out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
     out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
@@ -234,7 +235,12 @@ function M.configText(c)
     if role=="turtle" then line(4,"job",q(job),"farm, mining, tree oder mob") end
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
-    elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    elseif role~="repeater" and role~="gps" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    if role=="gps" then
+        section("gps","GPS-Sender: Koordinaten DIESES Computers (F3, Targeted Block)",{
+            {"auto","true = beim Start selbst per GPS suchen (wenn schon 4 andere laufen)"},
+            {"x","X"},{"y","Y"},{"z","Z"}},c.gps)
+    end
     if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\" oder Turtle-ID") end
     if role=="turtle" and job=="mining" then
         section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
@@ -275,7 +281,8 @@ function M.configText(c)
         section("base","Basis-Koordinaten (F3) fuer die Positionsanzeige",{
             {"set","true = Koordinaten unten sind eingetragen"},{"x","X der Turtle an der Basis"},
             {"y","Y der Turtle an der Basis"},{"z","Z der Turtle an der Basis"},
-            {"facing","Blick an der Basis: north/east/south/west"}},c.base)
+            {"facing","Blick an der Basis: north/east/south/west"},
+            {"dimension","\"auto\", \"overworld\", \"nether\" oder \"end\""}},c.base)
     end
     if role=="turtle" and (job=="farm" or job=="mining") then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
@@ -321,7 +328,13 @@ function M.load(c)
     M.withDefaults(c)
     c.role=c.role or "auto"
     if c.role=="auto" then c.role=turtle and "turtle" or (pocket and "pocket" or "controller") end
-    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info")
+    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true,gps=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info/gps")
+    if c.role=="gps" then
+        local g=c.gps
+        assert(not turtle and not pocket,"GPS-Sender auf einem stationaeren Computer installieren.")
+        assert(type(g)=="table" and type(g.auto)=="boolean","gps.auto: true oder false.")
+        assert(M.integer(g.x,-30000000,30000000) and M.integer(g.y,-2048,4096) and M.integer(g.z,-30000000,30000000),"gps: x/y/z ganze Zahlen.")
+    end
     assert(M.id(c.controllerId),"controllerId: ganze ID 0 bis 65500.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
@@ -359,6 +372,10 @@ function M.load(c)
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
     if c.chunkload~=nil then M.chunkConfig(c.chunkload) end
+    if type(c.base)=="table" then
+        c.base.dimension=c.base.dimension or "auto"
+        assert(M.DIM_NAMES[c.base.dimension] or c.base.dimension=="auto","base.dimension: auto, overworld, nether oder end.")
+    end
     if type(c.base)=="table" and c.base.set then
         local b=c.base
         assert(M.integer(b.x,-30000000,30000000) and M.integer(b.y,-2048,4096) and M.integer(b.z,-30000000,30000000),"base: x/y/z ganze Zahlen.")
@@ -390,22 +407,116 @@ function M.position(c,job,x,y,z)
     end
     return rel,abs
 end
--- GPS (falls im Spiel GPS-Computer stehen): hoechstens alle 60 s fragen
-local gpsAt,gpsPos=-1e9,nil
-function M.gps()
+-- ===== GPS =====
+-- Echte GPS-Abfrage kostet Zeit (Funk). Darum: zwei GPS-Messungen an verschiedenen
+-- Stellen reichen, um Basis und Blickrichtung auszurechnen ("kalibriert"). Danach
+-- werden die Koordinaten bei JEDER Statusmeldung (jede Sekunde) aus der eigenen
+-- Bewegung berechnet, und GPS prueft nur noch alle 10 s nach.
+local gpsAt,gpsMiss=-1e9,0
+local anchors={}
+local cal=nil                 -- {x,y,z,facing}
+M.FACES={"north","east","south","west"}
+local function rot(facing,rel)
+    local f,r=M.FACING[facing],M.FACING[RIGHT[facing]]
+    return f[1]*rel.fwd+r[1]*rel.right,rel.up,f[2]*rel.fwd+r[2]*rel.right
+end
+local function calibrate(a,b)
+    if a.rel.fwd==b.rel.fwd and a.rel.right==b.rel.right then return end
+    for _,face in ipairs(M.FACES) do
+        local ax,ay,az=rot(face,a.rel);local bx,by,bz=rot(face,b.rel)
+        local okx=math.abs((b.fix.x-a.fix.x)-(bx-ax))<=1
+        local okz=math.abs((b.fix.z-a.fix.z)-(bz-az))<=1
+        local oky=math.abs((b.fix.y-a.fix.y)-(by-ay))<=1
+        if okx and oky and okz then
+            cal={x=b.fix.x-bx,y=b.fix.y-by,z=b.fix.z-bz,facing=face}
+            return
+        end
+    end
+end
+function M.gpsCalibration() return cal end
+function M.gpsReset() cal=nil;anchors={};gpsAt=-1e9;gpsMiss=0 end
+local function locate()
     if not gps or not gps.locate then return nil end
-    if os.clock()-gpsAt<60 then return gpsPos end
+    local wait=cal and 10 or (gpsMiss>=3 and 60 or 3)
+    if os.clock()-gpsAt<wait then return nil end
     gpsAt=os.clock()
-    local ok,x,y,z=pcall(gps.locate,0.5)
-    gpsPos=(ok and x) and {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5)} or nil
-    return gpsPos
+    local ok,x,y,z=pcall(gps.locate,0.3)
+    if not ok or not x then gpsMiss=gpsMiss+1;return nil end
+    gpsMiss=0
+    return {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5)}
+end
+-- Liefert aktuelle Koordinaten (live) oder nil
+function M.gpsPosition(rel)
+    local fix=locate()
+    if fix and rel then
+        local a={fix=fix,rel={fwd=rel.fwd,right=rel.right,up=rel.up}}
+        if cal then
+            -- Kontrolle: passt die Rechnung noch? Sonst neu kalibrieren.
+            local x,y,z=rot(cal.facing,rel)
+            if math.abs(cal.x+x-fix.x)>1 or math.abs(cal.y+y-fix.y)>1 or math.abs(cal.z+z-fix.z)>1 then cal=nil;anchors={} end
+        end
+        if not cal then
+            for _,o in ipairs(anchors) do calibrate(o,a);if cal then break end end
+            anchors[#anchors+1]=a;while #anchors>6 do table.remove(anchors,1) end
+        end
+    end
+    if cal and rel then
+        local x,y,z=rot(cal.facing,rel)
+        return {x=cal.x+x,y=cal.y+y,z=cal.z+z,live=true}
+    end
+    -- noch nicht kalibriert: letzte Messung gilt, solange sie sich nicht bewegt hat
+    local last=anchors[#anchors]
+    if last and rel and last.rel.fwd==rel.fwd and last.rel.right==rel.right and last.rel.up==rel.up then return last.fix end
+    return nil
+end
+-- ===== Dimension =====
+-- CC kennt keine Dimension; erkannt wird sie an den Bloecken um die Turtle
+-- (Netherrack = Nether, Endstein = End, Stein/Erde = Oberwelt). Eingetragene
+-- Dimension (base.dimension) gilt, solange nichts Eindeutiges zu sehen ist.
+M.DIM_NAMES={overworld="Oberwelt",nether="Nether",["end"]="End"}
+local NETHER={"netherrack","basalt","blackstone","soul_sand","soul_soil","nether_","crimson_","warped_",
+    "magma_block","glowstone","ancient_debris","quartz_ore","shroomlight","nylium"}
+local END={"end_stone","purpur","chorus"}
+local OVER={"minecraft:stone","deepslate","minecraft:dirt","grass_block","minecraft:sand","gravel","granite","diorite",
+    "andesite","tuff","calcite","sandstone","clay","_log","leaves","coal_ore","iron_ore","copper_ore","gold_ore",
+    "diamond_ore","redstone_ore","lapis_ore","emerald_ore","minecraft:water","snow","moss","podzol","mud"}
+local function has(list,name) for _,p in ipairs(list) do if name:find(p,1,true) then return true end end;return false end
+function M.dimensionOf(name)
+    if type(name)~="string" then return nil end
+    if has(NETHER,name) then return "nether" end
+    if has(END,name) then return "end" end
+    if name=="minecraft:bedrock" or name:find("lava",1,true) then return nil end
+    if has(OVER,name) then return "overworld" end
+    return nil
+end
+local dimSeen,dimAt,dimCheck=nil,-1e9,-1e9
+-- Hoechstens alle 20 s kurz oben/unten/vorne nachsehen (kostet kein Fuel)
+function M.senseDimension()
+    if not turtle or os.clock()-dimCheck<20 then return dimSeen end
+    dimCheck=os.clock()
+    local votes={}
+    for _,fn in ipairs({turtle.inspectDown,turtle.inspectUp,turtle.inspect}) do
+        local ok,e,b=pcall(fn)
+        if ok and e and type(b)=="table" then
+            local d=M.dimensionOf(b.name);if d then votes[d]=(votes[d] or 0)+1 end
+        end
+    end
+    local best,n=nil,0
+    for d,v in pairs(votes) do if v>n then best,n=d,v end end
+    if best then dimSeen,dimAt=best,os.clock() end
+    return dimSeen
 end
 -- Status einer Turtle um Positionsangaben ergaenzen
 function M.addPosition(msg,c,job)
     if type(msg)~="table" or msg.x==nil then return msg end
     local rel,abs=M.position(c,job,msg.x,msg.y,msg.z)
     msg.rel=rel;msg.pos=abs
-    local g=M.gps();if g then msg.gps=g end
+    local g=M.gpsPosition(rel);if g then msg.gps=g end
+    local seen=M.senseDimension()
+    local set=type(c.base)=="table" and M.DIM_NAMES[c.base.dimension] and c.base.dimension or nil
+    msg.dim=seen or set
+    msg.dimSeen=seen~=nil
+    msg.dimSet=set
     return msg
 end
 function M.checkTree(t)
@@ -783,9 +894,12 @@ function S.new(common)
         fg(colors.white);sleep(1.5)
     end
     local FACE_NAMES={north="Norden",east="Osten",south="Sueden",west="Westen"}
+    local DIMS={"auto","overworld","nether","end"}
+    local DIM_TEXT={auto="Dim. auto",overworld="Oberwelt",nether="Nether",["end"]="End"}
     local function baseText(b)
-        if not b.set then return "aus (nur Abstand zur Basis)" end
-        return b.x.." "..b.y.." "..b.z.." Blick "..(FACE_NAMES[b.facing] or b.facing)
+        local d=DIM_TEXT[b.dimension or "auto"] or ""
+        if not b.set then return "Koord. aus, "..d end
+        return b.x.." "..b.y.." "..b.z.." "..(FACE_NAMES[b.facing] or b.facing):sub(1,1)..", "..d
     end
     local function editBase(c)
         local b=c.base
@@ -794,6 +908,10 @@ function S.new(common)
         hint("Koordinaten der Turtle zeigen.")
         hint("F3 an der Basis: Block der Turtle,")
         hint("Blickrichtung = wohin sie schaut.")
+        hint("Dimension: 1 automatisch erkennen")
+        hint("2 Oberwelt  3 Nether  4 End")
+        local cd=1;for i,v in ipairs(DIMS) do if v==(b.dimension or "auto") then cd=i end end
+        b.dimension=DIMS[ask("Dimension",cd,1,4)]
         b.set=yesno("Koordinaten eintragen?",b.set==true)
         if not b.set then return end
         b.x=ask("X",b.x,-30000000,30000000)
@@ -804,6 +922,30 @@ function S.new(common)
         local list={"north","east","south","west"}
         local cur=1;for i,v in ipairs(list) do if v==b.facing then cur=i end end
         b.facing=list[ask("Blickrichtung",cur,1,4)]
+    end
+    local function gpsText(g) return "X "..g.x.." Y "..g.y.." Z "..g.z..(g.auto and " (auto)" or "") end
+    local function editGps(c)
+        local g=c.gps
+        header("GPS-Sender: eigene Koordinaten")
+        hint("Laufen schon 4 andere GPS-Sender, kann")
+        hint("er seine Position selbst finden.")
+        if gps and gps.locate and common.refreshModems()>0 then
+            print("Suche Position per GPS ...")
+            local ok,x,y,z=pcall(gps.locate,2)
+            if ok and x then
+                x,y,z=math.floor(x+0.5),math.floor(y+0.5),math.floor(z+0.5)
+                fg(colors.lime);print(cut("Gefunden: X "..x.." Y "..y.." Z "..z));fg(colors.white)
+                if yesno("Uebernehmen?",true) then g.x,g.y,g.z,g.auto=x,y,z,true;return end
+            else
+                fg(colors.orange);print(cut("Kein GPS gefunden (normal fuer"));print(cut("die ersten 4 Sender)."));fg(colors.white)
+            end
+        end
+        hint("F3 auf DIESEN Computer schauen:")
+        hint("rechts 'Targeted Block' X Y Z")
+        g.x=ask("X",g.x,-30000000,30000000)
+        g.y=ask("Y",g.y,-2048,4096)
+        g.z=ask("Z",g.z,-30000000,30000000)
+        g.auto=yesno("Spaeter selbst per GPS pruefen?",g.auto~=false)
     end
     local function editChunks(c,job)
         local cl=c.chunkload
@@ -907,6 +1049,10 @@ function S.new(common)
         local list={{"Name",function() return c.name~="" and c.name or "-" end,function()
             header("Name");hint("Leer lassen = behalten, - = loeschen")
             c.name=askText("Name",c.name);c.label=c.name end}}
+        if role=="gps" then
+            list[#list+1]={"Position",function() return gpsText(c.gps) end,function() editGps(c) end}
+            return list
+        end
         if role~="controller" and role~="repeater" then
             list[#list+1]={"Zentrale",function() return "#"..c.controllerId end,function() editController(c) end}
         end
@@ -945,7 +1091,7 @@ function S.new(common)
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
         local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
-            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[info.role].." #"..os.getComputerID())
+            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
             header(what)
@@ -1338,6 +1484,12 @@ M.coordText=coordText
 local function common_rows(rows,d)
     local pt=posText(d);if pt then rows[#rows+1]={"Position",pt} end
     local ct=coordText(d);if ct then rows[#rows+1]={"Koordinaten",ct} end
+    if d.dim then
+        local names={overworld="Oberwelt",nether="Nether",["end"]="End"}
+        local t=names[d.dim] or tostring(d.dim)
+        if d.dimSet and d.dimSet~=d.dim then t=t.." (Config: "..(names[d.dimSet] or d.dimSet)..")" end
+        rows[#rows+1]={"Dimension",t}
+    end
     rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
     if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).." Fuel/h") or "aus"} end
     return rows
@@ -4957,6 +5109,78 @@ pcall(w.equipTool,isTool)
 local names={farm="Mobfarm",guard="Wache",patrol="Waechter "..C.length.."x"..C.width}
 w.start("TOAST MOBS",names[C.mode])
 ]======]
+FILES["toast_gps.lua"]=[======[
+-- Toast Control: GPS-Sender. Beantwortet GPS-Anfragen (gps locate) von Turtles,
+-- Pockets und Computern mit den eigenen Koordinaten. Man braucht mindestens 4
+-- GPS-Sender, die NICHT alle auf einer Hoehe/Ebene stehen.
+-- Koordinaten: aus der Config (gps.x/y/z) oder - wenn schon andere GPS-Sender
+-- laufen und gps.auto = true - beim Start selbst per GPS ermittelt.
+local common=dofile("/toast/toast_common.lua")
+local cfg=common.load();assert(cfg.role=="gps","GPS-Sender erforderlich.")
+local G=cfg.gps
+local CH=gps and gps.CHANNEL_GPS or 65534
+local function wireless()
+    local list={}
+    for _,name in ipairs(peripheral.getNames()) do
+        if peripheral.getType(name)=="modem" then
+            local m=peripheral.wrap(name)
+            if m and m.isWireless and m.isWireless() then m.open(CH);list[name]=m end
+        end
+    end
+    return list
+end
+local modems=wireless()
+assert(next(modems),"Funk- oder Endermodem fehlt (Endermodem = unbegrenzte Reichweite).")
+local x,y,z,source=G.x,G.y,G.z,"Config"
+if G.auto and gps and gps.locate then
+    print("Suche eigene Position per GPS ...")
+    local ok,ax,ay,az=pcall(gps.locate,2)
+    if ok and ax then
+        x,y,z,source=math.floor(ax+0.5),math.floor(ay+0.5),math.floor(az+0.5),"GPS"
+        if x~=G.x or y~=G.y or z~=G.z then
+            -- gefundene Position merken (falls spaeter weniger Sender laufen)
+            G.x,G.y,G.z=x,y,z
+            pcall(function()
+                local c=common.withDefaults(dofile("/toast.config.lua"));c.gps.x,c.gps.y,c.gps.z=x,y,z
+                local f=fs.open("/toast.config.lua","w");f.write(common.configText(c));f.close()
+            end)
+        end
+    end
+end
+local served,last,started=0,"-",os.clock()
+local function draw()
+    local w,h=term.getSize()
+    term.setBackgroundColor(colors.black);term.clear()
+    local function line(yy,text,col)
+        if yy>h then return end
+        term.setCursorPos(1,yy);if term.isColor and term.isColor() then term.setTextColor(col or colors.white) end
+        term.write(tostring(text):sub(1,w))
+    end
+    line(1,"TOAST GPS-SENDER  #"..os.getComputerID(),colors.cyan)
+    line(3,"Position  X "..x.."  Y "..y.."  Z "..z,colors.lime)
+    line(4,"Quelle    "..source,colors.lightGray)
+    local n=0;for _ in pairs(modems) do n=n+1 end
+    line(5,"Modems    "..n,colors.lightGray)
+    line(7,"Anfragen  "..served)
+    line(8,"Zuletzt   "..last,colors.lightGray)
+    line(10,"Mind. 4 Sender, nicht alle auf einer Ebene.",colors.lightGray)
+    line(11,"Q: beenden",colors.lightGray)
+end
+draw()
+local timer=os.startTimer(5)
+while true do
+    local e,a,b,c,d,dist=os.pullEvent()
+    if e=="modem_message" and b==CH and d=="PING" and dist then
+        local m=modems[a] or peripheral.wrap(a)
+        if m then pcall(m.transmit,c,CH,{x,y,z});served=served+1;last=(textutils.formatTime and textutils.formatTime(os.time(),true) or "jetzt") end
+        draw()
+    elseif e=="peripheral" or e=="peripheral_detach" then modems=wireless();draw()
+    elseif e=="timer" and a==timer then draw();timer=os.startTimer(5)
+    elseif e=="char" and (a=="q" or a=="Q") then
+        term.clear();term.setCursorPos(1,1);print("GPS-Sender beendet.");return
+    end
+end
+]======]
 -- TOAST CONTROL 3.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
@@ -5022,7 +5246,7 @@ end
 local oldFarm,oldMine=config("/farm.config.lua"),config("/mine.config.lua")
 local existing=config("/toast.config.lua")
 if existing and not pcall(function()
-    local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
+    local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info" or copy.role=="gps") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.
     warn("Vorhandene Config ungueltig, wird neu erstellt.")
     existing=nil
@@ -5044,6 +5268,7 @@ if oldMine then resetProtection(oldMine) end
 local role=turtle and "turtle" or (pocket and "pocket" or "controller")
 if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") then role="repeater" end
 if not turtle and not pocket and c.role=="info" and not requested then role="info" end
+if not turtle and not pocket and c.role=="gps" and not requested then role="gps" end
 -- Neuer stationaerer Computer: Zentrale oder Repeater? Ohne Monitor ist Repeater vorgewaehlt.
 if role=="controller" and not requested and (clean or not existing) then
     local monitor=peripheral.find("monitor")~=nil
@@ -5052,6 +5277,7 @@ if role=="controller" and not requested and (clean or not existing) then
     fg(colors.yellow);write("1 ");fg(colors.white);print("Zentrale  (steuert alle Turtles)")
     fg(colors.yellow);write("2 ");fg(colors.white);print("Repeater  (leitet Funk weiter)")
     fg(colors.yellow);write("3 ");fg(colors.white);print("Infoscreen  (zeigt nur Infos/Stats)")
+    fg(colors.yellow);write("4 ");fg(colors.white);print("GPS-Sender  (fuer Turtle-Koordinaten)")
     print("")
     while true do
         write("Auswahl ["..(monitor and "1" or "2").."]: ")
@@ -5060,6 +5286,7 @@ if role=="controller" and not requested and (clean or not existing) then
         if v=="1" then break end
         if v=="2" then role="repeater";break end
         if v=="3" then role="info";break end
+        if v=="4" then role="gps";break end
     end
 end
 assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaerem Computer installieren.")
@@ -5119,7 +5346,7 @@ if not existing then
         if job then c.label=common.label((source.labels or {})[os.getComputerID()]) end
     end
     if role=="controller" then c.controllerId=os.getComputerID()
-    elseif role~="repeater" and not source then
+    elseif role~="repeater" and role~="gps" and not source then
         local found={}
         if common.refreshModems()>0 then
             ui.header("Suche Zentrale ...")
@@ -5168,6 +5395,7 @@ if role=="controller" then
     for _,name in ipairs({"toast_control.lua","toast_model.lua","toast_ui.lua"})do names[#names+1]=name end
 elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="toast_ui.lua"
 elseif role=="info" then names[#names+1]="toast_info.lua";names[#names+1]="toast_ui.lua"
+elseif role=="gps" then names[#names+1]="toast_gps.lua"
 elseif role=="turtle" and (job=="tree" or job=="mob") then
     names[#names+1]=job.."_turtle.lua";names[#names+1]="toast_worker.lua"
 elseif role=="turtle" then
@@ -5205,8 +5433,8 @@ ui.header("Fertig")
 print("")
 fg(colors.lime);print("Toast Control "..common.version.." installiert");fg(colors.white)
 print((role=="turtle" and ("Turtle / "..(common.JOB_NAMES[job] or job))
-    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role])..(c.name~="" and (" / "..c.name) or ""))
-if role~="controller" and role~="repeater" then print("Zentrale #"..c.controllerId) end
+    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[role])..(c.name~="" and (" / "..c.name) or ""))
+if role~="controller" and role~="repeater" and role~="gps" then print("Zentrale #"..c.controllerId) end
 print(clean and "Komplett neu installiert." or "Update: Einstellungen behalten.")
 if resetProgress then print("Neuer Auftrag: alter Fortschritt geloescht.") end
 ui.hint("Spaeter aendern: toast.lua config")

@@ -85,6 +85,12 @@ M.coordText=coordText
 local function common_rows(rows,d)
     local pt=posText(d);if pt then rows[#rows+1]={"Position",pt} end
     local ct=coordText(d);if ct then rows[#rows+1]={"Koordinaten",ct} end
+    if d.dim then
+        local names={overworld="Oberwelt",nether="Nether",["end"]="End"}
+        local t=names[d.dim] or tostring(d.dim)
+        if d.dimSet and d.dimSet~=d.dim then t=t.." (Config: "..(names[d.dimSet] or d.dimSet)..")" end
+        rows[#rows+1]={"Dimension",t}
+    end
     rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
     if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).." Fuel/h") or "aus"} end
     return rows

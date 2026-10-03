@@ -169,9 +169,12 @@ function S.new(common)
         fg(colors.white);sleep(1.5)
     end
     local FACE_NAMES={north="Norden",east="Osten",south="Sueden",west="Westen"}
+    local DIMS={"auto","overworld","nether","end"}
+    local DIM_TEXT={auto="Dim. auto",overworld="Oberwelt",nether="Nether",["end"]="End"}
     local function baseText(b)
-        if not b.set then return "aus (nur Abstand zur Basis)" end
-        return b.x.." "..b.y.." "..b.z.." Blick "..(FACE_NAMES[b.facing] or b.facing)
+        local d=DIM_TEXT[b.dimension or "auto"] or ""
+        if not b.set then return "Koord. aus, "..d end
+        return b.x.." "..b.y.." "..b.z.." "..(FACE_NAMES[b.facing] or b.facing):sub(1,1)..", "..d
     end
     local function editBase(c)
         local b=c.base
@@ -180,6 +183,10 @@ function S.new(common)
         hint("Koordinaten der Turtle zeigen.")
         hint("F3 an der Basis: Block der Turtle,")
         hint("Blickrichtung = wohin sie schaut.")
+        hint("Dimension: 1 automatisch erkennen")
+        hint("2 Oberwelt  3 Nether  4 End")
+        local cd=1;for i,v in ipairs(DIMS) do if v==(b.dimension or "auto") then cd=i end end
+        b.dimension=DIMS[ask("Dimension",cd,1,4)]
         b.set=yesno("Koordinaten eintragen?",b.set==true)
         if not b.set then return end
         b.x=ask("X",b.x,-30000000,30000000)
@@ -190,6 +197,30 @@ function S.new(common)
         local list={"north","east","south","west"}
         local cur=1;for i,v in ipairs(list) do if v==b.facing then cur=i end end
         b.facing=list[ask("Blickrichtung",cur,1,4)]
+    end
+    local function gpsText(g) return "X "..g.x.." Y "..g.y.." Z "..g.z..(g.auto and " (auto)" or "") end
+    local function editGps(c)
+        local g=c.gps
+        header("GPS-Sender: eigene Koordinaten")
+        hint("Laufen schon 4 andere GPS-Sender, kann")
+        hint("er seine Position selbst finden.")
+        if gps and gps.locate and common.refreshModems()>0 then
+            print("Suche Position per GPS ...")
+            local ok,x,y,z=pcall(gps.locate,2)
+            if ok and x then
+                x,y,z=math.floor(x+0.5),math.floor(y+0.5),math.floor(z+0.5)
+                fg(colors.lime);print(cut("Gefunden: X "..x.." Y "..y.." Z "..z));fg(colors.white)
+                if yesno("Uebernehmen?",true) then g.x,g.y,g.z,g.auto=x,y,z,true;return end
+            else
+                fg(colors.orange);print(cut("Kein GPS gefunden (normal fuer"));print(cut("die ersten 4 Sender)."));fg(colors.white)
+            end
+        end
+        hint("F3 auf DIESEN Computer schauen:")
+        hint("rechts 'Targeted Block' X Y Z")
+        g.x=ask("X",g.x,-30000000,30000000)
+        g.y=ask("Y",g.y,-2048,4096)
+        g.z=ask("Z",g.z,-30000000,30000000)
+        g.auto=yesno("Spaeter selbst per GPS pruefen?",g.auto~=false)
     end
     local function editChunks(c,job)
         local cl=c.chunkload
@@ -293,6 +324,10 @@ function S.new(common)
         local list={{"Name",function() return c.name~="" and c.name or "-" end,function()
             header("Name");hint("Leer lassen = behalten, - = loeschen")
             c.name=askText("Name",c.name);c.label=c.name end}}
+        if role=="gps" then
+            list[#list+1]={"Position",function() return gpsText(c.gps) end,function() editGps(c) end}
+            return list
+        end
         if role~="controller" and role~="repeater" then
             list[#list+1]={"Zentrale",function() return "#"..c.controllerId end,function() editController(c) end}
         end
@@ -331,7 +366,7 @@ function S.new(common)
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
         local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
-            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[info.role].." #"..os.getComputerID())
+            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
             header(what)

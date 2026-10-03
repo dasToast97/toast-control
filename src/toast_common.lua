@@ -43,7 +43,8 @@ M.DEFAULTS={
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
-    base={set=false,x=0,y=64,z=0,facing="north"},
+    base={set=false,x=0,y=64,z=0,facing="north",dimension="auto"},
+    gps={auto=true,x=0,y=64,z=0},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
@@ -56,7 +57,7 @@ local function copy(v)
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,base=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -101,7 +102,7 @@ function M.configText(c)
     end
     local role,job=c.role,c.job
     local what=role=="turtle" and ("Turtle / "..(M.JOB_NAMES[job] or tostring(job))) or
-        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role] or tostring(role)
+        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[role] or tostring(role)
     out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
     out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
@@ -110,7 +111,12 @@ function M.configText(c)
     if role=="turtle" then line(4,"job",q(job),"farm, mining, tree oder mob") end
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
-    elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    elseif role~="repeater" and role~="gps" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    if role=="gps" then
+        section("gps","GPS-Sender: Koordinaten DIESES Computers (F3, Targeted Block)",{
+            {"auto","true = beim Start selbst per GPS suchen (wenn schon 4 andere laufen)"},
+            {"x","X"},{"y","Y"},{"z","Z"}},c.gps)
+    end
     if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\" oder Turtle-ID") end
     if role=="turtle" and job=="mining" then
         section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
@@ -151,7 +157,8 @@ function M.configText(c)
         section("base","Basis-Koordinaten (F3) fuer die Positionsanzeige",{
             {"set","true = Koordinaten unten sind eingetragen"},{"x","X der Turtle an der Basis"},
             {"y","Y der Turtle an der Basis"},{"z","Z der Turtle an der Basis"},
-            {"facing","Blick an der Basis: north/east/south/west"}},c.base)
+            {"facing","Blick an der Basis: north/east/south/west"},
+            {"dimension","\"auto\", \"overworld\", \"nether\" oder \"end\""}},c.base)
     end
     if role=="turtle" and (job=="farm" or job=="mining") then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
@@ -197,7 +204,13 @@ function M.load(c)
     M.withDefaults(c)
     c.role=c.role or "auto"
     if c.role=="auto" then c.role=turtle and "turtle" or (pocket and "pocket" or "controller") end
-    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info")
+    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true,gps=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info/gps")
+    if c.role=="gps" then
+        local g=c.gps
+        assert(not turtle and not pocket,"GPS-Sender auf einem stationaeren Computer installieren.")
+        assert(type(g)=="table" and type(g.auto)=="boolean","gps.auto: true oder false.")
+        assert(M.integer(g.x,-30000000,30000000) and M.integer(g.y,-2048,4096) and M.integer(g.z,-30000000,30000000),"gps: x/y/z ganze Zahlen.")
+    end
     assert(M.id(c.controllerId),"controllerId: ganze ID 0 bis 65500.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
@@ -235,6 +248,10 @@ function M.load(c)
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
     if c.chunkload~=nil then M.chunkConfig(c.chunkload) end
+    if type(c.base)=="table" then
+        c.base.dimension=c.base.dimension or "auto"
+        assert(M.DIM_NAMES[c.base.dimension] or c.base.dimension=="auto","base.dimension: auto, overworld, nether oder end.")
+    end
     if type(c.base)=="table" and c.base.set then
         local b=c.base
         assert(M.integer(b.x,-30000000,30000000) and M.integer(b.y,-2048,4096) and M.integer(b.z,-30000000,30000000),"base: x/y/z ganze Zahlen.")
@@ -266,22 +283,116 @@ function M.position(c,job,x,y,z)
     end
     return rel,abs
 end
--- GPS (falls im Spiel GPS-Computer stehen): hoechstens alle 60 s fragen
-local gpsAt,gpsPos=-1e9,nil
-function M.gps()
+-- ===== GPS =====
+-- Echte GPS-Abfrage kostet Zeit (Funk). Darum: zwei GPS-Messungen an verschiedenen
+-- Stellen reichen, um Basis und Blickrichtung auszurechnen ("kalibriert"). Danach
+-- werden die Koordinaten bei JEDER Statusmeldung (jede Sekunde) aus der eigenen
+-- Bewegung berechnet, und GPS prueft nur noch alle 10 s nach.
+local gpsAt,gpsMiss=-1e9,0
+local anchors={}
+local cal=nil                 -- {x,y,z,facing}
+M.FACES={"north","east","south","west"}
+local function rot(facing,rel)
+    local f,r=M.FACING[facing],M.FACING[RIGHT[facing]]
+    return f[1]*rel.fwd+r[1]*rel.right,rel.up,f[2]*rel.fwd+r[2]*rel.right
+end
+local function calibrate(a,b)
+    if a.rel.fwd==b.rel.fwd and a.rel.right==b.rel.right then return end
+    for _,face in ipairs(M.FACES) do
+        local ax,ay,az=rot(face,a.rel);local bx,by,bz=rot(face,b.rel)
+        local okx=math.abs((b.fix.x-a.fix.x)-(bx-ax))<=1
+        local okz=math.abs((b.fix.z-a.fix.z)-(bz-az))<=1
+        local oky=math.abs((b.fix.y-a.fix.y)-(by-ay))<=1
+        if okx and oky and okz then
+            cal={x=b.fix.x-bx,y=b.fix.y-by,z=b.fix.z-bz,facing=face}
+            return
+        end
+    end
+end
+function M.gpsCalibration() return cal end
+function M.gpsReset() cal=nil;anchors={};gpsAt=-1e9;gpsMiss=0 end
+local function locate()
     if not gps or not gps.locate then return nil end
-    if os.clock()-gpsAt<60 then return gpsPos end
+    local wait=cal and 10 or (gpsMiss>=3 and 60 or 3)
+    if os.clock()-gpsAt<wait then return nil end
     gpsAt=os.clock()
-    local ok,x,y,z=pcall(gps.locate,0.5)
-    gpsPos=(ok and x) and {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5)} or nil
-    return gpsPos
+    local ok,x,y,z=pcall(gps.locate,0.3)
+    if not ok or not x then gpsMiss=gpsMiss+1;return nil end
+    gpsMiss=0
+    return {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5)}
+end
+-- Liefert aktuelle Koordinaten (live) oder nil
+function M.gpsPosition(rel)
+    local fix=locate()
+    if fix and rel then
+        local a={fix=fix,rel={fwd=rel.fwd,right=rel.right,up=rel.up}}
+        if cal then
+            -- Kontrolle: passt die Rechnung noch? Sonst neu kalibrieren.
+            local x,y,z=rot(cal.facing,rel)
+            if math.abs(cal.x+x-fix.x)>1 or math.abs(cal.y+y-fix.y)>1 or math.abs(cal.z+z-fix.z)>1 then cal=nil;anchors={} end
+        end
+        if not cal then
+            for _,o in ipairs(anchors) do calibrate(o,a);if cal then break end end
+            anchors[#anchors+1]=a;while #anchors>6 do table.remove(anchors,1) end
+        end
+    end
+    if cal and rel then
+        local x,y,z=rot(cal.facing,rel)
+        return {x=cal.x+x,y=cal.y+y,z=cal.z+z,live=true}
+    end
+    -- noch nicht kalibriert: letzte Messung gilt, solange sie sich nicht bewegt hat
+    local last=anchors[#anchors]
+    if last and rel and last.rel.fwd==rel.fwd and last.rel.right==rel.right and last.rel.up==rel.up then return last.fix end
+    return nil
+end
+-- ===== Dimension =====
+-- CC kennt keine Dimension; erkannt wird sie an den Bloecken um die Turtle
+-- (Netherrack = Nether, Endstein = End, Stein/Erde = Oberwelt). Eingetragene
+-- Dimension (base.dimension) gilt, solange nichts Eindeutiges zu sehen ist.
+M.DIM_NAMES={overworld="Oberwelt",nether="Nether",["end"]="End"}
+local NETHER={"netherrack","basalt","blackstone","soul_sand","soul_soil","nether_","crimson_","warped_",
+    "magma_block","glowstone","ancient_debris","quartz_ore","shroomlight","nylium"}
+local END={"end_stone","purpur","chorus"}
+local OVER={"minecraft:stone","deepslate","minecraft:dirt","grass_block","minecraft:sand","gravel","granite","diorite",
+    "andesite","tuff","calcite","sandstone","clay","_log","leaves","coal_ore","iron_ore","copper_ore","gold_ore",
+    "diamond_ore","redstone_ore","lapis_ore","emerald_ore","minecraft:water","snow","moss","podzol","mud"}
+local function has(list,name) for _,p in ipairs(list) do if name:find(p,1,true) then return true end end;return false end
+function M.dimensionOf(name)
+    if type(name)~="string" then return nil end
+    if has(NETHER,name) then return "nether" end
+    if has(END,name) then return "end" end
+    if name=="minecraft:bedrock" or name:find("lava",1,true) then return nil end
+    if has(OVER,name) then return "overworld" end
+    return nil
+end
+local dimSeen,dimAt,dimCheck=nil,-1e9,-1e9
+-- Hoechstens alle 20 s kurz oben/unten/vorne nachsehen (kostet kein Fuel)
+function M.senseDimension()
+    if not turtle or os.clock()-dimCheck<20 then return dimSeen end
+    dimCheck=os.clock()
+    local votes={}
+    for _,fn in ipairs({turtle.inspectDown,turtle.inspectUp,turtle.inspect}) do
+        local ok,e,b=pcall(fn)
+        if ok and e and type(b)=="table" then
+            local d=M.dimensionOf(b.name);if d then votes[d]=(votes[d] or 0)+1 end
+        end
+    end
+    local best,n=nil,0
+    for d,v in pairs(votes) do if v>n then best,n=d,v end end
+    if best then dimSeen,dimAt=best,os.clock() end
+    return dimSeen
 end
 -- Status einer Turtle um Positionsangaben ergaenzen
 function M.addPosition(msg,c,job)
     if type(msg)~="table" or msg.x==nil then return msg end
     local rel,abs=M.position(c,job,msg.x,msg.y,msg.z)
     msg.rel=rel;msg.pos=abs
-    local g=M.gps();if g then msg.gps=g end
+    local g=M.gpsPosition(rel);if g then msg.gps=g end
+    local seen=M.senseDimension()
+    local set=type(c.base)=="table" and M.DIM_NAMES[c.base.dimension] and c.base.dimension or nil
+    msg.dim=seen or set
+    msg.dimSeen=seen~=nil
+    msg.dimSet=set
     return msg
 end
 function M.checkTree(t)

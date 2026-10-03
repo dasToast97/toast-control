@@ -1,5 +1,29 @@
 # Toast Control 3.0
 
+## Update 3.1.2: GPS-Sender per Installer
+
+Stationärer Computer im Installer: **4 GPS-Sender**.
+- Mit Funk- oder (besser) Endermodem. Man braucht **mindestens 4**, die nicht
+  alle auf derselben Höhe/Ebene stehen (z. B. einer 4 Blöcke höher).
+- **Koordinaten**: Laufen schon 4 andere GPS-Sender, findet er seine Position
+  selbst (wird angeboten). Für die ersten 4 geht das nicht – dann F3 auf den
+  Computer, „Targeted Block“ X Y Z eintragen. Änderbar mit `toast.lua config`.
+- Bildschirm zeigt Position und wie viele Anfragen beantwortet wurden.
+- Autostart wie bei allen Toast-Geräten.
+
+## Update 3.1.1: GPS jede Sekunde, Dimension
+
+- **Koordinaten live (jede Sekunde)**: Nach zwei GPS-Messungen an verschiedenen
+  Stellen kennt die Turtle ihre Basis und Blickrichtung selbst. Danach rechnet
+  sie die Koordinaten bei jeder Statusmeldung (jede Sekunde) aus ihrer eigenen
+  Bewegung – ohne Funkverzögerung, auch wenn das Modem gerade gegen die
+  Spitzhacke getauscht ist. GPS prüft alle 10 s nach; wurde die Turtle von Hand
+  versetzt, kalibriert sie sich neu. Unter „Basis“ muss dafür nichts eingetragen sein.
+- **Dimension** in den Details: wird an den Blöcken um die Turtle erkannt
+  (Netherrack = Nether, Endstein = End, Stein/Erde = Oberwelt). Zusätzlich im
+  Menü unter „Basis“ einstellbar (Standard: automatisch). Weicht die Erkennung
+  vom Eintrag ab, steht beides da.
+
 ## Update 3.1: Neuer Auftrag ohne Neuinstallation, Position jeder Turtle
 
 **Neuer Auftrag** (z. B. Mine fertig, neue Maße) – drei Wege, nichts löschen:
