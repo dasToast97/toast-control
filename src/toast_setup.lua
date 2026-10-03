@@ -168,6 +168,56 @@ function S.new(common)
         print(cut("sich an, auch Spieler."))
         fg(colors.white);sleep(1.5)
     end
+    local SHAPES={"room","cylinder","sphere","dome"}
+    local SHAPE_TEXT={room="Quader/Schacht",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
+    local SEALS={"off","liquids","all"}
+    local function digText(d)
+        local size=d.shape=="room" and (d.width.."x"..d.length.."x"..d.height) or d.shape=="cylinder" and ("D"..d.width.."x"..d.height) or ("D"..d.width)
+        return (SHAPE_TEXT[d.shape] or d.shape).." "..size.." "..(d.direction=="up" and "hoch" or "runter")
+            ..(d.seal=="all" and " +dicht" or d.seal=="liquids" and " +Fluess." or "")..(d.drain and " +trocken" or "")
+            ..(d.keepOres~="" and " +Erze bleiben" or "")
+    end
+    local function editDig(c)
+        local d=c.dig
+        header("Aushub (Form vor der Basis)")
+        hint("Die Form beginnt direkt VOR der Turtle.")
+        hint("Unten Kiste=Ausgabe, oben Kiste=Kohle.")
+        for i,v in ipairs(SHAPES) do hint(i.." "..SHAPE_TEXT[v]) end
+        local cur=1;for i,v in ipairs(SHAPES) do if d.shape==v then cur=i end end
+        d.shape=SHAPES[ask("Form",cur,1,4)]
+        d.direction=yesno("Nach unten graben? (n = nach oben)",d.direction~="up") and "down" or "up"
+        if d.shape=="room" then
+            hint("Schacht = z.B. 3 x 3 x 60")
+            d.width=ask("Breite zur Seite (1-64)",d.width,1,64)
+            d.length=ask("Laenge nach vorne (1-64)",d.length,1,64)
+            d.height=ask(d.direction=="up" and "Hoehe (1-256)" or "Tiefe (1-256)",d.height,1,256)
+            if d.width>1 then d.side=askSide("Zur Seite nach",d.side) end
+        else
+            d.width=ask("Durchmesser (1-64)",d.width,1,64)
+            if d.shape=="cylinder" then d.height=ask(d.direction=="up" and "Hoehe (1-256)" or "Tiefe (1-256)",d.height,1,256) end
+        end
+        header("Aushub: Waende und Fluessigkeiten")
+        hint("1 Waende nicht zubauen")
+        hint("2 Wasser/Lava an den Waenden zubauen")
+        hint("3 Alles dicht (auch Hoehlen/Loecher)")
+        hint("Braucht Bruchstein o.ae. (wird behalten).")
+        local cs=1;for i,v in ipairs(SEALS) do if d.seal==v then cs=i end end
+        d.seal=SEALS[ask("Waende",cs,1,3)]
+        hint("Unter Wasser / in Lava graben:")
+        hint("Wasser/Lava im Raum wird entfernt.")
+        d.drain=yesno("Raum trockenlegen?",d.drain==true)
+        header("Aushub: Erze schonen")
+        hint("Erze stehen lassen und drumherum graben")
+        hint("(spaeter von Hand abbauen, z.B. Gluck).")
+        hint("leer = alles abbauen, all = alle Erze")
+        hint("oder z.B.: diamond,emerald,ancient")
+        write(cut("Erze ["..(d.keepOres=="" and "-" or d.keepOres).."]: "))
+        local v=read()
+        if v=="-" then d.keepOres="" elseif v~="" then d.keepOres=v:lower():gsub("%s","") end
+        d.useCoal=yesno("Gefundene Kohle als Fuel?",d.useCoal~=false)
+        local ok,why=pcall(common.checkDig,d)
+        if not ok then fg(colors.orange);print(cut(tostring(why)));fg(colors.white);sleep(2) end
+    end
     local FACE_NAMES={north="Norden",east="Osten",south="Sueden",west="Westen"}
     local DIMS={"auto","overworld","nether","end"}
     local DIM_TEXT={auto="Dim. auto",overworld="Oberwelt",nether="Nether",["end"]="End"}
@@ -287,7 +337,7 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
@@ -342,6 +392,8 @@ function S.new(common)
             list[#list+1]={"Baeume",function() return treeText(c.tree) end,function() editTree(c) end}
         elseif role=="turtle" and job=="mob" then
             list[#list+1]={"Mobs",function() return mobText(c.mob) end,function() editMob(c) end}
+        elseif role=="turtle" and job=="dig" then
+            list[#list+1]={"Aushub",function() return digText(c.dig) end,function() editDig(c) end}
         elseif role=="turtle" then
             list[#list+1]={"Feld",function() return farmText(c.farm) end,function() editFarm(c) end}
         end
@@ -414,10 +466,11 @@ function S.new(common)
         if job=="farm" then local f=c.farm return table.concat({f.length,f.width,f.side,f.crop},":") end
         if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
+        if job=="dig" then local d=c.dig return table.concat({d.shape,d.width,d.length,d.height,d.side,d.direction},":") end
         return ""
     end
     -- Neuer Auftrag: Fortschritt der Aufgabe loeschen (Turtle muss an der Basis stehen)
-    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state"}
+    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",dig="/toast_dig_state"}
     function M.newJob(job)
         local file=M.STATE_FILES[job];if not file then return false end
         header("Neuer Auftrag")
@@ -434,7 +487,7 @@ function S.new(common)
         return false
     end
     function M.confirmReset(job)
-        if job~="mining" and job~="tree" and job~="mob" then return end
+        if job~="mining" and job~="tree" and job~="mob" and job~="dig" then return end
         local file="/toast_"..job.."_state"
         if not (fs.exists(file) or fs.exists(file..".tmp")) then return end
         header(job=="mining" and "Neue Minenmasse" or "Neue Masse")

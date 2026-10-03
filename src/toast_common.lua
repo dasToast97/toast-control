@@ -1,7 +1,7 @@
 local M={
-    version="3.5",
+    version="3.6",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
-    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
+    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true,update=true},
     updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
@@ -18,10 +18,10 @@ function M.serial(n) return M.integer(n,1,9007199254740991) end
 function M.number(n) return type(n)=="number" and n==n and n>-math.huge and n<math.huge and n or 0 end
 function M.contains(list,id) for _,v in ipairs(list or {}) do if v==id then return true end end;return false end
 -- Aufgaben einer Turtle. JOBS: Reihenfolge in Menues und Anzeigen.
-M.JOBS={"farm","mining","tree","mob"}
-M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs"}
+M.JOBS={"farm","mining","tree","mob","dig"}
+M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub"}
 -- Config-Abschnitt und Programmdatei je Aufgabe
-M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob"}
+M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig"}
 function M.job(j) return M.JOB_NAMES[j]~=nil end
 function M.label(v)
     return type(v)=="string" and v:gsub("[%c]"," "):sub(1,48) or ""
@@ -54,13 +54,15 @@ M.DEFAULTS={
     tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
         fuelTarget=2000,radioTimeout=60},
     mob={mode="farm",attack="front",nightOnly=false,length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
+    dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
+        useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
 }
 local function copy(v)
     if type(v)~="table" then return v end
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,base=true,gps=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -111,7 +113,7 @@ function M.configText(c)
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
     out[#out+1]="return {"
     line(4,"role",q(role))
-    if role=="turtle" then line(4,"job",q(job),"farm, mining, tree oder mob") end
+    if role=="turtle" then line(4,"job",q(job),"farm, mining, tree, mob oder dig") end
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" and role~="gps" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
@@ -155,6 +157,19 @@ function M.configText(c)
             {"side","Waechter: Gebiet \"right\" oder \"left\""},{"climb","Waechter: max. Hoehe hoch/runter"},
             {"interval","Waechter: Pause an der Basis in s"},
             {"fuelTarget","Waechter: so voll tanken (= so lange unterwegs)"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
+    elseif role=="turtle" and job=="dig" then
+        section("dig","Aushub: Form direkt VOR der Basis ausheben",{
+            {"shape","\"room\" Quader/Schacht, \"cylinder\", \"sphere\" Kugel, \"dome\" Halbkugel"},
+            {"direction","\"down\" nach unten oder \"up\" nach oben"},
+            {"width","Breite bzw. Durchmesser (1-64)"},{"length","nur Quader: Laenge nach vorne (1-64)"},
+            {"height","Quader/Zylinder: Hoehe bzw. Tiefe (1-256)"},
+            {"side","Quader: \"right\" oder \"left\" der Basis"},
+            {"seal","\"off\", \"liquids\" (Wasser/Lava zubauen), \"all\" (auch Loecher)"},
+            {"drain","true = Wasser/Lava im Raum entfernen (unter Wasser/Lava)"},
+            {"keepOres","Erze stehen lassen: \"\" keine, \"all\" alle, \"diamond,emerald\""},
+            {"useCoal","true = gefundene Kohle als Fuel"},{"fuelTarget","an der Basis bis hierhin tanken"},
+            {"freeSlots","so wenige Slots frei -> abladen"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"protectedBlocks","diese Bloecke nie abbauen"}},c.dig)
     elseif role=="turtle" then
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
@@ -230,8 +245,8 @@ function M.load(c)
     assert(type(c.autoUpdate)=="boolean" and M.integer(c.updateEvery,1,1440),"autoUpdate true/false, updateEvery 1 bis 1440 Minuten.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
-        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree oder mob einstellen.")
-        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) end
+        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree, mob oder dig einstellen.")
+        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) end
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
@@ -553,6 +568,26 @@ function M.checkMob(m)
     assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")
     assert(m.radioTimeout==0 or M.integer(m.radioTimeout,10,300),"mob.radioTimeout: 0 oder 10 bis 300.")
     return m
+end
+M.DIG_SHAPES={room="Quader",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
+function M.checkDig(d)
+    assert(type(d)=="table","dig fehlt.")
+    assert(M.DIG_SHAPES[d.shape],"dig.shape: room, cylinder, sphere oder dome.")
+    assert(d.direction=="down" or d.direction=="up","dig.direction: down oder up.")
+    assert(M.integer(d.width,1,64) and M.integer(d.length,1,64) and M.integer(d.height,1,256),"dig: width/length 1-64, height 1-256.")
+    assert(d.side=="right" or d.side=="left","dig.side: right oder left.")
+    assert(d.seal=="off" or d.seal=="liquids" or d.seal=="all","dig.seal: off, liquids oder all.")
+    assert(type(d.drain)=="boolean" and type(d.useCoal)=="boolean","dig.drain/useCoal: true oder false.")
+    assert(type(d.keepOres)=="string","dig.keepOres: Text, z.B. \"\", \"all\" oder \"diamond,emerald\".")
+    assert(M.integer(d.fuelTarget,100,100000),"dig.fuelTarget: 100 bis 100000.")
+    assert(M.integer(d.freeSlots,1,8),"dig.freeSlots: 1 bis 8.")
+    assert(d.radioTimeout==0 or M.integer(d.radioTimeout,10,300),"dig.radioTimeout: 0 oder 10 bis 300.")
+    assert(type(d.protectedBlocks)=="table","dig.protectedBlocks muss eine Liste sein.")
+    local w=d.width
+    local vol=d.shape=="room" and w*d.length*d.height or d.shape=="cylinder" and w*w*d.height
+        or d.shape=="sphere" and w*w*w or w*w*math.ceil(w/2)
+    assert(vol<=131072,"dig: Form zu gross (hoechstens 131072 Bloecke, jetzt "..vol..").")
+    return d
 end
 function M.workerConfig(c)
     return {role="turtle",controllerId=c.controllerId,turtleIds={os.getComputerID()},pocketIds={},

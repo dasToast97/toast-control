@@ -1,3 +1,27 @@
+# Toast Control 3.6
+
+## Neu in 3.6: Aushub-Turtle (Räume, Schächte, Kugeln …)
+
+Neue Aufgabe **5 Aushub** (Spitzhacke). Hebt eine Form direkt **vor** der Basis aus:
+
+- **Formen:** Quader (Raum oder Schacht, z.B. 3 x 3 x 60), Zylinder (runder
+  Schacht/Turm), Kugel, Halbkugel (nach oben = Kuppel, nach unten = Schale).
+- **Richtung:** nach **unten** (Grube, Schacht) oder nach **oben** (Halle, Kuppel).
+- **Wände zubauen:** aus / nur Wasser und Lava / alles dicht (auch Höhlen und
+  Löcher). Nimmt dafür Bruchstein, Erde, Netherrack usw. aus dem Abbau
+  (64 davon werden beim Abladen behalten).
+- **Unter Wasser / in Lava:** „Raum trockenlegen“ entfernt Wasser und Lava im
+  Raum (Block reinsetzen, wieder abbauen). Zusammen mit „Wände zubauen“ bleibt
+  der Raum trocken.
+- **Erze schonen:** alle Erze oder nur bestimmte (z.B. `diamond,emerald`)
+  bleiben stehen; die Turtle gräbt drumherum. Später von Hand mit Glück-Spitzhacke
+  abbauen. Grundgestein usw. wird ebenso umgangen.
+- Volles Inventar: fährt durch den fertigen Teil zur Basis, lädt ab, tankt und
+  macht genau dort weiter. Gefundene Kohle wird auf Wunsch direkt verbrannt.
+- Nach Absturz/Neustart macht sie dort weiter, wo sie war.
+- Zentrale/Pocket: eigener Reiter **Aushub** mit Fortschrittsbalken, Form,
+  stehen gelassenen Erzen, zugebauten Stellen und Füllmaterial.
+
 # Toast Control 3.5
 
 ## Neu in 3.5: Rückmeldung nach dem Update

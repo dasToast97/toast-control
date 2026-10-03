@@ -187,6 +187,14 @@ local left={};for k,v in pairs(S.world) do if v=="minecraft:birch_log" then left
 check("Holzrunde nach Installation",ts.rounds==1 and ts.harvested==3,tostring(ts.rounds).."/"..tostring(ts.harvested).." rest "..table.concat(left," "))
 check("Status mit Name + Job",S.last and S.last.label=="Birken" and S.last.job=="tree")
 
+print("V Neue Aushub-Turtle: Zylinder D7 x 20 runter, dicht, trocken, Diamant bleibt")
+S=Sim.new({config=MINECFG,input={"1","5","4","1","Grube","3","2","","7","20","3","j","diamond","","","j","n"}});S.files={}
+ok,err=install(S,true,7)
+kc=ok and cfgOf(S)
+check("Aushub-Config gespeichert",kc and kc.job=="dig" and kc.dig.shape=="cylinder" and kc.dig.width==7 and kc.dig.height==20
+  and kc.dig.direction=="down" and kc.dig.seal=="all" and kc.dig.drain==true and kc.dig.keepOres=="diamond" and not kc.mine,err)
+check("Aushub-Programme installiert",S.files["/toast/dig_turtle.lua"] and S.files["/toast/toast_worker.lua"] and not S.files["/toast/mine_turtle.lua"])
+
 print("U Neue Mob-Turtle: Patrouille 6x3 links")
 S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","","6","3","l","","","10","","j","n"}});S.files={}
 ok,err=install(S,true,7)

@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -13,7 +13,7 @@ for _,a in ipairs(args) do
     if a=="auto" then auto=true;clean=false
     elseif a=="intern" then internal=true
     elseif a=="clean" or a=="neu" then clean=true
-    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="repeater" then requested=a
+    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="dig" or a=="repeater" then requested=a
     else error("Optional: farm / mining / repeater / clean / auto",0) end
 end
 local code=FILES
@@ -52,7 +52,7 @@ if clean then
 end
 -- Im Update-Modus bleiben nur diese Dateien erhalten.
 local KEEP={["toast.config.lua"]=true,["farm.config.lua"]=true,["mine.config.lua"]=true}
-for _,n in ipairs({"toast_farm_state","toast_mining_state","toast_tree_state","toast_mob_state","toast_control_state","toast_pocket_state"})do
+for _,n in ipairs({"toast_farm_state","toast_mining_state","toast_tree_state","toast_mob_state","toast_dig_state","toast_control_state","toast_pocket_state"})do
     KEEP[n]=true;KEEP[n..".tmp"]=true
 end
 local function readFile(path)
@@ -132,6 +132,7 @@ local function chooseJob()
     fg(colors.yellow);write("2 ");fg(colors.white);print("Mining    (Spitzhacke)")
     fg(colors.yellow);write("3 ");fg(colors.white);print("Holz      (Baeume, Axt)")
     fg(colors.yellow);write("4 ");fg(colors.white);print("Mobs      (Schwert)")
+    fg(colors.yellow);write("5 ");fg(colors.white);print("Aushub    (Raum/Schacht/Kugel, Spitzh.)")
     print("")
     while true do
         write("Aufgabe: ")
@@ -140,6 +141,7 @@ local function chooseJob()
         if answer=="2" or answer=="mining" or answer=="m" then return "mining" end
         if answer=="3" or answer=="tree" or answer=="holz" or answer=="h" then return "tree" end
         if answer=="4" or answer=="mob" or answer=="mobs" then return "mob" end
+        if answer=="5" or answer=="dig" or answer=="aushub" or answer=="a" then return "dig" end
     end
 end
 local job
@@ -227,7 +229,7 @@ if role=="controller" then
 elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="toast_ui.lua"
 elseif role=="info" then names[#names+1]="toast_info.lua";names[#names+1]="toast_ui.lua"
 elseif role=="gps" then names[#names+1]="toast_gps.lua"
-elseif role=="turtle" and (job=="tree" or job=="mob") then
+elseif role=="turtle" and (job=="tree" or job=="mob" or job=="dig") then
     names[#names+1]=job.."_turtle.lua";names[#names+1]="toast_worker.lua"
 elseif role=="turtle" then
     local prefix=job=="farm" and "farm" or "mine"

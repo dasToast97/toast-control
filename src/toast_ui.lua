@@ -61,8 +61,18 @@ local JOB={
             if d.lastHit and num(d.hits)>0 then r[#r+1]={"Letzter Mob","vor "..short(d.lastHit).." s"} end
             if d.mobMode=="patrol" then r[#r+1]={"Ziele",short(d.targets).." angefahren"};r[#r+1]={"Tankrunden",short(d.rounds)};wait(r,d) end
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
+    dig={name="Aushub",plural="Aushub-Turtles",metric="Abgebaut",unit="Bl.",once="1 Auftrag",
+        value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
+        rows=function(d) local r={{"Form",(common.DIG_SHAPES[d.shape] or "-")..(d.digDir=="up" and " hoch" or " runter")},
+            {"Fortschritt",short(d.scanned).." / "..short(d.cells)..(d.done and " FERTIG" or "")},
+            {"Abgebaut",short(d.harvested).." Bloecke"},{"Abgeladen",short(d.total).." Items"}}
+            if num(d.kept)>0 then r[#r+1]={"Erze stehen",short(d.kept)} end
+            if num(d.sealed)>0 then r[#r+1]={"Zugebaut",short(d.sealed).." Stellen"} end
+            if num(d.drained)>0 then r[#r+1]={"Trockengelegt",short(d.drained)} end
+            r[#r+1]={"Fuellmaterial",d.noFill and "FEHLT" or short(d.fill)}
+            r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }
-local ORDER={"farm","mining","tree","mob"}
+local ORDER={"farm","mining","tree","mob","dig"}
 M.JOB=JOB
 local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
 local function hasProgress(d) return num(d.cells)>0 end
