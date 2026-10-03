@@ -38,6 +38,27 @@ local function runOnce()
     return assert(loadfile("/toast/"..program,"t",_ENV))(table.unpack(args))
 end
 
+-- Einstellungsmenue: toast.lua config
+if args[1]=="config" or args[1]=="--config" then
+    local ui=dofile("/toast/toast_setup.lua").new(common)
+    local okc,raw=pcall(dofile,"/toast.config.lua")
+    local c=common.withDefaults(okc and type(raw)=="table" and raw or {})
+    local role=c.role~="auto" and c.role or (turtle and "turtle" or (pocket and "pocket" or "controller"))
+    local job=role=="turtle" and c.job or nil
+    local before=ui.layoutKey(c,job)
+    while true do
+        if not ui.run(c,{role=role,job=job}) then print("Abgebrochen, nichts geaendert.");return end
+        local ok,why=pcall(function() common.load(common.copy(c)) end)
+        if ok then break end
+        printError(tostring(why));sleep(2)
+    end
+    if before~=ui.layoutKey(c,job) then ui.confirmReset(job) end
+    c.role=role;c.label=nil
+    local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f.close()
+    term.clear();term.setCursorPos(1,1)
+    print("Gespeichert. Starte Toast ...")
+    args={}
+end
 -- Startargumente wie --dock/--new nur beim ersten Start verwenden.
 local restarts,windowStart=0,os.clock()
 while true do

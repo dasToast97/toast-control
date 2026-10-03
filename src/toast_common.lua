@@ -1,5 +1,5 @@
 local M={
-    version="2.6",
+    version="2.7",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -29,9 +29,131 @@ function M.recovery(r)
     assert(M.integer(r.moveRetries,1,64),"recovery.moveRetries: 1 bis 64.")
     return r
 end
+-- ===== Standardwerte (fehlende Eintraege in der Config werden hiermit ergaenzt) =====
+M.DEFAULTS={
+    role="auto",job="auto",name="",controllerId=0,
+    autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},
+    display={monitor="auto",textScale=0.5,pageSize=0},
+    network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
+    recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
+    chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
+    farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=64,radioTimeout=60,water={}},
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,radioTimeout=60,
+        fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
+}
+local function copy(v)
+    if type(v)~="table" then return v end
+    local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
+end
+M.copy=copy
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true}
+function M.withDefaults(c)
+    c=type(c)=="table" and c or {}
+    for k,v in pairs(M.DEFAULTS) do
+        if c[k]==nil then c[k]=copy(v)
+        elseif SECTIONS[k] and type(c[k])=="table" then
+            for sk,sv in pairs(v) do if c[k][sk]==nil then c[k][sk]=copy(sv) end end
+        end
+    end
+    if c.name=="" and type(c.label)=="string" then c.name=c.label end
+    return c
+end
+-- Saubere, kommentierte Config schreiben (nur die Abschnitte, die das Geraet braucht).
+local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete"}
+M.CROP_NAMES=CROP_NAMES
+function M.configText(c)
+    local out={}
+    local function q(v)
+        if type(v)=="string" then return string.format("%q",v) end
+        if type(v)=="table" then
+            local parts={}
+            for _,x in ipairs(v) do
+                if type(x)=="table" then
+                    local f={};for k2,x2 in pairs(x) do f[#f+1]=k2.." = "..q(x2) end
+                    table.sort(f);parts[#parts+1]="{ "..table.concat(f,", ").." }"
+                else parts[#parts+1]=q(x) end
+            end
+            return #parts==0 and "{}" or "{ "..table.concat(parts,", ").." }"
+        end
+        return tostring(v)
+    end
+    local function line(ind,key,val,comment)
+        local s=string.rep(" ",ind)..key.." = "..val..","
+        if comment then s=s..string.rep(" ",math.max(1,38-#s)).."-- "..comment end
+        out[#out+1]=s
+    end
+    local function section(name,title,fields,t)
+        out[#out+1]=""
+        out[#out+1]="    -- "..title
+        out[#out+1]="    "..name.." = {"
+        for _,f in ipairs(fields) do line(8,f[1],q(t[f[1]]),f[2]) end
+        out[#out+1]="    },"
+    end
+    local role,job=c.role,c.job
+    local what=role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining")) or
+        ({controller="Zentrale",pocket="Pocket",repeater="Repeater"})[role] or tostring(role)
+    out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
+    out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
+    out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
+    out[#out+1]="return {"
+    line(4,"role",q(role))
+    if role=="turtle" then line(4,"job",q(job),"farm oder mining") end
+    line(4,"name",q(c.name or ""),"Anzeigename")
+    if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
+    elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    if role=="turtle" and job=="mining" then
+        section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
+            {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
+            {"tunnels","Anzahl Gaenge (1-64)"},{"gap","Bloecke zwischen den Gaengen (0-16)"},
+            {"side","Gaenge nach \"right\" oder \"left\""},{"sideDig","nur gap = 0: seitlich mitabbauen"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
+            {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
+            {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
+    elseif role=="turtle" then
+        section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
+            {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
+            {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot"},
+            {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut, das behalten wird"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
+    end
+    if role=="turtle" then
+        section("chunkload","Chunks laden (Mod CCChunkloader)",{
+            {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
+            {"idle","true = auch an der Basis wach"},{"wakeOnWorldLoad","nach Serverneustart weiter"},
+            {"reportEvery","alle x s kurz funken"}},c.chunkload)
+    end
+    if role=="controller" then
+        section("display","Bildschirm",{
+            {"monitor","\"auto\", \"terminal\" oder Name"},{"textScale","Schriftgroesse 0.5 bis 5"},
+            {"pageSize","Zeilen pro Seite (0 = auto)"}},c.display)
+        out[#out+1]=""
+        line(4,"autoDiscover",q(c.autoDiscover),"neue Turtles automatisch aufnehmen")
+        line(4,"autoPairPockets",q(c.autoPairPockets),"neue Pockets automatisch aufnehmen")
+        out[#out+1]="    devices = {                       -- feste Namen: [ID] = { job = ..., name = ... }"
+        local ids={};for id in pairs(c.devices or {}) do ids[#ids+1]=id end;table.sort(ids)
+        for _,id in ipairs(ids) do
+            local d=c.devices[id]
+            out[#out+1]="        ["..id.."] = { job = "..q(d.job)..", name = "..q(d.name or d.label or "").." },"
+        end
+        out[#out+1]="    },"
+        line(4,"pocketIds",q(c.pocketIds or {}),"bekannte Pockets")
+    end
+    if role=="controller" or role=="pocket" then
+        section("network","Funk",{
+            {"pollInterval","Abfrage alle x s"},{"staleAfter","nach x s OFFLINE"},
+            {"commandTimeout","Befehl x s wiederholen"},{"maxDevices","hoechstens so viele Turtles"}},c.network)
+    end
+    section("recovery","Stabilitaet",{
+        {"autoRestart","nach Absturz neu starten"},{"restartDelay","Sekunden bis Neustart"},
+        {"maxRestarts","hoechstens so oft in 10 min"},{"autoRetry","Turtle: neue Versuche nach Fehler"},
+        {"retryDelay","Sekunden bis neuer Versuch"},{"moveRetries","Versuche bei Mob im Weg"}},c.recovery)
+    out[#out+1]="}"
+    return table.concat(out,"\n").."\n"
+end
 function M.load(c)
     c=c or dofile("/toast.config.lua")
     assert(type(c)=="table","Config muss eine Tabelle sein.")
+    M.withDefaults(c)
     c.role=c.role or "auto"
     if c.role=="auto" then c.role=turtle and "turtle" or (pocket and "pocket" or "controller") end
     assert(({controller=true,turtle=true,pocket=true,repeater=true})[c.role],"role: auto/controller/turtle/pocket/repeater")

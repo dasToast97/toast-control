@@ -38,7 +38,92 @@ local layout=tag..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
 -- Schritt i -> Position (x,y,z) und ob oben/unten mit abgebaut wird.
 -- Schlangenlinie in z UND in der Hoehe: Gang 1 Schichten unten->oben,
 -- Gang 2 oben->unten usw.; jede Schicht startet dort, wo die vorige endete.
+-- ===== Seitlich mitabbauen (nur Abstand 0) =====
+-- Fahrspuren im Plus-Muster: jede Spur raeumt pro Schritt Mitte, oben, unten,
+-- links, rechts (Drehen kostet kein Fuel). Spuren bei (x+2r) mod 5 = c fuellen
+-- die Flaeche lueckenlos; Luecken am Rand bekommen Zusatzspuren.
+assert(C.sideDig==nil or type(C.sideDig)=="boolean","mine.sideDig: true oder false.")
+local SIDE=C.sideDig==true and G==0
+local W=C.tunnels
+local LANES,COVERMIN
+local function buildLanes()
+    local bestList
+    for c=0,4 do
+        local lanes,cov={},{}
+        local function key(x,r) return x*H+r end
+        local function add(x,r)
+            lanes[#lanes+1]={x=x,r=r}
+            for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                local ax,ar=x+d[1],r+d[2]
+                if ax>=0 and ax<W and ar>=0 and ar<H then cov[key(ax,ar)]=true end
+            end
+        end
+        for x=0,W-1 do for r=0,H-1 do if (x+2*r)%5==c then add(x,r) end end end
+        for x=0,W-1 do for r=0,H-1 do
+            if not cov[key(x,r)] then
+                -- Zusatzspur dort, wo sie die meisten offenen Felder abdeckt
+                local bx,br,bn=x,r,-1
+                for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                    local lx,lr=x+d[1],r+d[2]
+                    if lx>=0 and lx<W and lr>=0 and lr<H then
+                        local n=0
+                        for _,e in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                            local ax,ar=lx+e[1],lr+e[2]
+                            if ax>=0 and ax<W and ar>=0 and ar<H and not cov[key(ax,ar)] then n=n+1 end
+                        end
+                        if n>bn then bx,br,bn=lx,lr,n end
+                    end
+                end
+                add(bx,br)
+            end
+        end end
+        if not bestList or #lanes<#bestList then bestList=lanes end
+    end
+    -- Reihenfolge: Start an der Spur, die die Ecke an der Basis abdeckt,
+    -- dann immer zur naechstgelegenen offenen Spur (kurze Wechsel am Ende).
+    local left={}
+    for i,l in ipairs(bestList) do left[i]=l end
+    local order={}
+    local cx,cr=0,0
+    while #left>0 do
+        local bi,bd
+        for i,l in ipairs(left) do
+            local d=math.abs(l.x-cx)+math.abs(l.r-cr)
+            if not bd or d<bd or (d==bd and (l.r<left[bi].r or (l.r==left[bi].r and l.x<left[bi].x))) then bi,bd=i,d end
+        end
+        local l=table.remove(left,bi);order[#order+1]=l;cx,cr=l.x,l.r
+    end
+    return order
+end
+local sideNote
+if SIDE then
+    LANES=buildLanes()
+    if #LANES>=W*P then
+        SIDE=false
+        sideNote="Seitlich mitabbauen bringt bei diesen Massen nichts - normales Verfahren."
+    else
+        COVERMIN={}
+        for li,l in ipairs(LANES) do
+            for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                local ax,ar=l.x+d[1],l.r+d[2]
+                if ax>=0 and ax<W and ar>=0 and ar<H then
+                    local k=ax*H+ar
+                    if not COVERMIN[k] or li-1<COVERMIN[k] then COVERMIN[k]=li-1 end
+                end
+            end
+        end
+        area=L;cells=#LANES*L
+        layout="block5:"..L..":"..H..":"..W..(MIRROR and ":L" or "")
+        sideNote="Seitlich mitabbauen: "..#LANES.." Spuren statt "..(W*P)
+    end
+end
 local function step(i)
+    if SIDE then
+        local li=math.floor((i-1)/L);local j=(i-1)%L
+        local l=LANES[li+1]
+        local z=li%2==0 and j+1 or L-j
+        return l.x,-l.r,z,l.r+1<H,l.r-1>=0,l.x-1>=0,l.x+1<W
+    end
     local t=math.floor((i-1)/area);local k=(i-1)%area;local x=t*(G+1)
     local pi=math.floor(k/L);local j=k%L
     local p=t%2==0 and pi or P-1-pi
@@ -111,7 +196,7 @@ for _,arg in ipairs(args) do
     else error("Start: toast.lua [--dock] [--new]",0) end
 end
 -- Fortschritt aus der alten Version uebernehmen: angefangener Gang wird neu befahren.
-if st.layout==oldLayout or (st.layout==oldLayout22 and oldLayout22~=layout) then
+if not SIDE and (st.layout==oldLayout or (st.layout==oldLayout22 and oldLayout22~=layout)) then
     local t=math.floor((st.next-1)/(st.layout==oldLayout and L or (H<=3 and L or 2*L)))
     st.next=math.min(cells+1,t*area+1);st.layout=layout;st.accessHigh=nil
 end
@@ -357,11 +442,148 @@ end
 -- Mit (fast) vollem Inventar wuerde Abgebautes aber auf den Boden fallen ->
 -- dann eher freie Wege nehmen (0.5).
 local function digWeight() return freeSlots()<=1 and 0.5 or 0.1 end
+-- ----- Wegplanung im Spurmodus: Wegsuche (Dijkstra) im Querschnitt -----
+local function blockDug(x,y,z)
+    if z==0 then return x==0 and y==0 end
+    local r=-y
+    if x<0 or x>=W or r<0 or r>=H or z<1 or z>L then return onSeg(x,y,z) end
+    local li=math.floor((st.next-1)/L)
+    local m=COVERMIN[x*H+r]
+    if m and m<li then return true end
+    local l=LANES[li+1]
+    if l and math.abs(l.x-x)+math.abs(l.r-r)<=1 then
+        local j=(st.next-1)%L
+        if li%2==0 then if z<=j then return true end elseif z>=L-j+1 then return true end
+    end
+    return onSeg(x,y,z)
+end
+-- Kosten pro Feld: 1 Zug + Gewicht, falls dort noch abzubauen ist.
+local function dijkstra(z,sx,sr,w)
+    local N=W*H;local dist,prev={},{}
+    local heap={}
+    local function push(c,d) heap[#heap+1]={c,d};local i=#heap
+        while i>1 do local p=math.floor(i/2);if heap[p][2]<=heap[i][2] then break end;heap[p],heap[i]=heap[i],heap[p];i=p end end
+    local function pop() local top=heap[1];heap[1]=heap[#heap];heap[#heap]=nil;local i=1
+        while true do local a,b=2*i,2*i+1;local m=i
+            if heap[a] and heap[a][2]<heap[m][2] then m=a end
+            if heap[b] and heap[b][2]<heap[m][2] then m=b end
+            if m==i then break end;heap[m],heap[i]=heap[i],heap[m];i=m end
+        return top end
+    local s0=sx*H+sr;dist[s0]=0;push(s0,0)
+    while #heap>0 do
+        local t=pop();local c,d=t[1],t[2]
+        if d<=dist[c] then
+            local cx,cr=math.floor(c/H),c%H
+            for _,e in ipairs({{1,0},{-1,0},{0,1},{0,-1}}) do
+                local nx,nr=cx+e[1],cr+e[2]
+                if nx>=0 and nx<W and nr>=0 and nr<H then
+                    local n=nx*H+nr
+                    local nd=d+1+(blockDug(nx,-nr,z) and 0 or w)
+                    if not dist[n] or nd<dist[n] then dist[n]=nd;prev[n]=c;push(n,nd) end
+                end
+            end
+        end
+    end
+    return dist,prev
+end
+-- Weg im Querschnitt als Legs (zusammengefasst je Achse)
+local function crossLegs(prev,from,to,reverse)
+    local cells={}
+    local c=to
+    while c and c~=from do cells[#cells+1]=c;c=prev[c] end
+    if c~=from then return nil end
+    cells[#cells+1]=from
+    local seq={}
+    if reverse then for i=1,#cells do seq[#seq+1]=cells[i] end      -- to -> from
+    else for i=#cells,1,-1 do seq[#seq+1]=cells[i] end end          -- from -> to
+    local legs={}
+    for i=2,#seq do
+        local ax,ar=math.floor(seq[i-1]/H),seq[i-1]%H
+        local bx,br=math.floor(seq[i]/H),seq[i]%H
+        local a=bx~=ax and "x" or "y";local v=a=="x" and bx or -br
+        if legs[#legs] and legs[#legs][1]==a then legs[#legs][2]=v else legs[#legs+1]={a,v} end
+    end
+    return legs
+end
+local function concat(...)
+    local out={}
+    for _,t in ipairs({...}) do for _,l in ipairs(t) do out[#out+1]=l end end
+    return out
+end
+-- Spalten, die ueber die ganze Laenge frei sind (fertige Spurmitten)
+local function freeColumns(extra)
+    local cols={}
+    local li=math.floor((st.next-1)/L)
+    for i=1,math.min(li,#LANES) do cols[#cols+1]=LANES[i] end
+    if extra then cols[#cols+1]=extra end
+    return cols
+end
+-- Rueckweg: im Querschnitt zu einer freien Spalte, darin nach vorne (z=1),
+-- vorne im Querschnitt zur Ecke an der Basis, hinein.
+local function blockHome(w)
+    if st.z==0 then return {},0 end
+    local sx,sr=st.x,-st.y
+    local dz,pz=dijkstra(st.z,sx,sr,w)
+    local d1,p1=dijkstra(1,0,0,w)
+    local li=math.floor((st.next-1)/L)
+    local cur=LANES[li+1]
+    local cols=freeColumns()
+    -- eigene Spur zaehlt mit, wenn sie vorne begonnen hat und die Turtle darauf steht
+    if cur and li%2==0 and sx==cur.x and sr==cur.r then cols[#cols+1]=cur end
+    local bestC,bestCost
+    for _,c in ipairs(cols) do
+        local k=c.x*H+c.r
+        if dz[k] and d1[k] then
+            local cost=dz[k]+(st.z-1)+d1[k]
+            if not bestCost or cost<bestCost then bestC,bestCost=c,cost end
+        end
+    end
+    local s0,o=sx*H+sr,0
+    if not bestC then
+        -- Notfall: direkt nach vorne (raeumt frei, was im Weg ist)
+        local legs=concat({{"z",1}},crossLegs(p1,o,s0,true) or {{"y",0},{"x",0}},{{"z",0}})
+        return legs,st.z+sx+sr
+    end
+    local k=bestC.x*H+bestC.r
+    local legs=concat(crossLegs(pz,s0,k) or {},{{"z",1}},crossLegs(p1,o,k,true) or {},{{"z",0}})
+    return legs,bestCost+1
+end
+-- Hinweg von der Basis zu Spur-Ziel (x,y,z)
+local function blockWork(x,y,z,w)
+    local tr=-y
+    local d1,p1=dijkstra(1,0,0,w)
+    local dt,pt=dijkstra(z,x,tr,w)
+    local li=math.floor((st.next-1)/L)
+    local cur=LANES[li+1]
+    local cols=freeColumns()
+    local bestC,bestCost
+    for _,c in ipairs(cols) do
+        local k=c.x*H+c.r
+        if d1[k] and dt[k] then
+            local cost=d1[k]+(z-1)+dt[k]
+            if not bestCost or cost<bestCost then bestC,bestCost=c,cost end
+        end
+    end
+    local o,t=0,x*H+tr
+    -- Ziel liegt auf der eigenen, vorne begonnenen Spur: vorne hin, dann geradeaus
+    if cur and li%2==0 and cur.x==x and cur.r==tr then
+        local cost=d1[t]+(z-1)
+        if not bestCost or cost<=bestCost then
+            return concat({{"z",1}},crossLegs(p1,o,t) or {},{{"z",z}})
+        end
+    end
+    if not bestC then
+        return concat({{"z",1}},crossLegs(p1,o,t) or {{"x",x},{"y",y}},{{"z",z}})
+    end
+    local k=bestC.x*H+bestC.r
+    return concat({{"z",1}},crossLegs(p1,o,k) or {},{{"z",z}},crossLegs(pt,t,k,true) or {})
+end
 local hc={next=-1,n=0}
 local function homeDistance()
     if st.z==0 then return 0 end
     if hc.next~=st.next or hc.n>=40 then
-        local _,m=best(homeCandidates(),digWeight())
+        local m
+        if SIDE then _,m=blockHome(digWeight()) else _,m=best(homeCandidates(),digWeight()) end
         hc={next=st.next,x=st.x,y=st.y,z=st.z,m=m,n=0}
     end
     hc.n=hc.n+1
@@ -437,6 +659,15 @@ local function runLegs(legs,i)
     save();return true
 end
 local function routeTo(x,y,z,i)
+    if SIDE then
+        -- Auf der eigenen Spur hinter dem Ziel: geradeaus weiter
+        if st.x==x and st.y==y and st.z>0 then return runLegs({{"z",z}},i) end
+        if st.z~=0 then
+            local h=blockHome(digWeight())
+            local ok,why=runLegs(h,i);if not ok then return false,why end
+        end
+        return runLegs(blockWork(x,y,z,0.1),i)
+    end
     local cands={}
     if st.z==0 then cands=workCandidates(x,y,z)
     else
@@ -463,7 +694,8 @@ end
 local function home()
     if homePosition() and st.dir==0 then return true end
     status("Rueckkehr",run.fault or "Fahre ueber freigelegte Wege zur Basis.")
-    local legs=best(homeCandidates(),digWeight())
+    local legs
+    if SIDE then legs=blockHome(digWeight()) else legs=best(homeCandidates(),digWeight()) end
     local ok,why=runLegs(legs,false)
     if ok then ok,why=face(0) end
     hc.next=-1
@@ -580,14 +812,28 @@ local function work()
                         ok,why=supplies()
                     end
                     if ok and active() then
-                        status("Abbau","Gang "..(math.floor((st.next-1)/area)+1).." / "..C.tunnels)
-                        local x,y,z,up,down=step(st.next)
+                        status("Abbau",SIDE and ("Spur "..(math.floor((st.next-1)/L)+1).." / "..#LANES)
+                            or ("Gang "..(math.floor((st.next-1)/area)+1).." / "..C.tunnels))
+                        local x,y,z,up,down,left,right=step(st.next)
                         local px,py,pz
                         if st.next>1 then px,py,pz=step(st.next-1) end
                         if px and st.x==px and st.y==py and st.z==pz then ok,why=direct(x,y,z,true)
                         else ok,why=routeTo(x,y,z,true) end
                         if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true) end
                         if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true) end
+                        -- Spurmodus: links/rechts durch Drehen mitabbauen (kostet kein Fuel).
+                        -- Schon freie Seiten werden uebersprungen (spart Zeit).
+                        if SIDE and ok then
+                            local sides={}
+                            if right and not blockDug(x+1,y,z) then sides[#sides+1]=1 end
+                            if left and not blockDug(x-1,y,z) then sides[#sides+1]=3 end
+                            for _,d in ipairs(sides) do
+                                if ok and active() then
+                                    ok,why=face(d)
+                                    if ok then ok,why=clear(turtle.inspect,turtle.dig,true) end
+                                end
+                            end
+                        end
                     end
                     if ok and active() then
                         st.next=st.next+1;save();run.retries=0
@@ -652,6 +898,7 @@ if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
 print("TOAST MINING 2.6 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
+if sideNote then print(sideNote) end
 print("Zentrale #"..cfg.controllerId)
 if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
 print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")

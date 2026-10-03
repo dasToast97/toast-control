@@ -1,6 +1,6 @@
--- TOAST CONTROL 2.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
--- Start: wget run <link>            -> Auswahl Update / Komplett neu
---        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
+-- TOAST CONTROL 2.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- Start: wget run <link>            -> Update oder Komplett neu
+--        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|repeater
 -- Vor dem Schreiben wird ALLES Alte geloescht, damit nichts kollidiert.
 local args={...}
@@ -13,25 +13,27 @@ for _,a in ipairs(args) do
 end
 local code=FILES
 local common=assert(load(code["toast_common.lua"],"@toast_common.lua"))()
-term.clear();term.setCursorPos(1,1)
-print("TOAST CONTROL "..common.version.." / Geraet #"..os.getComputerID())
+local ui=assert(load(code["toast_setup.lua"],"@toast_setup.lua"))().new(common)
+local color=term.isColor and term.isColor()
+local function fg(c) if color then term.setTextColor(c) end end
+local function warn(s) fg(colors.orange);print(s);fg(colors.white) end
+ui.header("Installation auf Geraet #"..os.getComputerID())
 print("")
 if clean==nil then
-    print("1 Update: alles loeschen,")
-    print("  Config + Turtle-Fortschritt behalten")
-    print("2 Komplett neu: ALLES loeschen")
-    print("  (auch Config und Fortschritt)")
+    fg(colors.yellow);write("1 ");fg(colors.white);print("Update")
+    ui.hint("  Einstellungen + Fortschritt bleiben")
+    fg(colors.yellow);write("2 ");fg(colors.white);print("Komplett neu")
+    ui.hint("  ALLES auf dem Geraet loeschen")
+    print("")
     write("Auswahl [1]: ")
     clean=read()=="2"
 end
 if clean then
+    ui.header("Komplett neu")
+    warn("Alle Dateien auf diesem Geraet werden")
+    warn("geloescht, auch eigene Programme.")
+    if turtle then warn("Turtle vorher an ihre Basis stellen!") end
     print("")
-    printError("ACHTUNG: Alle Dateien auf diesem Geraet")
-    printError("werden geloescht (auch eigene Programme).")
-    if turtle then
-        printError("Turtle VORHER an ihre Basis stellen,")
-        printError("Blick zum Feld bzw. in die Mine!")
-    end
     write("Zum Bestaetigen LOESCHEN eingeben: ")
     assert(read()=="LOESCHEN","Abgebrochen. Nichts geloescht.")
 end
@@ -46,20 +48,20 @@ end
 local function config(path)
     if clean or not fs.exists(path) then return nil end
     local fn,why=load(readFile(path),"@"..path)
-    if not fn then printError("Config defekt, wird ersetzt: "..path.." / "..tostring(why));return nil end
+    if not fn then warn("Config defekt, wird ersetzt: "..path);return nil end
     local ok,result=pcall(fn)
-    if not ok or type(result)~="table" then printError("Config defekt, wird ersetzt: "..path);return nil end
+    if not ok or type(result)~="table" then warn("Config defekt, wird ersetzt: "..path);return nil end
     return result
 end
 local oldFarm,oldMine=config("/farm.config.lua"),config("/mine.config.lua")
 local existing=config("/toast.config.lua")
 if existing and not pcall(function()
-    local copy=textutils.unserialize(textutils.serialize(existing));copy.role=(copy.role=="repeater" and not turtle and not pocket) and "repeater" or nil;common.load(copy) end) then
+    local copy=common.copy(existing);copy.role=(copy.role=="repeater" and not turtle and not pocket) and "repeater" or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.
-    printError("Vorhandene toast.config.lua ungueltig, wird neu erstellt.")
+    warn("Vorhandene Config ungueltig, wird neu erstellt.")
     existing=nil
 end
-local c=existing or assert(load(code["toast.config.lua"],"@toast.config.lua"))()
+local c=common.withDefaults(existing or {})
 -- Alte Standard-Schutzliste (Kisten, Oefen, Spawner...) ersetzen: jetzt wird alles abgebaut.
 local OLD_PROTECT={["minecraft:bedrock"]=1,["minecraft:chest"]=1,["minecraft:trapped_chest"]=1,["minecraft:barrel"]=1,
     ["minecraft:ender_chest"]=1,["minecraft:hopper"]=1,["minecraft:spawner"]=1,["minecraft:furnace"]=1,
@@ -78,10 +80,11 @@ if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") t
 -- Neuer stationaerer Computer: Zentrale oder Repeater? Ohne Monitor ist Repeater vorgewaehlt.
 if role=="controller" and not requested and (clean or not existing) then
     local monitor=peripheral.find("monitor")~=nil
+    ui.header("Computer"..(monitor and " mit Monitor" or " ohne Monitor"))
     print("")
-    print("Stationaerer Computer"..(monitor and " mit Monitor" or " ohne Monitor")..":")
-    print("1 Zentrale (steuert alle Turtles)")
-    print("2 Repeater (verlaengert die Funkreichweite)")
+    fg(colors.yellow);write("1 ");fg(colors.white);print("Zentrale  (steuert alle Turtles)")
+    fg(colors.yellow);write("2 ");fg(colors.white);print("Repeater  (leitet Funk weiter)")
+    print("")
     while true do
         write("Auswahl ["..(monitor and "1" or "2").."]: ")
         local v=read()
@@ -94,11 +97,16 @@ assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaere
 assert(not requested or requested=="repeater" or role=="turtle","farm/mining nur fuer Turtles.")
 if existing and not requested and not (c.role==nil or c.role=="auto" or c.role==role) then
     printError("Gespeicherte Rolle passt nicht zum Geraet, wird neu erkannt.")
-    existing=nil;c=assert(load(code["toast.config.lua"],"@toast.config.lua"))()
+    existing=nil;c=common.withDefaults({})
 end
 local function chooseJob()
+    ui.header("Turtle #"..os.getComputerID())
+    print("")
+    fg(colors.yellow);write("1 ");fg(colors.white);print("Farm")
+    fg(colors.yellow);write("2 ");fg(colors.white);print("Mining")
+    print("")
     while true do
-        write("Turtle-Aufgabe: 1 Farm / 2 Mining: ")
+        write("Aufgabe: ")
         local answer=read():lower()
         if answer=="1" or answer=="farm" or answer=="f" then return "farm" end
         if answer=="2" or answer=="mining" or answer=="m" then return "mining" end
@@ -141,7 +149,7 @@ if not existing then
     elseif role~="repeater" and not source then
         local found={}
         if common.refreshModems()>0 then
-            print("Suche Zentrale...")
+            ui.header("Suche Zentrale ...")
             found={rednet.lookup(common.protocol)}
             if #found==1 and common.id(found[1]) and found[1]~=os.getComputerID() then
                 c.controllerId=found[1];print("Zentrale gefunden: #"..found[1])
@@ -149,6 +157,8 @@ if not existing then
         end
         if #found==0 then
             while true do
+                ui.header("Zentrale nicht gefunden")
+                ui.hint("ID steht oben auf der Zentrale.")
                 write("ID der Zentrale ["..c.controllerId.."]: ")
                 local value=read();local id=value=="" and c.controllerId or tonumber(value)
                 if common.id(id) and id~=os.getComputerID()then c.controllerId=id;break end
@@ -159,118 +169,26 @@ if not existing then
 end
 c.role=role;c.job=job or c.job or "auto"
 if job and (c.label==nil or c.label=="") then c.label=common.label(os.getComputerLabel and os.getComputerLabel() or "") end
--- Masse fuer Farm bzw. Mine abfragen (Enter = Wert in Klammern behalten).
-local function ask(text,default,lo,hi)
-    while true do
-        write(text.." ["..tostring(default).."]: ")
-        local v=read()
-        if v=="" then return default end
-        local n=tonumber(v)
-        if n and n%1==0 and n>=lo and n<=hi then return n end
-        print("Bitte ganze Zahl von "..lo.." bis "..hi..".")
-    end
-end
-local function askSide(default)
-    while true do
-        write("Seite: r = rechts / l = links ["..(default=="left" and "l" or "r").."]: ")
-        local v=read():lower()
-        if v=="" then return default or "right" end
-        if v=="r" or v=="rechts" or v=="right" then return "right" end
-        if v=="l" or v=="links" or v=="left" then return "left" end
-    end
-end
-local layoutChanged=false
-local setup=role=="turtle" and (clean or not existing or requested)
-if role=="turtle" and not setup then
-    write("Name oder "..(job=="farm" and "Feldmasse" or "Minenmasse").." aendern? (j/n) [n]: ")
-    setup=read():lower()=="j"
-end
--- Name abfragen: Turtles beim Einrichten, Zentrale/Pocket bei neuer Installation.
-if setup or (role~="turtle" and (clean or not existing)) then
-    local current=c.name or c.label or ""
-    if current=="" then current=os.getComputerLabel and os.getComputerLabel() or "" end
-    write("Name"..(current~="" and " ["..current.."]" or " (leer = keiner)")..": ")
-    local v=read()
-    if v~="" then c.name=common.label(v) else c.name=current end
-    c.label=c.name;configChanged=true
-end
-if setup then
+if (c.name or "")=="" and type(c.label)=="string" and c.label~="" then c.name=common.label(c.label) end
+if c.name=="" and os.getComputerLabel and os.getComputerLabel() then c.name=common.label(os.getComputerLabel()) end
+c.label=c.name
+-- Einstellungen: Uebersicht mit Nummern (bei Update auf Wunsch).
+local before=ui.layoutKey(c,job)
+local show=clean or not existing or requested
+if not show then
+    ui.header("Update")
     print("")
-    print("Turtle steht an der Basis und schaut nach vorne")
-    print((job=="farm" and "aufs Feld." or "in die Mine."))
-    if job=="farm" then
-        local f=c.farm or {};c.farm=f
-        local before=textutils.serialize({f.width,f.length,f.side,f.crop})
-        f.length=ask("Feld-Laenge nach vorne (1-32)",f.length or 9,1,32)
-        f.width=ask("Feld-Breite zur Seite (1-32)",f.width or 9,1,32)
-        if f.width>1 then f.side=askSide(f.side) else f.side=f.side or "right" end
-        local crops={"wheat","carrots","potatoes","beetroot"}
-        local names={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete"}
-        local current=1;for i,v in ipairs(crops)do if v==f.crop then current=i end end
-        print("Pflanze: 1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
-        f.crop=crops[ask("Pflanze",current,1,4)]
-        f.interval=ask("Pause zwischen Runden in Sekunden",f.interval or 60,1,86400)
-        -- Wasser erkennt die Turtle selbst: einzelne Stellen, ganze Reihen oder gar keins.
-        f.water={}
-        print("Wasser im Feld wird automatisch erkannt.")
-        print(names[f.crop].."-Feld "..f.length.." x "..f.width.." nach "..(f.side=="left" and "links" or "rechts"))
-        layoutChanged=before~=textutils.serialize({f.width,f.length,f.side,f.crop})
-    else
-        local m=c.mine or {};c.mine=m
-        local before=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
-        m.length=ask("Ganglaenge nach vorne (1-1024)",m.length or 100,1,1024)
-        m.height=ask("Ganghoehe (1-64; 3, 6, 9 ... am sparsamsten)",m.height or 3,1,64)
-        m.tunnels=ask("Anzahl Gaenge (1-64)",m.tunnels or 5,1,64)
-        if m.tunnels>1 then
-            m.gap=ask("Bloecke zwischen den Gaengen (0-16)",m.gap or 2,0,16)
-            m.side=askSide(m.side)
-        else m.gap=m.gap or 2;m.side=m.side or "right" end
-        local w=(m.tunnels-1)*(m.gap+1)+1
-        print("Mine: "..m.tunnels.." Gaenge x "..m.length.." lang x "..m.height.." hoch")
-        print("Gesamtbreite "..w.." Bloecke nach "..(m.side=="left" and "links" or "rechts"))
-        layoutChanged=before~=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
-    end
-    -- Chunkloader (Mod CCChunkloader)
-    local cl=type(c.chunkload)=="table" and c.chunkload or {};c.chunkload=cl
-    print("")
-    print("Chunks laden (Mod CCChunkloader)?")
-    print("0 = aus")
-    for _,n in ipairs({1,9,21}) do
-        local f=common.chunkFuelPerHour(n)
-        print(n.." = "..n.." Chunk"..(n>1 and "s" or "").."  ~"..f.." Fuel/h (~"..math.ceil(f/80).." Kohle/h)")
-    end
-    local cur=cl.enabled and (cl.chunks or 1) or 0
-    while true do
-        write("Auswahl ["..cur.."]: ")
-        local v=read();local n=v=="" and cur or tonumber(v)
-        if n==0 then cl.enabled=false;break end
-        if common.CHUNK_RADIUS[n] then cl.enabled=true;cl.chunks=n;break end
-        print("Bitte 0, 1, 9 oder 21.")
-    end
-    if cl.enabled then
-        if cl.wakeOnWorldLoad==nil then cl.wakeOnWorldLoad=true end
-        cl.reportEvery=cl.reportEvery or 10;cl.idle=cl.idle==true
-        print("Anbau: Chunkloader-Upgrade + "..(job=="farm" and "Werkzeug" or "Spitzhacke")..",")
-        print("Funkmodem ins Turtle-Inventar legen.")
-        print("Tipp: 1 Chunk reicht, er wandert mit.")
-    end
-    configChanged=true
+    show=ui.yesno("Einstellungen ansehen/aendern?",false)
 end
--- Neue Masse bei vorhandenem Fortschritt: neuen Auftrag an der Basis beginnen.
-local resetProgress=false
-if layoutChanged and not clean and job=="mining" then
-    local stateFile=job=="farm" and "/toast_farm_state" or "/toast_mining_state"
-    if fs.exists(stateFile) or fs.exists(stateFile..".tmp") then
-        print("")
-        print("Neue Masse = neuer Auftrag. Die Turtle muss")
-        print("dafuer an ihrer Basis stehen (Blick nach vorne).")
-        write("Steht sie an der Basis? (j/n) [j]: ")
-        if read():lower()~="n" then resetProgress=stateFile
-        else printError("Dann vorher an die Basis stellen und danach: toast.lua --dock --new") end
-    end
+while true do
+    if show then ui.run(c,{role=role,job=job,installer=true}) end
+    local ok,why=pcall(function() common.load(common.copy(c)) end)
+    if ok then break end
+    ui.header("Einstellung ungueltig");warn(tostring(why));sleep(2);show=true
 end
+local resetProgress=not clean and before~=ui.layoutKey(c,job) and ui.confirmReset(job)
 common.load(c)
-local names={"toast.lua","toast_common.lua"}
+local names={"toast.lua","toast_common.lua","toast_setup.lua"}
 if role=="controller" then
     for _,name in ipairs({"toast_control.lua","toast_model.lua","toast_ui.lua"})do names[#names+1]=name end
 elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="toast_ui.lua"
@@ -302,31 +220,26 @@ for _,name in ipairs(names)do
     local path=name=="toast.lua" and "/toast.lua" or "/toast/"..name
     local f=assert(fs.open(path,"w"));f.write(code[name]);f.close()
 end
-if resetProgress then
-    for _,p in ipairs({resetProgress,resetProgress..".tmp"})do if fs.exists(p) then fs.delete(p) end end
-end
-if clean or not existing or requested or configChanged then
-    local f=assert(fs.open("/toast.config.lua","w"))
-    f.write("-- Toast Control: edit /toast.config.lua\nreturn "..textutils.serialize(c).."\n");f.close()
-end
+-- Config immer sauber neu schreiben (Werte bleiben erhalten).
+c.label=nil
+local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f.close()
+ui.header("Fertig")
 print("")
-print("TOAST CONTROL "..common.version.." installiert / Geraet #"..os.getComputerID())
-print("Rolle: "..role..(job and " / "..job or "").." | Zentrale #"..c.controllerId)
-print(clean and "Komplett neu: alles geloescht." or "Update: Config + Fortschritt behalten.")
-print("Frei: "..math.floor(fs.getFreeSpace("/")/1024).." KB")
-write("Config jetzt bearbeiten? (j/n) [n]: ")
-if read():lower()=="j"then shell.run("edit","/toast.config.lua")end
+fg(colors.lime);print("Toast Control "..common.version.." installiert");fg(colors.white)
+print((role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining"))
+    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater"})[role])..(c.name~="" and (" / "..c.name) or ""))
+if role~="controller" and role~="repeater" then print("Zentrale #"..c.controllerId) end
+print(clean and "Komplett neu installiert." or "Update: Einstellungen behalten.")
+if resetProgress then print("Neuer Auftrag mit den neuen Massen.") end
+ui.hint("Spaeter aendern: toast.lua config")
 local checked=common.load()
 assert(checked.role==role,"role passt nicht zum erkannten Geraet.")
 if role=="turtle" then
     local prefix=checked.job=="farm" and "farm" or "mine"
-    assert(fs.exists("/toast/"..prefix.."_common.lua"),"Fuer andere Aufgabe Installer mit farm/mining erneut starten.")
     dofile("/toast/"..prefix.."_common.lua").load(common.workerConfig(checked))
 end
-write("Autostart einrichten? (j/n) [j]: ")
-if read():lower()~="n"then
+print("")
+if ui.yesno("Autostart einrichten?",true) then
     local f=assert(fs.open("/startup.lua","w"));f.write('shell.run("/toast.lua")\n');f.close()
-    print("Autostart eingerichtet.")
 end
-write("Jetzt starten? (j/n) [j]: ")
-if read():lower()~="n"then shell.run("/toast.lua")end
+if ui.yesno("Jetzt starten?",true) then shell.run("/toast.lua") end

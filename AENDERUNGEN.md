@@ -1,4 +1,28 @@
-# Toast Control 2.6 – Stabilität, Reset, sparsamer Fahrweg, eigene Maße & Chunkloader
+# Toast Control 2.7
+
+## Neu in 2.7
+
+**Neues Einstellungsmenü** – im Installer und jederzeit mit `toast.lua config`:
+eine Übersicht mit Nummern (Name, Zentrale, Mine/Feld, Chunks, Funk bzw.
+Monitor/Geräte bei der Zentrale). Nummer = ändern, Enter = weiter/speichern,
+q = abbrechen. Passt auch auf den kleinen Turtle-Bildschirm.
+
+**Saubere Config:** `/toast.config.lua` wird geordnet und kommentiert geschrieben
+und enthält nur, was das Gerät braucht (Mining-Turtle: Mine, Chunks, Stabilität;
+Zentrale: Bildschirm, Geräte, Funk ...). Fehlende Einträge werden mit
+Standardwerten ergänzt; alte Configs werden beim Update übernommen und neu
+geschrieben.
+
+**Seitlich mitabbauen** (`mine.sideDig = true`, nur bei Abstand 0): Fahrspuren
+im Plus-Muster, links/rechts wird durch Drehen mitabgebaut (Drehen kostet kein
+Fuel). Die Turtle prüft selbst, ob das bei den Maßen weniger Spuren braucht,
+sonst nimmt sie das normale Verfahren. Simulation (Fuel gespart / mehr Aktionen):
+Höhe 1: 62 % / +26 %, Höhe 2: 29 % / +39 %, Höhe 3: kein Vorteil,
+Höhe 4: 36 % / +35 %, Höhe 6: 11 % / +49 %, Höhe 9–30: 15–29 % / +29–41 %.
+
+**Chunkloader „an der Basis wach“** wird beim Einschalten standardmäßig
+vorgeschlagen: sonst schläft eine Turtle an der Basis ein, sobald kein Spieler
+in der Nähe ist (z. B. Nether), und hört kein START mehr.
 
 ## Neu in 2.6: Rückweg und Hinweg beim Mining neu
 

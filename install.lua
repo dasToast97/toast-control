@@ -1,4 +1,4 @@
--- TOAST CONTROL 2.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 2.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining und Repeater.
@@ -41,6 +41,27 @@ local function runOnce()
     return assert(loadfile("/toast/"..program,"t",_ENV))(table.unpack(args))
 end
 
+-- Einstellungsmenue: toast.lua config
+if args[1]=="config" or args[1]=="--config" then
+    local ui=dofile("/toast/toast_setup.lua").new(common)
+    local okc,raw=pcall(dofile,"/toast.config.lua")
+    local c=common.withDefaults(okc and type(raw)=="table" and raw or {})
+    local role=c.role~="auto" and c.role or (turtle and "turtle" or (pocket and "pocket" or "controller"))
+    local job=role=="turtle" and c.job or nil
+    local before=ui.layoutKey(c,job)
+    while true do
+        if not ui.run(c,{role=role,job=job}) then print("Abgebrochen, nichts geaendert.");return end
+        local ok,why=pcall(function() common.load(common.copy(c)) end)
+        if ok then break end
+        printError(tostring(why));sleep(2)
+    end
+    if before~=ui.layoutKey(c,job) then ui.confirmReset(job) end
+    c.role=role;c.label=nil
+    local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f.close()
+    term.clear();term.setCursorPos(1,1)
+    print("Gespeichert. Starte Toast ...")
+    args={}
+end
 -- Startargumente wie --dock/--new nur beim ersten Start verwenden.
 local restarts,windowStart=0,os.clock()
 while true do
@@ -72,7 +93,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="2.6",
+    version="2.7",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -102,9 +123,131 @@ function M.recovery(r)
     assert(M.integer(r.moveRetries,1,64),"recovery.moveRetries: 1 bis 64.")
     return r
 end
+-- ===== Standardwerte (fehlende Eintraege in der Config werden hiermit ergaenzt) =====
+M.DEFAULTS={
+    role="auto",job="auto",name="",controllerId=0,
+    autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},
+    display={monitor="auto",textScale=0.5,pageSize=0},
+    network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
+    recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
+    chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
+    farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=64,radioTimeout=60,water={}},
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,radioTimeout=60,
+        fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
+}
+local function copy(v)
+    if type(v)~="table" then return v end
+    local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
+end
+M.copy=copy
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true}
+function M.withDefaults(c)
+    c=type(c)=="table" and c or {}
+    for k,v in pairs(M.DEFAULTS) do
+        if c[k]==nil then c[k]=copy(v)
+        elseif SECTIONS[k] and type(c[k])=="table" then
+            for sk,sv in pairs(v) do if c[k][sk]==nil then c[k][sk]=copy(sv) end end
+        end
+    end
+    if c.name=="" and type(c.label)=="string" then c.name=c.label end
+    return c
+end
+-- Saubere, kommentierte Config schreiben (nur die Abschnitte, die das Geraet braucht).
+local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete"}
+M.CROP_NAMES=CROP_NAMES
+function M.configText(c)
+    local out={}
+    local function q(v)
+        if type(v)=="string" then return string.format("%q",v) end
+        if type(v)=="table" then
+            local parts={}
+            for _,x in ipairs(v) do
+                if type(x)=="table" then
+                    local f={};for k2,x2 in pairs(x) do f[#f+1]=k2.." = "..q(x2) end
+                    table.sort(f);parts[#parts+1]="{ "..table.concat(f,", ").." }"
+                else parts[#parts+1]=q(x) end
+            end
+            return #parts==0 and "{}" or "{ "..table.concat(parts,", ").." }"
+        end
+        return tostring(v)
+    end
+    local function line(ind,key,val,comment)
+        local s=string.rep(" ",ind)..key.." = "..val..","
+        if comment then s=s..string.rep(" ",math.max(1,38-#s)).."-- "..comment end
+        out[#out+1]=s
+    end
+    local function section(name,title,fields,t)
+        out[#out+1]=""
+        out[#out+1]="    -- "..title
+        out[#out+1]="    "..name.." = {"
+        for _,f in ipairs(fields) do line(8,f[1],q(t[f[1]]),f[2]) end
+        out[#out+1]="    },"
+    end
+    local role,job=c.role,c.job
+    local what=role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining")) or
+        ({controller="Zentrale",pocket="Pocket",repeater="Repeater"})[role] or tostring(role)
+    out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
+    out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
+    out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
+    out[#out+1]="return {"
+    line(4,"role",q(role))
+    if role=="turtle" then line(4,"job",q(job),"farm oder mining") end
+    line(4,"name",q(c.name or ""),"Name an Zentrale/Pocket")
+    if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
+    elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    if role=="turtle" and job=="mining" then
+        section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
+            {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
+            {"tunnels","Anzahl Gaenge (1-64)"},{"gap","Bloecke zwischen den Gaengen (0-16)"},
+            {"side","Gaenge nach \"right\" oder \"left\""},{"sideDig","nur gap = 0: seitlich mitabbauen"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
+            {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
+            {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
+    elseif role=="turtle" then
+        section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
+            {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
+            {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot"},
+            {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut, das behalten wird"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
+    end
+    if role=="turtle" then
+        section("chunkload","Chunks laden (Mod CCChunkloader)",{
+            {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
+            {"idle","true = auch an der Basis wach"},{"wakeOnWorldLoad","nach Serverneustart weiter"},
+            {"reportEvery","alle x s kurz funken"}},c.chunkload)
+    end
+    if role=="controller" then
+        section("display","Bildschirm",{
+            {"monitor","\"auto\", \"terminal\" oder Name"},{"textScale","Schriftgroesse 0.5 bis 5"},
+            {"pageSize","Zeilen pro Seite (0 = auto)"}},c.display)
+        out[#out+1]=""
+        line(4,"autoDiscover",q(c.autoDiscover),"neue Turtles automatisch aufnehmen")
+        line(4,"autoPairPockets",q(c.autoPairPockets),"neue Pockets automatisch aufnehmen")
+        out[#out+1]="    devices = {                       -- feste Namen: [ID] = { job = ..., name = ... }"
+        local ids={};for id in pairs(c.devices or {}) do ids[#ids+1]=id end;table.sort(ids)
+        for _,id in ipairs(ids) do
+            local d=c.devices[id]
+            out[#out+1]="        ["..id.."] = { job = "..q(d.job)..", name = "..q(d.name or d.label or "").." },"
+        end
+        out[#out+1]="    },"
+        line(4,"pocketIds",q(c.pocketIds or {}),"bekannte Pockets")
+    end
+    if role=="controller" or role=="pocket" then
+        section("network","Funk",{
+            {"pollInterval","Abfrage alle x s"},{"staleAfter","nach x s OFFLINE"},
+            {"commandTimeout","Befehl x s wiederholen"},{"maxDevices","hoechstens so viele Turtles"}},c.network)
+    end
+    section("recovery","Stabilitaet",{
+        {"autoRestart","nach Absturz neu starten"},{"restartDelay","Sekunden bis Neustart"},
+        {"maxRestarts","hoechstens so oft in 10 min"},{"autoRetry","Turtle: neue Versuche nach Fehler"},
+        {"retryDelay","Sekunden bis neuer Versuch"},{"moveRetries","Versuche bei Mob im Weg"}},c.recovery)
+    out[#out+1]="}"
+    return table.concat(out,"\n").."\n"
+end
 function M.load(c)
     c=c or dofile("/toast.config.lua")
     assert(type(c)=="table","Config muss eine Tabelle sein.")
+    M.withDefaults(c)
     c.role=c.role or "auto"
     if c.role=="auto" then c.role=turtle and "turtle" or (pocket and "pocket" or "controller") end
     assert(({controller=true,turtle=true,pocket=true,repeater=true})[c.role],"role: auto/controller/turtle/pocket/repeater")
@@ -274,6 +417,242 @@ function M.retryable(fault)
     return true
 end
 return M
+]======]
+FILES["toast_setup.lua"]=[======[
+-- Toast Control: Einstellungsmenue (Installer und "toast.lua config").
+-- Eine Uebersicht mit Nummern; Nummer = aendern, Enter = fertig.
+local S={}
+function S.new(common)
+    local M={}
+    local W=({term.getSize()})[1]
+    local color=term.isColor and term.isColor()
+    local function fg(c) if color then term.setTextColor(c) end end
+    local function cut(s) return tostring(s):sub(1,W) end
+    local function header(sub)
+        term.setBackgroundColor(colors.black);term.clear();term.setCursorPos(1,1)
+        fg(colors.cyan);print(cut("TOAST SETUP "..common.version));fg(colors.lightGray);print(cut(sub));fg(colors.white)
+    end
+    local function hint(s) fg(colors.lightGray);print(cut(s));fg(colors.white) end
+    local function ask(label,default,lo,hi)
+        while true do
+            write(cut(label.." ["..tostring(default).."]: "))
+            local v=read()
+            if v=="" then return default end
+            local n=tonumber(v)
+            if n and n%1==0 and n>=lo and n<=hi then return n end
+            fg(colors.orange);print(cut("  Bitte "..lo.." bis "..hi));fg(colors.white)
+        end
+    end
+    local function askText(label,default)
+        write(cut(label..(default~="" and " ["..default.."]" or "")..": "))
+        local v=read()
+        if v=="" then return default end
+        if v=="-" then return "" end
+        return common.label(v)
+    end
+    local function yesno(label,default)
+        while true do
+            write(cut(label.." (j/n) ["..(default and "j" or "n").."]: "))
+            local v=read():lower()
+            if v=="" then return default end
+            if v=="j" or v=="ja" or v=="y" then return true end
+            if v=="n" or v=="nein" then return false end
+        end
+    end
+    local function askSide(label,default)
+        while true do
+            write(cut(label.." r/l ["..(default=="left" and "l" or "r").."]: "))
+            local v=read():lower()
+            if v=="" then return default or "right" end
+            if v=="r" or v=="rechts" or v=="right" then return "right" end
+            if v=="l" or v=="links" or v=="left" then return "left" end
+        end
+    end
+    local function sideName(s) return s=="left" and "links" or "rechts" end
+    -- ---- Zusammenfassungen ----
+    local function mineText(m)
+        return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
+            ..(m.sideDig and m.gap==0 and " +seitl" or "")
+    end
+    local function farmText(f)
+        return f.length.."x"..f.width.." "..sideName(f.side).." "..(common.CROP_NAMES[f.crop] or f.crop)
+    end
+    local function chunkText(cl)
+        if not cl.enabled then return "aus" end
+        return cl.chunks.."  -"..common.chunkFuelPerHour(cl.chunks).." Fuel/h"..(cl.idle and " +Basis" or "")
+    end
+    local function radioText(t) return t==0 and "ohne Zentrale weiter" or ("Stopp nach "..t.." s") end
+    -- ---- Bearbeiten ----
+    local function editMine(c)
+        local m=c.mine
+        header("Mine (von der Basis aus nach vorne)")
+        hint("Enter = Wert behalten")
+        m.length=ask("Laenge (1-1024)",m.length,1,1024)
+        m.height=ask("Hoehe (1-64, 3/6/9 sparsam)",m.height,1,64)
+        m.tunnels=ask("Gaenge (1-64)",m.tunnels,1,64)
+        if m.tunnels>1 then
+            m.gap=ask("Abstand (0-16)",m.gap,0,16)
+            m.side=askSide("Gaenge nach",m.side)
+            if m.gap==0 then
+                hint("Seitlich mitabbauen: weniger Fuel,")
+                hint("dafuer langsamer.")
+                m.sideDig=yesno("Seitlich mitabbauen?",m.sideDig==true)
+            else m.sideDig=false end
+        else m.sideDig=false end
+    end
+    local function editFarm(c)
+        local f=c.farm
+        header("Feld (von der Basis aus nach vorne)")
+        hint("Enter = behalten. Wasser wird erkannt.")
+        f.length=ask("Laenge (1-32)",f.length,1,32)
+        f.width=ask("Breite (1-32)",f.width,1,32)
+        if f.width>1 then f.side=askSide("Feld nach",f.side) end
+        local crops={"wheat","carrots","potatoes","beetroot"}
+        local cur=1;for i,v in ipairs(crops) do if v==f.crop then cur=i end end
+        hint("1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
+        f.crop=crops[ask("Pflanze",cur,1,4)]
+        f.interval=ask("Pause zwischen Runden (s)",f.interval,1,86400)
+        f.seedReserve=f.seedReserve or 64
+        f.water={}
+    end
+    local function editChunks(c,job)
+        local cl=c.chunkload
+        header("Chunks laden (Mod CCChunkloader)")
+        hint("0 = aus")
+        for _,n in ipairs({1,9,21}) do
+            local fph=common.chunkFuelPerHour(n)
+            hint(n.." = ~"..fph.." Fuel/h (~"..math.ceil(fph/80).." Kohle/h)")
+        end
+        local wasOn=cl.enabled
+        local cur=cl.enabled and cl.chunks or 0
+        while true do
+            local n=ask("Chunks",cur,0,21)
+            if n==0 then cl.enabled=false;break end
+            if common.CHUNK_RADIUS[n] then cl.enabled=true;cl.chunks=n;break end
+            fg(colors.orange);print("  0, 1, 9 oder 21");fg(colors.white)
+        end
+        if cl.enabled then
+            hint("Auch an der Basis geladen lassen?")
+            hint("Noetig, damit sie START hoert, wenn")
+            hint("niemand in der Naehe ist (z.B. Nether)")
+            cl.idle=yesno("An der Basis wach",(not wasOn) or cl.idle==true)
+            hint("Anbau: Chunkloader + "..(job=="farm" and "Werkzeug" or "Spitzhacke"))
+            hint("Funkmodem ins Turtle-Inventar legen.")
+            sleep(1.5)
+        end
+    end
+    local function editRadio(c,job)
+        local sec=job=="farm" and c.farm or c.mine
+        header("Funk")
+        hint("Keine Verbindung zur Zentrale:")
+        hint("nach x Sekunden stoppen + heimfahren.")
+        hint("0 = trotzdem weiterarbeiten")
+        while true do
+            local t=ask("Sekunden (0, 10-300)",sec.radioTimeout,0,300)
+            if t==0 or t>=10 then sec.radioTimeout=t;break end
+        end
+    end
+    local function editMonitor(c)
+        local d=c.display
+        header("Bildschirm der Zentrale")
+        hint("auto = Advanced Monitor suchen")
+        hint("terminal = Computerbildschirm")
+        write(cut("Monitor ["..d.monitor.."]: "))
+        local v=read();if v~="" then d.monitor=v end
+        hint("Schrift: 1 = 0.5 (klein) ... 10 = 5")
+        local sz=ask("Schriftgroesse",math.floor(d.textScale*2+0.5),1,10)
+        d.textScale=sz/2
+    end
+    local function editDevices(c)
+        header("Geraete")
+        c.autoDiscover=yesno("Neue Turtles automatisch aufnehmen?",c.autoDiscover)
+        c.autoPairPockets=yesno("Neue Pockets automatisch aufnehmen?",c.autoPairPockets)
+    end
+    local function editController(c)
+        header("Zentrale")
+        while true do
+            local id=ask("ID der Zentrale",c.controllerId,0,65500)
+            if id==os.getComputerID() and c.controllerId==id then break end
+            if id~=os.getComputerID() then c.controllerId=id;break end
+            fg(colors.orange);print("  Das ist die eigene ID.");fg(colors.white)
+        end
+    end
+    local function items(c,info)
+        local role,job=info.role,info.job
+        local list={{"Name",function() return c.name~="" and c.name or "-" end,function()
+            header("Name");hint("Leer lassen = behalten, - = loeschen")
+            c.name=askText("Name",c.name);c.label=c.name end}}
+        if role~="controller" and role~="repeater" then
+            list[#list+1]={"Zentrale",function() return "#"..c.controllerId end,function() editController(c) end}
+        end
+        if role=="turtle" and job=="mining" then
+            list[#list+1]={"Mine",function() return mineText(c.mine) end,function() editMine(c) end}
+        elseif role=="turtle" then
+            list[#list+1]={"Feld",function() return farmText(c.farm) end,function() editFarm(c) end}
+        end
+        if role=="turtle" then
+            list[#list+1]={"Chunks",function() return chunkText(c.chunkload) end,function() editChunks(c,job) end}
+            list[#list+1]={"Funk",function() return radioText((job=="farm" and c.farm or c.mine).radioTimeout) end,
+                function() editRadio(c,job) end}
+        end
+        if role=="controller" then
+            list[#list+1]={"Monitor",function() return c.display.monitor.." / Schrift "..c.display.textScale end,
+                function() editMonitor(c) end}
+            list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "
+                ..(c.autoPairPockets and "Pockets auto" or "Pockets fest") end,function() editDevices(c) end}
+        end
+        return list
+    end
+    -- Uebersicht; true = uebernehmen, false = abbrechen
+    function M.run(c,info)
+        local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(info.job=="farm" and "Farm" or "Mining"))
+            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater"})[info.role].." #"..os.getComputerID())
+        while true do
+            local list=items(c,info)
+            header(what)
+            print("")
+            for i,it in ipairs(list) do
+                fg(colors.yellow);write(i.." ");fg(colors.white)
+                write(string.format("%-9s",it[1]))
+                fg(colors.lightGray);print(tostring(it[2]()):sub(1,math.max(1,W-12)));fg(colors.white)
+            end
+            print("")
+            hint("Nummer = aendern, Enter = "..(info.installer and "weiter" or "speichern")
+                ..(info.installer and "" or ", q = Abbruch"))
+            write("> ")
+            local v=read()
+            if v=="" then return true end
+            if v:lower()=="q" and not info.installer then return false end
+            local n=tonumber(v)
+            if n and list[n] then list[n][3]() end
+        end
+    end
+    -- Neue Minenmasse bei vorhandenem Fortschritt -> neuer Auftrag (Turtle an der Basis)
+    function M.layoutKey(c,job)
+        if job=="mining" then local m=c.mine
+            return table.concat({m.length,m.height,m.tunnels,m.gap,m.side,tostring(m.sideDig==true)},":") end
+        if job=="farm" then local f=c.farm return table.concat({f.length,f.width,f.side,f.crop},":") end
+        return ""
+    end
+    function M.confirmReset(job)
+        if job~="mining" then return end
+        local file="/toast_mining_state"
+        if not (fs.exists(file) or fs.exists(file..".tmp")) then return end
+        header("Neue Minenmasse")
+        print("Neue Masse = neuer Auftrag.")
+        print("Die Turtle muss an ihrer Basis stehen")
+        print("(Blick in die Mine).")
+        if yesno("Steht sie an der Basis?",true) then
+            for _,p in ipairs({file,file..".tmp"}) do if fs.exists(p) then fs.delete(p) end end
+            return true
+        end
+        printError("Erst an die Basis stellen, dann: toast.lua --dock --new")
+        sleep(2)
+    end
+    M.yesno=yesno;M.header=header;M.hint=hint;M.ask=ask
+    return M
+end
+return S
 ]======]
 FILES["toast_control.lua"]=[======[
 local common=dofile("/toast/toast_common.lua")
@@ -1428,7 +1807,92 @@ local layout=tag..L..":"..H..":"..C.tunnels..":"..G..(MIRROR and ":L" or "")
 -- Schritt i -> Position (x,y,z) und ob oben/unten mit abgebaut wird.
 -- Schlangenlinie in z UND in der Hoehe: Gang 1 Schichten unten->oben,
 -- Gang 2 oben->unten usw.; jede Schicht startet dort, wo die vorige endete.
+-- ===== Seitlich mitabbauen (nur Abstand 0) =====
+-- Fahrspuren im Plus-Muster: jede Spur raeumt pro Schritt Mitte, oben, unten,
+-- links, rechts (Drehen kostet kein Fuel). Spuren bei (x+2r) mod 5 = c fuellen
+-- die Flaeche lueckenlos; Luecken am Rand bekommen Zusatzspuren.
+assert(C.sideDig==nil or type(C.sideDig)=="boolean","mine.sideDig: true oder false.")
+local SIDE=C.sideDig==true and G==0
+local W=C.tunnels
+local LANES,COVERMIN
+local function buildLanes()
+    local bestList
+    for c=0,4 do
+        local lanes,cov={},{}
+        local function key(x,r) return x*H+r end
+        local function add(x,r)
+            lanes[#lanes+1]={x=x,r=r}
+            for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                local ax,ar=x+d[1],r+d[2]
+                if ax>=0 and ax<W and ar>=0 and ar<H then cov[key(ax,ar)]=true end
+            end
+        end
+        for x=0,W-1 do for r=0,H-1 do if (x+2*r)%5==c then add(x,r) end end end
+        for x=0,W-1 do for r=0,H-1 do
+            if not cov[key(x,r)] then
+                -- Zusatzspur dort, wo sie die meisten offenen Felder abdeckt
+                local bx,br,bn=x,r,-1
+                for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                    local lx,lr=x+d[1],r+d[2]
+                    if lx>=0 and lx<W and lr>=0 and lr<H then
+                        local n=0
+                        for _,e in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                            local ax,ar=lx+e[1],lr+e[2]
+                            if ax>=0 and ax<W and ar>=0 and ar<H and not cov[key(ax,ar)] then n=n+1 end
+                        end
+                        if n>bn then bx,br,bn=lx,lr,n end
+                    end
+                end
+                add(bx,br)
+            end
+        end end
+        if not bestList or #lanes<#bestList then bestList=lanes end
+    end
+    -- Reihenfolge: Start an der Spur, die die Ecke an der Basis abdeckt,
+    -- dann immer zur naechstgelegenen offenen Spur (kurze Wechsel am Ende).
+    local left={}
+    for i,l in ipairs(bestList) do left[i]=l end
+    local order={}
+    local cx,cr=0,0
+    while #left>0 do
+        local bi,bd
+        for i,l in ipairs(left) do
+            local d=math.abs(l.x-cx)+math.abs(l.r-cr)
+            if not bd or d<bd or (d==bd and (l.r<left[bi].r or (l.r==left[bi].r and l.x<left[bi].x))) then bi,bd=i,d end
+        end
+        local l=table.remove(left,bi);order[#order+1]=l;cx,cr=l.x,l.r
+    end
+    return order
+end
+local sideNote
+if SIDE then
+    LANES=buildLanes()
+    if #LANES>=W*P then
+        SIDE=false
+        sideNote="Seitlich mitabbauen bringt bei diesen Massen nichts - normales Verfahren."
+    else
+        COVERMIN={}
+        for li,l in ipairs(LANES) do
+            for _,d in ipairs({{0,0},{1,0},{-1,0},{0,1},{0,-1}}) do
+                local ax,ar=l.x+d[1],l.r+d[2]
+                if ax>=0 and ax<W and ar>=0 and ar<H then
+                    local k=ax*H+ar
+                    if not COVERMIN[k] or li-1<COVERMIN[k] then COVERMIN[k]=li-1 end
+                end
+            end
+        end
+        area=L;cells=#LANES*L
+        layout="block5:"..L..":"..H..":"..W..(MIRROR and ":L" or "")
+        sideNote="Seitlich mitabbauen: "..#LANES.." Spuren statt "..(W*P)
+    end
+end
 local function step(i)
+    if SIDE then
+        local li=math.floor((i-1)/L);local j=(i-1)%L
+        local l=LANES[li+1]
+        local z=li%2==0 and j+1 or L-j
+        return l.x,-l.r,z,l.r+1<H,l.r-1>=0,l.x-1>=0,l.x+1<W
+    end
     local t=math.floor((i-1)/area);local k=(i-1)%area;local x=t*(G+1)
     local pi=math.floor(k/L);local j=k%L
     local p=t%2==0 and pi or P-1-pi
@@ -1501,7 +1965,7 @@ for _,arg in ipairs(args) do
     else error("Start: toast.lua [--dock] [--new]",0) end
 end
 -- Fortschritt aus der alten Version uebernehmen: angefangener Gang wird neu befahren.
-if st.layout==oldLayout or (st.layout==oldLayout22 and oldLayout22~=layout) then
+if not SIDE and (st.layout==oldLayout or (st.layout==oldLayout22 and oldLayout22~=layout)) then
     local t=math.floor((st.next-1)/(st.layout==oldLayout and L or (H<=3 and L or 2*L)))
     st.next=math.min(cells+1,t*area+1);st.layout=layout;st.accessHigh=nil
 end
@@ -1747,11 +2211,148 @@ end
 -- Mit (fast) vollem Inventar wuerde Abgebautes aber auf den Boden fallen ->
 -- dann eher freie Wege nehmen (0.5).
 local function digWeight() return freeSlots()<=1 and 0.5 or 0.1 end
+-- ----- Wegplanung im Spurmodus: Wegsuche (Dijkstra) im Querschnitt -----
+local function blockDug(x,y,z)
+    if z==0 then return x==0 and y==0 end
+    local r=-y
+    if x<0 or x>=W or r<0 or r>=H or z<1 or z>L then return onSeg(x,y,z) end
+    local li=math.floor((st.next-1)/L)
+    local m=COVERMIN[x*H+r]
+    if m and m<li then return true end
+    local l=LANES[li+1]
+    if l and math.abs(l.x-x)+math.abs(l.r-r)<=1 then
+        local j=(st.next-1)%L
+        if li%2==0 then if z<=j then return true end elseif z>=L-j+1 then return true end
+    end
+    return onSeg(x,y,z)
+end
+-- Kosten pro Feld: 1 Zug + Gewicht, falls dort noch abzubauen ist.
+local function dijkstra(z,sx,sr,w)
+    local N=W*H;local dist,prev={},{}
+    local heap={}
+    local function push(c,d) heap[#heap+1]={c,d};local i=#heap
+        while i>1 do local p=math.floor(i/2);if heap[p][2]<=heap[i][2] then break end;heap[p],heap[i]=heap[i],heap[p];i=p end end
+    local function pop() local top=heap[1];heap[1]=heap[#heap];heap[#heap]=nil;local i=1
+        while true do local a,b=2*i,2*i+1;local m=i
+            if heap[a] and heap[a][2]<heap[m][2] then m=a end
+            if heap[b] and heap[b][2]<heap[m][2] then m=b end
+            if m==i then break end;heap[m],heap[i]=heap[i],heap[m];i=m end
+        return top end
+    local s0=sx*H+sr;dist[s0]=0;push(s0,0)
+    while #heap>0 do
+        local t=pop();local c,d=t[1],t[2]
+        if d<=dist[c] then
+            local cx,cr=math.floor(c/H),c%H
+            for _,e in ipairs({{1,0},{-1,0},{0,1},{0,-1}}) do
+                local nx,nr=cx+e[1],cr+e[2]
+                if nx>=0 and nx<W and nr>=0 and nr<H then
+                    local n=nx*H+nr
+                    local nd=d+1+(blockDug(nx,-nr,z) and 0 or w)
+                    if not dist[n] or nd<dist[n] then dist[n]=nd;prev[n]=c;push(n,nd) end
+                end
+            end
+        end
+    end
+    return dist,prev
+end
+-- Weg im Querschnitt als Legs (zusammengefasst je Achse)
+local function crossLegs(prev,from,to,reverse)
+    local cells={}
+    local c=to
+    while c and c~=from do cells[#cells+1]=c;c=prev[c] end
+    if c~=from then return nil end
+    cells[#cells+1]=from
+    local seq={}
+    if reverse then for i=1,#cells do seq[#seq+1]=cells[i] end      -- to -> from
+    else for i=#cells,1,-1 do seq[#seq+1]=cells[i] end end          -- from -> to
+    local legs={}
+    for i=2,#seq do
+        local ax,ar=math.floor(seq[i-1]/H),seq[i-1]%H
+        local bx,br=math.floor(seq[i]/H),seq[i]%H
+        local a=bx~=ax and "x" or "y";local v=a=="x" and bx or -br
+        if legs[#legs] and legs[#legs][1]==a then legs[#legs][2]=v else legs[#legs+1]={a,v} end
+    end
+    return legs
+end
+local function concat(...)
+    local out={}
+    for _,t in ipairs({...}) do for _,l in ipairs(t) do out[#out+1]=l end end
+    return out
+end
+-- Spalten, die ueber die ganze Laenge frei sind (fertige Spurmitten)
+local function freeColumns(extra)
+    local cols={}
+    local li=math.floor((st.next-1)/L)
+    for i=1,math.min(li,#LANES) do cols[#cols+1]=LANES[i] end
+    if extra then cols[#cols+1]=extra end
+    return cols
+end
+-- Rueckweg: im Querschnitt zu einer freien Spalte, darin nach vorne (z=1),
+-- vorne im Querschnitt zur Ecke an der Basis, hinein.
+local function blockHome(w)
+    if st.z==0 then return {},0 end
+    local sx,sr=st.x,-st.y
+    local dz,pz=dijkstra(st.z,sx,sr,w)
+    local d1,p1=dijkstra(1,0,0,w)
+    local li=math.floor((st.next-1)/L)
+    local cur=LANES[li+1]
+    local cols=freeColumns()
+    -- eigene Spur zaehlt mit, wenn sie vorne begonnen hat und die Turtle darauf steht
+    if cur and li%2==0 and sx==cur.x and sr==cur.r then cols[#cols+1]=cur end
+    local bestC,bestCost
+    for _,c in ipairs(cols) do
+        local k=c.x*H+c.r
+        if dz[k] and d1[k] then
+            local cost=dz[k]+(st.z-1)+d1[k]
+            if not bestCost or cost<bestCost then bestC,bestCost=c,cost end
+        end
+    end
+    local s0,o=sx*H+sr,0
+    if not bestC then
+        -- Notfall: direkt nach vorne (raeumt frei, was im Weg ist)
+        local legs=concat({{"z",1}},crossLegs(p1,o,s0,true) or {{"y",0},{"x",0}},{{"z",0}})
+        return legs,st.z+sx+sr
+    end
+    local k=bestC.x*H+bestC.r
+    local legs=concat(crossLegs(pz,s0,k) or {},{{"z",1}},crossLegs(p1,o,k,true) or {},{{"z",0}})
+    return legs,bestCost+1
+end
+-- Hinweg von der Basis zu Spur-Ziel (x,y,z)
+local function blockWork(x,y,z,w)
+    local tr=-y
+    local d1,p1=dijkstra(1,0,0,w)
+    local dt,pt=dijkstra(z,x,tr,w)
+    local li=math.floor((st.next-1)/L)
+    local cur=LANES[li+1]
+    local cols=freeColumns()
+    local bestC,bestCost
+    for _,c in ipairs(cols) do
+        local k=c.x*H+c.r
+        if d1[k] and dt[k] then
+            local cost=d1[k]+(z-1)+dt[k]
+            if not bestCost or cost<bestCost then bestC,bestCost=c,cost end
+        end
+    end
+    local o,t=0,x*H+tr
+    -- Ziel liegt auf der eigenen, vorne begonnenen Spur: vorne hin, dann geradeaus
+    if cur and li%2==0 and cur.x==x and cur.r==tr then
+        local cost=d1[t]+(z-1)
+        if not bestCost or cost<=bestCost then
+            return concat({{"z",1}},crossLegs(p1,o,t) or {},{{"z",z}})
+        end
+    end
+    if not bestC then
+        return concat({{"z",1}},crossLegs(p1,o,t) or {{"x",x},{"y",y}},{{"z",z}})
+    end
+    local k=bestC.x*H+bestC.r
+    return concat({{"z",1}},crossLegs(p1,o,k) or {},{{"z",z}},crossLegs(pt,t,k,true) or {})
+end
 local hc={next=-1,n=0}
 local function homeDistance()
     if st.z==0 then return 0 end
     if hc.next~=st.next or hc.n>=40 then
-        local _,m=best(homeCandidates(),digWeight())
+        local m
+        if SIDE then _,m=blockHome(digWeight()) else _,m=best(homeCandidates(),digWeight()) end
         hc={next=st.next,x=st.x,y=st.y,z=st.z,m=m,n=0}
     end
     hc.n=hc.n+1
@@ -1827,6 +2428,15 @@ local function runLegs(legs,i)
     save();return true
 end
 local function routeTo(x,y,z,i)
+    if SIDE then
+        -- Auf der eigenen Spur hinter dem Ziel: geradeaus weiter
+        if st.x==x and st.y==y and st.z>0 then return runLegs({{"z",z}},i) end
+        if st.z~=0 then
+            local h=blockHome(digWeight())
+            local ok,why=runLegs(h,i);if not ok then return false,why end
+        end
+        return runLegs(blockWork(x,y,z,0.1),i)
+    end
     local cands={}
     if st.z==0 then cands=workCandidates(x,y,z)
     else
@@ -1853,7 +2463,8 @@ end
 local function home()
     if homePosition() and st.dir==0 then return true end
     status("Rueckkehr",run.fault or "Fahre ueber freigelegte Wege zur Basis.")
-    local legs=best(homeCandidates(),digWeight())
+    local legs
+    if SIDE then legs=blockHome(digWeight()) else legs=best(homeCandidates(),digWeight()) end
     local ok,why=runLegs(legs,false)
     if ok then ok,why=face(0) end
     hc.next=-1
@@ -1970,14 +2581,28 @@ local function work()
                         ok,why=supplies()
                     end
                     if ok and active() then
-                        status("Abbau","Gang "..(math.floor((st.next-1)/area)+1).." / "..C.tunnels)
-                        local x,y,z,up,down=step(st.next)
+                        status("Abbau",SIDE and ("Spur "..(math.floor((st.next-1)/L)+1).." / "..#LANES)
+                            or ("Gang "..(math.floor((st.next-1)/area)+1).." / "..C.tunnels))
+                        local x,y,z,up,down,left,right=step(st.next)
                         local px,py,pz
                         if st.next>1 then px,py,pz=step(st.next-1) end
                         if px and st.x==px and st.y==py and st.z==pz then ok,why=direct(x,y,z,true)
                         else ok,why=routeTo(x,y,z,true) end
                         if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true) end
                         if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true) end
+                        -- Spurmodus: links/rechts durch Drehen mitabbauen (kostet kein Fuel).
+                        -- Schon freie Seiten werden uebersprungen (spart Zeit).
+                        if SIDE and ok then
+                            local sides={}
+                            if right and not blockDug(x+1,y,z) then sides[#sides+1]=1 end
+                            if left and not blockDug(x-1,y,z) then sides[#sides+1]=3 end
+                            for _,d in ipairs(sides) do
+                                if ok and active() then
+                                    ok,why=face(d)
+                                    if ok then ok,why=clear(turtle.inspect,turtle.dig,true) end
+                                end
+                            end
+                        end
                     end
                     if ok and active() then
                         st.next=st.next+1;save();run.retries=0
@@ -2042,6 +2667,7 @@ if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
 print("TOAST MINING 2.6 / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
+if sideNote then print(sideNote) end
 print("Zentrale #"..cfg.controllerId)
 if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
 print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")
@@ -2085,6 +2711,7 @@ function M.load(c)
     local f=c.mine; assert(type(f)=="table", "mine fehlt.")
     assert(integer(f.length,1,1024) and integer(f.height,1,64) and integer(f.tunnels,1,64) and integer(f.gap,0,16), "Strip: length 1-1024, height 1-64, tunnels 1-64, gap 0-16.")
     assert(integer(f.fuelTarget,100,20000), "fuelTarget: 100 bis 20000.")
+    assert(f.sideDig==nil or type(f.sideDig)=="boolean", "sideDig: true oder false.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(integer(f.freeSlots,2,8), "freeSlots: 2 bis 8.")
     assert(integer(f.digRetries,1,64), "digRetries: 1 bis 64.")
@@ -2205,64 +2832,9 @@ local ok,why=pcall(loop);cleanup()
 term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
 if not ok then printError(tostring(why)) else print("Repeater beendet.") end
 ]======]
-FILES["toast.config.lua"]=[======[
--- Toast Control 2.1: eine Config pro Geraet. Start mit toast.lua.
--- role=auto erkennt Computer, Pocket und Turtle; Repeater bewusst einstellen.
-return {
-    role = "auto",
-    job = "auto",                     -- Turtle: farm oder mining
-    controllerId = 4,
-    name = "",                       -- NAME dieses Geraets, z.B. "Weizen Nord" (Zentrale, Pocket, Turtle)
-    autoDiscover = true,              -- Zentrale lernt meldende Turtles
-    autoPairPockets = true,           -- neue Toast-Pockets automatisch anmelden
-    devices = {                      -- optional: feste/offline bekannte Geraete
-        -- Nur an der Zentrale: Namen hier ueberschreiben den Namen der Turtle.
-        -- [5] = { job = "farm", name = "Weizen Nord" },
-        -- [12] = { job = "mining", name = "Mine Nord" },
-    },
-    pocketIds = {},                   -- bekannte Pockets; eigene ID erkennt Installer
-    display = { monitor = "auto", textScale = 0.5, pageSize = 0 },
-    network = { pollInterval = 1, staleAfter = 15, commandTimeout = 10, maxDevices = 256 },
-    -- Stabilitaet / Reset nach Fehlern (fehlt der Block, gelten diese Werte):
-    recovery = {
-        autoRestart = true,           -- Programm nach Absturz selbst neu starten
-        restartDelay = 5,             -- Sekunden bis zum Neustart
-        maxRestarts = 5,              -- hoechstens so oft in 10 Minuten
-        autoRetry = 3,                -- Turtle: Auftrag nach Fehler so oft neu versuchen
-        retryDelay = 30,              -- Sekunden Pause vor neuem Versuch
-        moveRetries = 8,              -- Versuche, wenn Mob/Spieler den Weg blockiert
-    },
-    -- Chunks laden mit dem Mod CCChunkloader (nur Turtles). Anbau: Chunkloader-Upgrade
-    -- + Werkzeug; das Funkmodem kommt ins Inventar, die Turtle tauscht es selbst.
-    chunkload = {
-        enabled = false,              -- true = Turtle arbeitet weiter, auch ohne Spieler in der Naehe
-        chunks = 1,                   -- 1 (~2.400 Fuel/h), 9 (~47.000 Fuel/h) oder 21 (~176.000 Fuel/h)
-        idle = false,                 -- true = auch an der Basis geladen halten (kostet dauerhaft Fuel)
-        wakeOnWorldLoad = true,       -- nach Serverneustart von selbst weitermachen
-        reportEvery = 10,             -- alle x Sekunden Modem kurz anlegen und Status funken
-    },
-    -- Turtle steht an der Basis und schaut aufs Feld / in die Mine.
-    -- length = Bloecke nach vorne, width/tunnels = zur Seite (side = right/left).
-    farm = {
-        width = 9, length = 9, side = "right", crop = "wheat", interval = 60,
-        seedReserve = 64,
-        radioTimeout = 60,            -- Sekunden ohne Zentrale bis Stopp; 0 = trotzdem weiterarbeiten
-        water = {},                   -- Wasser wird automatisch erkannt (egal wo, auch ganze Reihen)
-    },
-    mine = {
-        length = 100, height = 3, tunnels = 5, gap = 2, side = "right",
-        fuelTarget = 2000, freeSlots = 2, digRetries = 16,
-        radioTimeout = 60,            -- Sekunden ohne Zentrale bis Stopp; 0 = trotzdem weiterarbeiten
-        -- Alles wird abgebaut, Wasser/Lava werden durchfahren.
-        -- Hier Bloecke eintragen, die die Turtle NICHT abbauen soll, z.B.
-        -- "minecraft:chest", "minecraft:spawner". Andere Turtles sind immer geschuetzt.
-        protectedBlocks = {},
-    },
-}
-]======]
--- TOAST CONTROL 2.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
--- Start: wget run <link>            -> Auswahl Update / Komplett neu
---        wget run <link> clean      -> Komplett neu ohne Rueckfrage nach dem Modus
+-- TOAST CONTROL 2.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- Start: wget run <link>            -> Update oder Komplett neu
+--        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|repeater
 -- Vor dem Schreiben wird ALLES Alte geloescht, damit nichts kollidiert.
 local args={...}
@@ -2275,25 +2847,27 @@ for _,a in ipairs(args) do
 end
 local code=FILES
 local common=assert(load(code["toast_common.lua"],"@toast_common.lua"))()
-term.clear();term.setCursorPos(1,1)
-print("TOAST CONTROL "..common.version.." / Geraet #"..os.getComputerID())
+local ui=assert(load(code["toast_setup.lua"],"@toast_setup.lua"))().new(common)
+local color=term.isColor and term.isColor()
+local function fg(c) if color then term.setTextColor(c) end end
+local function warn(s) fg(colors.orange);print(s);fg(colors.white) end
+ui.header("Installation auf Geraet #"..os.getComputerID())
 print("")
 if clean==nil then
-    print("1 Update: alles loeschen,")
-    print("  Config + Turtle-Fortschritt behalten")
-    print("2 Komplett neu: ALLES loeschen")
-    print("  (auch Config und Fortschritt)")
+    fg(colors.yellow);write("1 ");fg(colors.white);print("Update")
+    ui.hint("  Einstellungen + Fortschritt bleiben")
+    fg(colors.yellow);write("2 ");fg(colors.white);print("Komplett neu")
+    ui.hint("  ALLES auf dem Geraet loeschen")
+    print("")
     write("Auswahl [1]: ")
     clean=read()=="2"
 end
 if clean then
+    ui.header("Komplett neu")
+    warn("Alle Dateien auf diesem Geraet werden")
+    warn("geloescht, auch eigene Programme.")
+    if turtle then warn("Turtle vorher an ihre Basis stellen!") end
     print("")
-    printError("ACHTUNG: Alle Dateien auf diesem Geraet")
-    printError("werden geloescht (auch eigene Programme).")
-    if turtle then
-        printError("Turtle VORHER an ihre Basis stellen,")
-        printError("Blick zum Feld bzw. in die Mine!")
-    end
     write("Zum Bestaetigen LOESCHEN eingeben: ")
     assert(read()=="LOESCHEN","Abgebrochen. Nichts geloescht.")
 end
@@ -2308,20 +2882,20 @@ end
 local function config(path)
     if clean or not fs.exists(path) then return nil end
     local fn,why=load(readFile(path),"@"..path)
-    if not fn then printError("Config defekt, wird ersetzt: "..path.." / "..tostring(why));return nil end
+    if not fn then warn("Config defekt, wird ersetzt: "..path);return nil end
     local ok,result=pcall(fn)
-    if not ok or type(result)~="table" then printError("Config defekt, wird ersetzt: "..path);return nil end
+    if not ok or type(result)~="table" then warn("Config defekt, wird ersetzt: "..path);return nil end
     return result
 end
 local oldFarm,oldMine=config("/farm.config.lua"),config("/mine.config.lua")
 local existing=config("/toast.config.lua")
 if existing and not pcall(function()
-    local copy=textutils.unserialize(textutils.serialize(existing));copy.role=(copy.role=="repeater" and not turtle and not pocket) and "repeater" or nil;common.load(copy) end) then
+    local copy=common.copy(existing);copy.role=(copy.role=="repeater" and not turtle and not pocket) and "repeater" or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.
-    printError("Vorhandene toast.config.lua ungueltig, wird neu erstellt.")
+    warn("Vorhandene Config ungueltig, wird neu erstellt.")
     existing=nil
 end
-local c=existing or assert(load(code["toast.config.lua"],"@toast.config.lua"))()
+local c=common.withDefaults(existing or {})
 -- Alte Standard-Schutzliste (Kisten, Oefen, Spawner...) ersetzen: jetzt wird alles abgebaut.
 local OLD_PROTECT={["minecraft:bedrock"]=1,["minecraft:chest"]=1,["minecraft:trapped_chest"]=1,["minecraft:barrel"]=1,
     ["minecraft:ender_chest"]=1,["minecraft:hopper"]=1,["minecraft:spawner"]=1,["minecraft:furnace"]=1,
@@ -2340,10 +2914,11 @@ if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") t
 -- Neuer stationaerer Computer: Zentrale oder Repeater? Ohne Monitor ist Repeater vorgewaehlt.
 if role=="controller" and not requested and (clean or not existing) then
     local monitor=peripheral.find("monitor")~=nil
+    ui.header("Computer"..(monitor and " mit Monitor" or " ohne Monitor"))
     print("")
-    print("Stationaerer Computer"..(monitor and " mit Monitor" or " ohne Monitor")..":")
-    print("1 Zentrale (steuert alle Turtles)")
-    print("2 Repeater (verlaengert die Funkreichweite)")
+    fg(colors.yellow);write("1 ");fg(colors.white);print("Zentrale  (steuert alle Turtles)")
+    fg(colors.yellow);write("2 ");fg(colors.white);print("Repeater  (leitet Funk weiter)")
+    print("")
     while true do
         write("Auswahl ["..(monitor and "1" or "2").."]: ")
         local v=read()
@@ -2356,11 +2931,16 @@ assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaere
 assert(not requested or requested=="repeater" or role=="turtle","farm/mining nur fuer Turtles.")
 if existing and not requested and not (c.role==nil or c.role=="auto" or c.role==role) then
     printError("Gespeicherte Rolle passt nicht zum Geraet, wird neu erkannt.")
-    existing=nil;c=assert(load(code["toast.config.lua"],"@toast.config.lua"))()
+    existing=nil;c=common.withDefaults({})
 end
 local function chooseJob()
+    ui.header("Turtle #"..os.getComputerID())
+    print("")
+    fg(colors.yellow);write("1 ");fg(colors.white);print("Farm")
+    fg(colors.yellow);write("2 ");fg(colors.white);print("Mining")
+    print("")
     while true do
-        write("Turtle-Aufgabe: 1 Farm / 2 Mining: ")
+        write("Aufgabe: ")
         local answer=read():lower()
         if answer=="1" or answer=="farm" or answer=="f" then return "farm" end
         if answer=="2" or answer=="mining" or answer=="m" then return "mining" end
@@ -2403,7 +2983,7 @@ if not existing then
     elseif role~="repeater" and not source then
         local found={}
         if common.refreshModems()>0 then
-            print("Suche Zentrale...")
+            ui.header("Suche Zentrale ...")
             found={rednet.lookup(common.protocol)}
             if #found==1 and common.id(found[1]) and found[1]~=os.getComputerID() then
                 c.controllerId=found[1];print("Zentrale gefunden: #"..found[1])
@@ -2411,6 +2991,8 @@ if not existing then
         end
         if #found==0 then
             while true do
+                ui.header("Zentrale nicht gefunden")
+                ui.hint("ID steht oben auf der Zentrale.")
                 write("ID der Zentrale ["..c.controllerId.."]: ")
                 local value=read();local id=value=="" and c.controllerId or tonumber(value)
                 if common.id(id) and id~=os.getComputerID()then c.controllerId=id;break end
@@ -2421,118 +3003,26 @@ if not existing then
 end
 c.role=role;c.job=job or c.job or "auto"
 if job and (c.label==nil or c.label=="") then c.label=common.label(os.getComputerLabel and os.getComputerLabel() or "") end
--- Masse fuer Farm bzw. Mine abfragen (Enter = Wert in Klammern behalten).
-local function ask(text,default,lo,hi)
-    while true do
-        write(text.." ["..tostring(default).."]: ")
-        local v=read()
-        if v=="" then return default end
-        local n=tonumber(v)
-        if n and n%1==0 and n>=lo and n<=hi then return n end
-        print("Bitte ganze Zahl von "..lo.." bis "..hi..".")
-    end
-end
-local function askSide(default)
-    while true do
-        write("Seite: r = rechts / l = links ["..(default=="left" and "l" or "r").."]: ")
-        local v=read():lower()
-        if v=="" then return default or "right" end
-        if v=="r" or v=="rechts" or v=="right" then return "right" end
-        if v=="l" or v=="links" or v=="left" then return "left" end
-    end
-end
-local layoutChanged=false
-local setup=role=="turtle" and (clean or not existing or requested)
-if role=="turtle" and not setup then
-    write("Name oder "..(job=="farm" and "Feldmasse" or "Minenmasse").." aendern? (j/n) [n]: ")
-    setup=read():lower()=="j"
-end
--- Name abfragen: Turtles beim Einrichten, Zentrale/Pocket bei neuer Installation.
-if setup or (role~="turtle" and (clean or not existing)) then
-    local current=c.name or c.label or ""
-    if current=="" then current=os.getComputerLabel and os.getComputerLabel() or "" end
-    write("Name"..(current~="" and " ["..current.."]" or " (leer = keiner)")..": ")
-    local v=read()
-    if v~="" then c.name=common.label(v) else c.name=current end
-    c.label=c.name;configChanged=true
-end
-if setup then
+if (c.name or "")=="" and type(c.label)=="string" and c.label~="" then c.name=common.label(c.label) end
+if c.name=="" and os.getComputerLabel and os.getComputerLabel() then c.name=common.label(os.getComputerLabel()) end
+c.label=c.name
+-- Einstellungen: Uebersicht mit Nummern (bei Update auf Wunsch).
+local before=ui.layoutKey(c,job)
+local show=clean or not existing or requested
+if not show then
+    ui.header("Update")
     print("")
-    print("Turtle steht an der Basis und schaut nach vorne")
-    print((job=="farm" and "aufs Feld." or "in die Mine."))
-    if job=="farm" then
-        local f=c.farm or {};c.farm=f
-        local before=textutils.serialize({f.width,f.length,f.side,f.crop})
-        f.length=ask("Feld-Laenge nach vorne (1-32)",f.length or 9,1,32)
-        f.width=ask("Feld-Breite zur Seite (1-32)",f.width or 9,1,32)
-        if f.width>1 then f.side=askSide(f.side) else f.side=f.side or "right" end
-        local crops={"wheat","carrots","potatoes","beetroot"}
-        local names={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete"}
-        local current=1;for i,v in ipairs(crops)do if v==f.crop then current=i end end
-        print("Pflanze: 1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
-        f.crop=crops[ask("Pflanze",current,1,4)]
-        f.interval=ask("Pause zwischen Runden in Sekunden",f.interval or 60,1,86400)
-        -- Wasser erkennt die Turtle selbst: einzelne Stellen, ganze Reihen oder gar keins.
-        f.water={}
-        print("Wasser im Feld wird automatisch erkannt.")
-        print(names[f.crop].."-Feld "..f.length.." x "..f.width.." nach "..(f.side=="left" and "links" or "rechts"))
-        layoutChanged=before~=textutils.serialize({f.width,f.length,f.side,f.crop})
-    else
-        local m=c.mine or {};c.mine=m
-        local before=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
-        m.length=ask("Ganglaenge nach vorne (1-1024)",m.length or 100,1,1024)
-        m.height=ask("Ganghoehe (1-64; 3, 6, 9 ... am sparsamsten)",m.height or 3,1,64)
-        m.tunnels=ask("Anzahl Gaenge (1-64)",m.tunnels or 5,1,64)
-        if m.tunnels>1 then
-            m.gap=ask("Bloecke zwischen den Gaengen (0-16)",m.gap or 2,0,16)
-            m.side=askSide(m.side)
-        else m.gap=m.gap or 2;m.side=m.side or "right" end
-        local w=(m.tunnels-1)*(m.gap+1)+1
-        print("Mine: "..m.tunnels.." Gaenge x "..m.length.." lang x "..m.height.." hoch")
-        print("Gesamtbreite "..w.." Bloecke nach "..(m.side=="left" and "links" or "rechts"))
-        layoutChanged=before~=textutils.serialize({m.length,m.height,m.tunnels,m.gap,m.side})
-    end
-    -- Chunkloader (Mod CCChunkloader)
-    local cl=type(c.chunkload)=="table" and c.chunkload or {};c.chunkload=cl
-    print("")
-    print("Chunks laden (Mod CCChunkloader)?")
-    print("0 = aus")
-    for _,n in ipairs({1,9,21}) do
-        local f=common.chunkFuelPerHour(n)
-        print(n.." = "..n.." Chunk"..(n>1 and "s" or "").."  ~"..f.." Fuel/h (~"..math.ceil(f/80).." Kohle/h)")
-    end
-    local cur=cl.enabled and (cl.chunks or 1) or 0
-    while true do
-        write("Auswahl ["..cur.."]: ")
-        local v=read();local n=v=="" and cur or tonumber(v)
-        if n==0 then cl.enabled=false;break end
-        if common.CHUNK_RADIUS[n] then cl.enabled=true;cl.chunks=n;break end
-        print("Bitte 0, 1, 9 oder 21.")
-    end
-    if cl.enabled then
-        if cl.wakeOnWorldLoad==nil then cl.wakeOnWorldLoad=true end
-        cl.reportEvery=cl.reportEvery or 10;cl.idle=cl.idle==true
-        print("Anbau: Chunkloader-Upgrade + "..(job=="farm" and "Werkzeug" or "Spitzhacke")..",")
-        print("Funkmodem ins Turtle-Inventar legen.")
-        print("Tipp: 1 Chunk reicht, er wandert mit.")
-    end
-    configChanged=true
+    show=ui.yesno("Einstellungen ansehen/aendern?",false)
 end
--- Neue Masse bei vorhandenem Fortschritt: neuen Auftrag an der Basis beginnen.
-local resetProgress=false
-if layoutChanged and not clean and job=="mining" then
-    local stateFile=job=="farm" and "/toast_farm_state" or "/toast_mining_state"
-    if fs.exists(stateFile) or fs.exists(stateFile..".tmp") then
-        print("")
-        print("Neue Masse = neuer Auftrag. Die Turtle muss")
-        print("dafuer an ihrer Basis stehen (Blick nach vorne).")
-        write("Steht sie an der Basis? (j/n) [j]: ")
-        if read():lower()~="n" then resetProgress=stateFile
-        else printError("Dann vorher an die Basis stellen und danach: toast.lua --dock --new") end
-    end
+while true do
+    if show then ui.run(c,{role=role,job=job,installer=true}) end
+    local ok,why=pcall(function() common.load(common.copy(c)) end)
+    if ok then break end
+    ui.header("Einstellung ungueltig");warn(tostring(why));sleep(2);show=true
 end
+local resetProgress=not clean and before~=ui.layoutKey(c,job) and ui.confirmReset(job)
 common.load(c)
-local names={"toast.lua","toast_common.lua"}
+local names={"toast.lua","toast_common.lua","toast_setup.lua"}
 if role=="controller" then
     for _,name in ipairs({"toast_control.lua","toast_model.lua","toast_ui.lua"})do names[#names+1]=name end
 elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="toast_ui.lua"
@@ -2564,31 +3054,26 @@ for _,name in ipairs(names)do
     local path=name=="toast.lua" and "/toast.lua" or "/toast/"..name
     local f=assert(fs.open(path,"w"));f.write(code[name]);f.close()
 end
-if resetProgress then
-    for _,p in ipairs({resetProgress,resetProgress..".tmp"})do if fs.exists(p) then fs.delete(p) end end
-end
-if clean or not existing or requested or configChanged then
-    local f=assert(fs.open("/toast.config.lua","w"))
-    f.write("-- Toast Control: edit /toast.config.lua\nreturn "..textutils.serialize(c).."\n");f.close()
-end
+-- Config immer sauber neu schreiben (Werte bleiben erhalten).
+c.label=nil
+local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f.close()
+ui.header("Fertig")
 print("")
-print("TOAST CONTROL "..common.version.." installiert / Geraet #"..os.getComputerID())
-print("Rolle: "..role..(job and " / "..job or "").." | Zentrale #"..c.controllerId)
-print(clean and "Komplett neu: alles geloescht." or "Update: Config + Fortschritt behalten.")
-print("Frei: "..math.floor(fs.getFreeSpace("/")/1024).." KB")
-write("Config jetzt bearbeiten? (j/n) [n]: ")
-if read():lower()=="j"then shell.run("edit","/toast.config.lua")end
+fg(colors.lime);print("Toast Control "..common.version.." installiert");fg(colors.white)
+print((role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining"))
+    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater"})[role])..(c.name~="" and (" / "..c.name) or ""))
+if role~="controller" and role~="repeater" then print("Zentrale #"..c.controllerId) end
+print(clean and "Komplett neu installiert." or "Update: Einstellungen behalten.")
+if resetProgress then print("Neuer Auftrag mit den neuen Massen.") end
+ui.hint("Spaeter aendern: toast.lua config")
 local checked=common.load()
 assert(checked.role==role,"role passt nicht zum erkannten Geraet.")
 if role=="turtle" then
     local prefix=checked.job=="farm" and "farm" or "mine"
-    assert(fs.exists("/toast/"..prefix.."_common.lua"),"Fuer andere Aufgabe Installer mit farm/mining erneut starten.")
     dofile("/toast/"..prefix.."_common.lua").load(common.workerConfig(checked))
 end
-write("Autostart einrichten? (j/n) [j]: ")
-if read():lower()~="n"then
+print("")
+if ui.yesno("Autostart einrichten?",true) then
     local f=assert(fs.open("/startup.lua","w"));f.write('shell.run("/toast.lua")\n');f.close()
-    print("Autostart eingerichtet.")
 end
-write("Jetzt starten? (j/n) [j]: ")
-if read():lower()~="n"then shell.run("/toast.lua")end
+if ui.yesno("Jetzt starten?",true) then shell.run("/toast.lua") end
