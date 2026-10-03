@@ -201,4 +201,16 @@ ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Update: Mob-Patrouille bleibt",kc and kc.job=="mob" and kc.mob.mode=="patrol" and kc.mob.length==6,err)
 
+print("V Installer Option 3: Neuer Auftrag (Mine) - nur Werte neu, Fortschritt weg")
+S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files={["/toast.config.lua"]=MINECFG}
+ok,err=install(S,true,7)
+check("Vorbereitung ok",ok,err)
+S.files["/toast_mining_state"]="{x=0,y=0,z=0,dir=0,next=99,total=5,harvested=5}"
+S.input={"3","3","9","","","","","","","","j","j","n"}
+ok,err=install(S,true,7)
+kc=ok and cfgOf(S)
+check("neue Laenge 9 gespeichert",kc and kc.mine.length==9,err)
+check("alter Fortschritt geloescht",S.files["/toast_mining_state"]==nil)
+check("Programme noch da",S.files["/toast/mine_turtle.lua"]~=nil)
+
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))

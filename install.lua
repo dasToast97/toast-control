@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -38,6 +38,7 @@ local function runOnce()
         radio.send=function(id,msg,protocol)
             if type(msg)=="table" and msg.kind=="status" then
                 msg.label=cfg.label;msg.job=cfg.job;msg.controllerId=cfg.controllerId;msg.toast=common.version
+                pcall(common.addPosition,msg,cfg,cfg.job)
             end
             return nativeRednet.send(id,msg,protocol)
         end
@@ -55,34 +56,40 @@ local function runOnce()
     return assert(loadfile("/toast/"..program,"t",_ENV))(table.unpack(args))
 end
 
--- Einstellungsmenue: toast.lua config
-if args[1]=="config" or args[1]=="--config" then
+-- Einstellungsmenue: "toast.lua config". "toast.lua neu": neuer Auftrag
+-- (Werte eingeben, alter Fortschritt wird geloescht, dann direkt los).
+local NEW_JOB="TOAST_NEUER_AUFTRAG"
+local function configure(newJob)
     local ui=dofile("/toast/toast_setup.lua").new(common)
     local okc,raw=pcall(dofile,"/toast.config.lua")
     local c=common.withDefaults(okc and type(raw)=="table" and raw or {})
     local role=c.role~="auto" and c.role or (turtle and "turtle" or (pocket and "pocket" or "controller"))
     local job=role=="turtle" and c.job or nil
+    if newJob and role~="turtle" then newJob=false end
     local before=ui.layoutKey(c,job)
     while true do
-        if not ui.run(c,{role=role,job=job}) then print("Abgebrochen, nichts geaendert.");return end
+        if not ui.run(c,{role=role,job=job,newJob=newJob}) then print("Abgebrochen, nichts geaendert.");return false end
         local ok,why=pcall(function() common.load(common.copy(c)) end)
         if ok then break end
         printError(tostring(why));sleep(2)
     end
-    if before~=ui.layoutKey(c,job) then ui.confirmReset(job) end
+    if newJob then ui.newJob(job)
+    elseif before~=ui.layoutKey(c,job) then ui.confirmReset(job) end
     c.role=role;c.label=nil
     local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f.close()
     term.clear();term.setCursorPos(1,1)
-    print("Gespeichert. Starte Toast ...")
+    print(newJob and "Neuer Auftrag gespeichert. Starte ..." or "Gespeichert. Starte Toast ...")
+    return true
+end
+if args[1]=="config" or args[1]=="--config" or args[1]=="neu" or args[1]=="new" then
+    if not configure(args[1]=="neu" or args[1]=="new") then return end
     args={}
 end
 -- Startargumente wie --dock/--new nur beim ersten Start verwenden.
 local restarts,windowStart=0,os.clock()
-while true do
-    local ok,why=pcall(runOnce)
-    if ok then return end
-    why=tostring(why)
-    if why=="Terminated" then print("Toast beendet.");return end
+-- Nach Absturz: true = neu starten, false = aufhoeren
+local function afterCrash(why)
+    if why=="Terminated" then print("Toast beendet.");return false end
     common.log("Absturz: "..why)
     local okCfg,cfg=pcall(common.load)
     local r=okCfg and cfg.recovery or common.recovery(nil)
@@ -92,22 +99,31 @@ while true do
     if not r.autoRestart or restarts>r.maxRestarts then
         print("Kein automatischer Neustart mehr ("..(restarts-1).." in 10 min).")
         print("Fehler steht in /toast/fehler.log. Neustart: toast.lua")
-        return
+        return false
     end
-    args={}
     print("Automatischer Neustart in "..r.restartDelay.."s ("..restarts.."/"..r.maxRestarts..")")
     print("Beliebige Taste: abbrechen")
     local timer=os.startTimer(r.restartDelay)
     while true do
         local e,a=os.pullEventRaw()
-        if e=="timer" and a==timer then break end
-        if e=="key" or e=="terminate" then print("Neustart abgebrochen.");return end
+        if e=="timer" and a==timer then return true end
+        if e=="key" or e=="terminate" then print("Neustart abgebrochen.");return false end
     end
+end
+while true do
+    local ok,why=pcall(runOnce)
+    if ok then return end
+    why=tostring(why)
+    args={}
+    if why:find(NEW_JOB,1,true) then
+        -- An der Turtle "N" gedrueckt: neuer Auftrag -> Menue, dann neu starten
+        configure(true);restarts=0
+    elseif not afterCrash(why) then return end
 end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.0",
+    version="3.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -151,6 +167,7 @@ M.DEFAULTS={
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
+    base={set=false,x=0,y=64,z=0,facing="north"},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
@@ -163,7 +180,7 @@ local function copy(v)
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,base=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -254,6 +271,12 @@ function M.configText(c)
             {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
     end
+    if role=="turtle" then
+        section("base","Basis-Koordinaten (F3) fuer die Positionsanzeige",{
+            {"set","true = Koordinaten unten sind eingetragen"},{"x","X der Turtle an der Basis"},
+            {"y","Y der Turtle an der Basis"},{"z","Z der Turtle an der Basis"},
+            {"facing","Blick an der Basis: north/east/south/west"}},c.base)
+    end
     if role=="turtle" and (job=="farm" or job=="mining") then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
             {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
@@ -336,6 +359,11 @@ function M.load(c)
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
     if c.chunkload~=nil then M.chunkConfig(c.chunkload) end
+    if type(c.base)=="table" and c.base.set then
+        local b=c.base
+        assert(M.integer(b.x,-30000000,30000000) and M.integer(b.y,-2048,4096) and M.integer(b.z,-30000000,30000000),"base: x/y/z ganze Zahlen.")
+        assert(M.FACING[b.facing],"base.facing: north, east, south oder west.")
+    end
     -- "name" ist der neue, gut sichtbare Eintrag; "label" bleibt fuer alte Configs gueltig.
     if c.name~=nil then
         assert(type(c.name)=="string","name: Text in Anfuehrungszeichen, z.B. name = \"Mine Nord\"")
@@ -343,6 +371,42 @@ function M.load(c)
     end
     c.label=M.label(c.label);c.name=c.label
     return c
+end
+-- ===== Position einer Turtle =====
+-- Jede Aufgabe zaehlt ab ihrer Basis anders; hier wird daraus "vor/rechts/hoch"
+-- und - wenn die Basis-Koordinaten eingetragen sind - echte Weltkoordinaten.
+M.FACING={north={0,-1},east={1,0},south={0,1},west={-1,0}}
+local RIGHT={north="east",east="south",south="west",west="north"}
+function M.position(c,job,x,y,z)
+    x,y,z=M.number(x),M.number(y),M.number(z)
+    local sec=c[M.JOB_SECTION[job] or "mine"] or {}
+    local sign=sec.side=="left" and -1 or 1
+    local rel={fwd=z,right=x*sign,up=job=="mining" and -y or (job=="farm" and 0 or y)}
+    local abs
+    local b=c.base
+    if type(b)=="table" and b.set and M.FACING[b.facing] then
+        local f,r=M.FACING[b.facing],M.FACING[RIGHT[b.facing]]
+        abs={x=b.x+f[1]*rel.fwd+r[1]*rel.right,y=b.y+rel.up,z=b.z+f[2]*rel.fwd+r[2]*rel.right}
+    end
+    return rel,abs
+end
+-- GPS (falls im Spiel GPS-Computer stehen): hoechstens alle 60 s fragen
+local gpsAt,gpsPos=-1e9,nil
+function M.gps()
+    if not gps or not gps.locate then return nil end
+    if os.clock()-gpsAt<60 then return gpsPos end
+    gpsAt=os.clock()
+    local ok,x,y,z=pcall(gps.locate,0.5)
+    gpsPos=(ok and x) and {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5)} or nil
+    return gpsPos
+end
+-- Status einer Turtle um Positionsangaben ergaenzen
+function M.addPosition(msg,c,job)
+    if type(msg)~="table" or msg.x==nil then return msg end
+    local rel,abs=M.position(c,job,msg.x,msg.y,msg.z)
+    msg.rel=rel;msg.pos=abs
+    local g=M.gps();if g then msg.gps=g end
+    return msg
 end
 function M.checkTree(t)
     assert(type(t)=="table","tree fehlt.")
@@ -718,6 +782,29 @@ function S.new(common)
         print(cut("sich an, auch Spieler."))
         fg(colors.white);sleep(1.5)
     end
+    local FACE_NAMES={north="Norden",east="Osten",south="Sueden",west="Westen"}
+    local function baseText(b)
+        if not b.set then return "aus (nur Abstand zur Basis)" end
+        return b.x.." "..b.y.." "..b.z.." Blick "..(FACE_NAMES[b.facing] or b.facing)
+    end
+    local function editBase(c)
+        local b=c.base
+        header("Basis-Koordinaten")
+        hint("Damit Zentrale/Pocket die echten")
+        hint("Koordinaten der Turtle zeigen.")
+        hint("F3 an der Basis: Block der Turtle,")
+        hint("Blickrichtung = wohin sie schaut.")
+        b.set=yesno("Koordinaten eintragen?",b.set==true)
+        if not b.set then return end
+        b.x=ask("X",b.x,-30000000,30000000)
+        b.y=ask("Y",b.y,-2048,4096)
+        b.z=ask("Z",b.z,-30000000,30000000)
+        hint("1 Norden (-Z)  2 Osten (+X)")
+        hint("3 Sueden (+Z)  4 Westen (-X)")
+        local list={"north","east","south","west"}
+        local cur=1;for i,v in ipairs(list) do if v==b.facing then cur=i end end
+        b.facing=list[ask("Blickrichtung",cur,1,4)]
+    end
     local function editChunks(c,job)
         local cl=c.chunkload
         header("Chunks laden (Mod CCChunkloader)")
@@ -836,6 +923,7 @@ function S.new(common)
             list[#list+1]={"Chunks",function() return chunkText(c.chunkload) end,function() editChunks(c,job) end}
         end
         if role=="turtle" then
+            list[#list+1]={"Basis",function() return baseText(c.base) end,function() editBase(c) end}
             list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
         end
@@ -856,7 +944,7 @@ function S.new(common)
     end
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
-        local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
+        local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
             or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
@@ -868,7 +956,7 @@ function S.new(common)
                 fg(colors.lightGray);print(tostring(it[2]()):sub(1,math.max(1,W-12)));fg(colors.white)
             end
             print("")
-            hint("Nummer = aendern, Enter = "..(info.installer and "weiter" or "speichern")
+            hint("Nummer = aendern, Enter = "..(info.newJob and "Auftrag starten" or info.installer and "weiter" or "speichern")
                 ..(info.installer and "" or ", q = Abbruch"))
             write("> ")
             local v=read()
@@ -886,6 +974,23 @@ function S.new(common)
         if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         return ""
+    end
+    -- Neuer Auftrag: Fortschritt der Aufgabe loeschen (Turtle muss an der Basis stehen)
+    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state"}
+    function M.newJob(job)
+        local file=M.STATE_FILES[job];if not file then return false end
+        header("Neuer Auftrag")
+        print("Fortschritt/Zaehler des alten Auftrags")
+        print("werden geloescht.")
+        print("Die Turtle muss an ihrer Basis stehen")
+        print(job=="mining" and "(Blick in die Mine)." or "(Blick nach vorne).")
+        if yesno("Steht sie an der Basis?",true) then
+            for _,p in ipairs({file,file..".tmp"}) do if fs.exists(p) then fs.delete(p) end end
+            return true
+        end
+        printError("Erst an die Basis stellen, dann: toast.lua neu")
+        sleep(2)
+        return false
     end
     function M.confirmReset(job)
         if job~="mining" and job~="tree" and job~="mob" then return end
@@ -1215,7 +1320,24 @@ M.JOB=JOB
 local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
 local function hasProgress(d) return num(d.cells)>0 end
 local function progress(d) return math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells)))) end
+-- Position: "12 vor, 3 rechts, 5 hoch" ab Basis + Koordinaten (GPS oder aus Basis)
+local function posText(d)
+    local r=d.rel;if type(r)~="table" then return nil end
+    local p={}
+    local function part(v,plus,minus) v=num(v);if v~=0 then p[#p+1]=math.abs(v).." "..(v>0 and plus or minus) end end
+    part(r.fwd,"vor","zur.");part(r.right,"re","li");part(r.up,"hoch","tief")
+    return #p==0 and "an der Basis" or table.concat(p," ")
+end
+M.posText=posText
+local function coordText(d)
+    local c=type(d.gps)=="table" and d.gps or type(d.pos)=="table" and d.pos
+    if not c then return nil end
+    return "X"..num(c.x).." Y"..num(c.y).." Z"..num(c.z)..(type(d.gps)=="table" and " GPS" or "")
+end
+M.coordText=coordText
 local function common_rows(rows,d)
+    local pt=posText(d);if pt then rows[#rows+1]={"Position",pt} end
+    local ct=coordText(d);if ct then rows[#rows+1]={"Koordinaten",ct} end
     rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
     if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).." Fuel/h") or "aus"} end
     return rows
@@ -2525,6 +2647,8 @@ local function listener()
         local event, sender, message, protocol = os.pullEvent()
         if (event == "key" and sender == keys.q) or (event == "char" and (sender == "q" or sender == "Q")) then
             finish(); run.fault = nil
+        elseif event == "char" and (sender == "n" or sender == "N") and run.mode == "off" and isHome() then
+            error("TOAST_NEUER_AUFTRAG", 0)
         elseif event == "peripheral" or event == "peripheral_detach" then common.refreshModems(); sendStatus()
         elseif event == "rednet_message" and sender == st.controller and protocol == PROTOCOL
             and type(message) == "table" then
@@ -2560,7 +2684,7 @@ term.clear(); term.setCursorPos(1, 1)
 print("TOAST FARM 2.1 - Turtle #" .. os.getComputerID())
 print("Zentrale #" .. st.controller .. " | " .. crop.label)
 if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
-print("Q: Stopp + Heimfahrt. Ctrl+T: Programmabbruch.")
+print("Q: Stopp + Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
 local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat) end)
 if not ok then
@@ -3557,7 +3681,7 @@ local function idle()
         else
             status(run.fault,"Problem beheben; RESET loescht Fehler, START setzt fort.")
         end
-    elseif st.next>cells then status("Fertig","Neuer Auftrag: toast.lua --new")
+    elseif st.next>cells then status("Fertig","Neuer Auftrag: an der Turtle N druecken")
     else status("Bereit","START setzt fort | 1 GANG: aktuellen Gang") end
     if GEAR then GEAR.radio() end
     chunkTick()
@@ -3577,7 +3701,7 @@ local function work()
         if not run.recovery then
             if active() then
                 radioWindow()
-                if st.next>cells then finish();status("Fertig","Neuer Auftrag: toast.lua --new")
+                if st.next>cells then finish();status("Fertig","Neuer Auftrag: an der Turtle N druecken")
                 else
                     local ok,why=true
                     local fuel=turtle.getFuelLevel()
@@ -3651,6 +3775,7 @@ local function listener()
     while true do
         local e,a,b,c=os.pullEvent()
         if e=="char" and (a=="q" or a=="Q") then finish();run.fault=nil
+        elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and homePosition() then error("TOAST_NEUER_AUFTRAG",0)
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
             if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token;sendStatus()
@@ -3681,7 +3806,7 @@ print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand 
 if sideNote then print(sideNote) end
 print("Zentrale #"..cfg.controllerId)
 if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
-print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")
+print("Q: Stopp/Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
 local ok,why=pcall(function()parallel.waitForAll(work,listener,heartbeat)end)
 if not ok then
@@ -4275,6 +4400,7 @@ function W.new(o)
             scanned=run.scanned,cells=run.cells,wait=math.max(0,math.ceil(run.waitUntil-os.clock()))}
         if o.extra then for k,v in pairs(o.extra()) do s[k]=v end end
         s.label,s.job,s.controllerId,s.toast=cfg.label,o.job,cfg.controllerId,common.version
+        pcall(common.addPosition,s,cfg,o.job)
         return s
     end
     sendStatus=function() pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
@@ -4290,6 +4416,7 @@ function W.new(o)
         while true do
             local e,a,b,c=os.pullEvent()
             if (e=="char" and (a=="q" or a=="Q")) then w.finish();run.fault=nil
+            elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
                 if b.kind=="poll" then run.lastContact=os.clock();sendStatus()
@@ -4371,7 +4498,7 @@ function W.new(o)
         term.clear();term.setCursorPos(1,1)
         print(title.." - Turtle #"..os.getComputerID())
         print("Zentrale #"..st.controller..(info and (" | "..info) or ""))
-        print("Q: Stopp + zur Basis. Ctrl+T: Programmabbruch.")
+        print("Q: Stopp + zur Basis. N: neuer Auftrag (gestoppt, an Basis).")
         if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
         local ok,why=pcall(function() parallel.waitForAll(worker,listener,heartbeat) end)
         if not ok then
@@ -4830,7 +4957,7 @@ pcall(w.equipTool,isTool)
 local names={farm="Mobfarm",guard="Wache",patrol="Waechter "..C.length.."x"..C.width}
 w.start("TOAST MOBS",names[C.mode])
 ]======]
--- TOAST CONTROL 3.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -4851,14 +4978,21 @@ local function fg(c) if color then term.setTextColor(c) end end
 local function warn(s) fg(colors.orange);print(s);fg(colors.white) end
 ui.header("Installation auf Geraet #"..os.getComputerID())
 print("")
+local newJob=false
 if clean==nil then
     fg(colors.yellow);write("1 ");fg(colors.white);print("Update")
     ui.hint("  Einstellungen + Fortschritt bleiben")
     fg(colors.yellow);write("2 ");fg(colors.white);print("Komplett neu")
     ui.hint("  ALLES auf dem Geraet loeschen")
+    if turtle and fs.exists("/toast.config.lua") then
+        fg(colors.yellow);write("3 ");fg(colors.white);print("Neuer Auftrag")
+        ui.hint("  nur neue Werte, alter Fortschritt weg")
+    end
     print("")
     write("Auswahl [1]: ")
-    clean=read()=="2"
+    local answer=read()
+    clean=answer=="2"
+    newJob=answer=="3" and turtle~=nil and fs.exists("/toast.config.lua")
 end
 if clean then
     ui.header("Komplett neu")
@@ -5013,19 +5147,21 @@ if c.name=="" and os.getComputerLabel and os.getComputerLabel() then c.name=comm
 c.label=c.name
 -- Einstellungen: Uebersicht mit Nummern (bei Update auf Wunsch).
 local before=ui.layoutKey(c,job)
-local show=clean or not existing or requested
+local show=clean or not existing or requested or newJob
 if not show then
     ui.header("Update")
     print("")
     show=ui.yesno("Einstellungen ansehen/aendern?",false)
 end
 while true do
-    if show then ui.run(c,{role=role,job=job,installer=true}) end
+    if show then ui.run(c,{role=role,job=job,installer=true,newJob=newJob and role=="turtle"}) end
     local ok,why=pcall(function() common.load(common.copy(c)) end)
     if ok then break end
     ui.header("Einstellung ungueltig");warn(tostring(why));sleep(2);show=true
 end
-local resetProgress=not clean and before~=ui.layoutKey(c,job) and ui.confirmReset(job)
+local resetProgress
+if newJob and role=="turtle" then resetProgress=ui.newJob(job)
+else resetProgress=not clean and before~=ui.layoutKey(c,job) and ui.confirmReset(job) end
 common.load(c)
 local names={"toast.lua","toast_common.lua","toast_setup.lua"}
 if role=="controller" then
@@ -5072,7 +5208,7 @@ print((role=="turtle" and ("Turtle / "..(common.JOB_NAMES[job] or job))
     or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role])..(c.name~="" and (" / "..c.name) or ""))
 if role~="controller" and role~="repeater" then print("Zentrale #"..c.controllerId) end
 print(clean and "Komplett neu installiert." or "Update: Einstellungen behalten.")
-if resetProgress then print("Neuer Auftrag mit den neuen Massen.") end
+if resetProgress then print("Neuer Auftrag: alter Fortschritt geloescht.") end
 ui.hint("Spaeter aendern: toast.lua config")
 local checked=common.load()
 assert(checked.role==role,"role passt nicht zum erkannten Geraet.")

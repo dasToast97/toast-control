@@ -1,5 +1,21 @@
 # Toast Control 3.0
 
+## Update 3.1: Neuer Auftrag ohne Neuinstallation, Position jeder Turtle
+
+**Neuer Auftrag** (z. B. Mine fertig, neue Maße) – drei Wege, nichts löschen:
+1. An der Turtle **N** drücken (wenn sie gestoppt/fertig an der Basis steht):
+   das Einstellungsmenü öffnet sich, Werte ändern, **Enter = Auftrag starten**.
+   Alter Fortschritt wird gelöscht, Config und Programme bleiben.
+2. `toast.lua neu` eingeben – dasselbe.
+3. Im Installer gibt es auf Turtles die Option **3 Neuer Auftrag**.
+
+**Wo ist meine Turtle?** In den Details (Zentrale, Pocket, Infoscreen):
+- **Position**: z. B. „12 vor 3 li 5 hoch“ – von der Basis aus gesehen.
+- **Koordinaten**: echte Weltkoordinaten, wenn
+  - im Menü unter **Basis** die F3-Koordinaten der Turtle an der Basis und
+    ihre Blickrichtung eingetragen sind, oder
+  - im Spiel GPS-Computer stehen (dann mit „GPS“ markiert, wird automatisch genutzt).
+
 ## Update 3.0.4: Mob-Turtles nur nachts, Holzfäller dreht sich nicht mehr im Kreis
 
 - **Nur nachts** (`mob.nightOnly`, Menü „Mobs“ → „Nur nachts?“): Tagsüber

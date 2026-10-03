@@ -67,7 +67,24 @@ M.JOB=JOB
 local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
 local function hasProgress(d) return num(d.cells)>0 end
 local function progress(d) return math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells)))) end
+-- Position: "12 vor, 3 rechts, 5 hoch" ab Basis + Koordinaten (GPS oder aus Basis)
+local function posText(d)
+    local r=d.rel;if type(r)~="table" then return nil end
+    local p={}
+    local function part(v,plus,minus) v=num(v);if v~=0 then p[#p+1]=math.abs(v).." "..(v>0 and plus or minus) end end
+    part(r.fwd,"vor","zur.");part(r.right,"re","li");part(r.up,"hoch","tief")
+    return #p==0 and "an der Basis" or table.concat(p," ")
+end
+M.posText=posText
+local function coordText(d)
+    local c=type(d.gps)=="table" and d.gps or type(d.pos)=="table" and d.pos
+    if not c then return nil end
+    return "X"..num(c.x).." Y"..num(c.y).." Z"..num(c.z)..(type(d.gps)=="table" and " GPS" or "")
+end
+M.coordText=coordText
 local function common_rows(rows,d)
+    local pt=posText(d);if pt then rows[#rows+1]={"Position",pt} end
+    local ct=coordText(d);if ct then rows[#rows+1]={"Koordinaten",ct} end
     rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
     if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).." Fuel/h") or "aus"} end
     return rows

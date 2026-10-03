@@ -426,6 +426,7 @@ function W.new(o)
             scanned=run.scanned,cells=run.cells,wait=math.max(0,math.ceil(run.waitUntil-os.clock()))}
         if o.extra then for k,v in pairs(o.extra()) do s[k]=v end end
         s.label,s.job,s.controllerId,s.toast=cfg.label,o.job,cfg.controllerId,common.version
+        pcall(common.addPosition,s,cfg,o.job)
         return s
     end
     sendStatus=function() pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
@@ -441,6 +442,7 @@ function W.new(o)
         while true do
             local e,a,b,c=os.pullEvent()
             if (e=="char" and (a=="q" or a=="Q")) then w.finish();run.fault=nil
+            elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
                 if b.kind=="poll" then run.lastContact=os.clock();sendStatus()
@@ -522,7 +524,7 @@ function W.new(o)
         term.clear();term.setCursorPos(1,1)
         print(title.." - Turtle #"..os.getComputerID())
         print("Zentrale #"..st.controller..(info and (" | "..info) or ""))
-        print("Q: Stopp + zur Basis. Ctrl+T: Programmabbruch.")
+        print("Q: Stopp + zur Basis. N: neuer Auftrag (gestoppt, an Basis).")
         if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
         local ok,why=pcall(function() parallel.waitForAll(worker,listener,heartbeat) end)
         if not ok then

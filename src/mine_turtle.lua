@@ -907,7 +907,7 @@ local function idle()
         else
             status(run.fault,"Problem beheben; RESET loescht Fehler, START setzt fort.")
         end
-    elseif st.next>cells then status("Fertig","Neuer Auftrag: toast.lua --new")
+    elseif st.next>cells then status("Fertig","Neuer Auftrag: an der Turtle N druecken")
     else status("Bereit","START setzt fort | 1 GANG: aktuellen Gang") end
     if GEAR then GEAR.radio() end
     chunkTick()
@@ -927,7 +927,7 @@ local function work()
         if not run.recovery then
             if active() then
                 radioWindow()
-                if st.next>cells then finish();status("Fertig","Neuer Auftrag: toast.lua --new")
+                if st.next>cells then finish();status("Fertig","Neuer Auftrag: an der Turtle N druecken")
                 else
                     local ok,why=true
                     local fuel=turtle.getFuelLevel()
@@ -1001,6 +1001,7 @@ local function listener()
     while true do
         local e,a,b,c=os.pullEvent()
         if e=="char" and (a=="q" or a=="Q") then finish();run.fault=nil
+        elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and homePosition() then error("TOAST_NEUER_AUFTRAG",0)
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
             if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token;sendStatus()
@@ -1031,7 +1032,7 @@ print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand 
 if sideNote then print(sideNote) end
 print("Zentrale #"..cfg.controllerId)
 if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
-print("Q: Stopp/Heimfahrt. Ctrl+T: Abbruch.")
+print("Q: Stopp/Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
 local ok,why=pcall(function()parallel.waitForAll(work,listener,heartbeat)end)
 if not ok then

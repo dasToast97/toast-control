@@ -168,6 +168,29 @@ function S.new(common)
         print(cut("sich an, auch Spieler."))
         fg(colors.white);sleep(1.5)
     end
+    local FACE_NAMES={north="Norden",east="Osten",south="Sueden",west="Westen"}
+    local function baseText(b)
+        if not b.set then return "aus (nur Abstand zur Basis)" end
+        return b.x.." "..b.y.." "..b.z.." Blick "..(FACE_NAMES[b.facing] or b.facing)
+    end
+    local function editBase(c)
+        local b=c.base
+        header("Basis-Koordinaten")
+        hint("Damit Zentrale/Pocket die echten")
+        hint("Koordinaten der Turtle zeigen.")
+        hint("F3 an der Basis: Block der Turtle,")
+        hint("Blickrichtung = wohin sie schaut.")
+        b.set=yesno("Koordinaten eintragen?",b.set==true)
+        if not b.set then return end
+        b.x=ask("X",b.x,-30000000,30000000)
+        b.y=ask("Y",b.y,-2048,4096)
+        b.z=ask("Z",b.z,-30000000,30000000)
+        hint("1 Norden (-Z)  2 Osten (+X)")
+        hint("3 Sueden (+Z)  4 Westen (-X)")
+        local list={"north","east","south","west"}
+        local cur=1;for i,v in ipairs(list) do if v==b.facing then cur=i end end
+        b.facing=list[ask("Blickrichtung",cur,1,4)]
+    end
     local function editChunks(c,job)
         local cl=c.chunkload
         header("Chunks laden (Mod CCChunkloader)")
@@ -286,6 +309,7 @@ function S.new(common)
             list[#list+1]={"Chunks",function() return chunkText(c.chunkload) end,function() editChunks(c,job) end}
         end
         if role=="turtle" then
+            list[#list+1]={"Basis",function() return baseText(c.base) end,function() editBase(c) end}
             list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
         end
@@ -306,7 +330,7 @@ function S.new(common)
     end
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
-        local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
+        local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
             or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
@@ -318,7 +342,7 @@ function S.new(common)
                 fg(colors.lightGray);print(tostring(it[2]()):sub(1,math.max(1,W-12)));fg(colors.white)
             end
             print("")
-            hint("Nummer = aendern, Enter = "..(info.installer and "weiter" or "speichern")
+            hint("Nummer = aendern, Enter = "..(info.newJob and "Auftrag starten" or info.installer and "weiter" or "speichern")
                 ..(info.installer and "" or ", q = Abbruch"))
             write("> ")
             local v=read()
@@ -336,6 +360,23 @@ function S.new(common)
         if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         return ""
+    end
+    -- Neuer Auftrag: Fortschritt der Aufgabe loeschen (Turtle muss an der Basis stehen)
+    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state"}
+    function M.newJob(job)
+        local file=M.STATE_FILES[job];if not file then return false end
+        header("Neuer Auftrag")
+        print("Fortschritt/Zaehler des alten Auftrags")
+        print("werden geloescht.")
+        print("Die Turtle muss an ihrer Basis stehen")
+        print(job=="mining" and "(Blick in die Mine)." or "(Blick nach vorne).")
+        if yesno("Steht sie an der Basis?",true) then
+            for _,p in ipairs({file,file..".tmp"}) do if fs.exists(p) then fs.delete(p) end end
+            return true
+        end
+        printError("Erst an die Basis stellen, dann: toast.lua neu")
+        sleep(2)
+        return false
     end
     function M.confirmReset(job)
         if job~="mining" and job~="tree" and job~="mob" then return end

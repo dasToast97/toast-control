@@ -1,5 +1,5 @@
 local M={
-    version="3.0",
+    version="3.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -43,6 +43,7 @@ M.DEFAULTS={
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
+    base={set=false,x=0,y=64,z=0,facing="north"},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
@@ -55,7 +56,7 @@ local function copy(v)
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,base=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -146,6 +147,12 @@ function M.configText(c)
             {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
     end
+    if role=="turtle" then
+        section("base","Basis-Koordinaten (F3) fuer die Positionsanzeige",{
+            {"set","true = Koordinaten unten sind eingetragen"},{"x","X der Turtle an der Basis"},
+            {"y","Y der Turtle an der Basis"},{"z","Z der Turtle an der Basis"},
+            {"facing","Blick an der Basis: north/east/south/west"}},c.base)
+    end
     if role=="turtle" and (job=="farm" or job=="mining") then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
             {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
@@ -228,6 +235,11 @@ function M.load(c)
     assert(M.integer(n.maxDevices,1,1024) and count<=n.maxDevices,"maxDevices: 1 bis 1024; Liste zu gross.")
     c.recovery=M.recovery(c.recovery)
     if c.chunkload~=nil then M.chunkConfig(c.chunkload) end
+    if type(c.base)=="table" and c.base.set then
+        local b=c.base
+        assert(M.integer(b.x,-30000000,30000000) and M.integer(b.y,-2048,4096) and M.integer(b.z,-30000000,30000000),"base: x/y/z ganze Zahlen.")
+        assert(M.FACING[b.facing],"base.facing: north, east, south oder west.")
+    end
     -- "name" ist der neue, gut sichtbare Eintrag; "label" bleibt fuer alte Configs gueltig.
     if c.name~=nil then
         assert(type(c.name)=="string","name: Text in Anfuehrungszeichen, z.B. name = \"Mine Nord\"")
@@ -235,6 +247,42 @@ function M.load(c)
     end
     c.label=M.label(c.label);c.name=c.label
     return c
+end
+-- ===== Position einer Turtle =====
+-- Jede Aufgabe zaehlt ab ihrer Basis anders; hier wird daraus "vor/rechts/hoch"
+-- und - wenn die Basis-Koordinaten eingetragen sind - echte Weltkoordinaten.
+M.FACING={north={0,-1},east={1,0},south={0,1},west={-1,0}}
+local RIGHT={north="east",east="south",south="west",west="north"}
+function M.position(c,job,x,y,z)
+    x,y,z=M.number(x),M.number(y),M.number(z)
+    local sec=c[M.JOB_SECTION[job] or "mine"] or {}
+    local sign=sec.side=="left" and -1 or 1
+    local rel={fwd=z,right=x*sign,up=job=="mining" and -y or (job=="farm" and 0 or y)}
+    local abs
+    local b=c.base
+    if type(b)=="table" and b.set and M.FACING[b.facing] then
+        local f,r=M.FACING[b.facing],M.FACING[RIGHT[b.facing]]
+        abs={x=b.x+f[1]*rel.fwd+r[1]*rel.right,y=b.y+rel.up,z=b.z+f[2]*rel.fwd+r[2]*rel.right}
+    end
+    return rel,abs
+end
+-- GPS (falls im Spiel GPS-Computer stehen): hoechstens alle 60 s fragen
+local gpsAt,gpsPos=-1e9,nil
+function M.gps()
+    if not gps or not gps.locate then return nil end
+    if os.clock()-gpsAt<60 then return gpsPos end
+    gpsAt=os.clock()
+    local ok,x,y,z=pcall(gps.locate,0.5)
+    gpsPos=(ok and x) and {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5)} or nil
+    return gpsPos
+end
+-- Status einer Turtle um Positionsangaben ergaenzen
+function M.addPosition(msg,c,job)
+    if type(msg)~="table" or msg.x==nil then return msg end
+    local rel,abs=M.position(c,job,msg.x,msg.y,msg.z)
+    msg.rel=rel;msg.pos=abs
+    local g=M.gps();if g then msg.gps=g end
+    return msg
 end
 function M.checkTree(t)
     assert(type(t)=="table","tree fehlt.")

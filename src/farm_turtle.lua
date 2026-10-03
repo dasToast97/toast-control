@@ -555,6 +555,8 @@ local function listener()
         local event, sender, message, protocol = os.pullEvent()
         if (event == "key" and sender == keys.q) or (event == "char" and (sender == "q" or sender == "Q")) then
             finish(); run.fault = nil
+        elseif event == "char" and (sender == "n" or sender == "N") and run.mode == "off" and isHome() then
+            error("TOAST_NEUER_AUFTRAG", 0)
         elseif event == "peripheral" or event == "peripheral_detach" then common.refreshModems(); sendStatus()
         elseif event == "rednet_message" and sender == st.controller and protocol == PROTOCOL
             and type(message) == "table" then
@@ -590,7 +592,7 @@ term.clear(); term.setCursorPos(1, 1)
 print("TOAST FARM 2.1 - Turtle #" .. os.getComputerID())
 print("Zentrale #" .. st.controller .. " | " .. crop.label)
 if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
-print("Q: Stopp + Heimfahrt. Ctrl+T: Programmabbruch.")
+print("Q: Stopp + Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
 local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat) end)
 if not ok then
