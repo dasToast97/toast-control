@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.7.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.7",
+    version="3.7.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -268,7 +268,7 @@ function M.configText(c)
             {"auto","true = beim Start selbst per GPS suchen (wenn schon 4 andere laufen)"},
             {"x","X"},{"y","Y"},{"z","Z"}},c.gps)
     end
-    if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\" oder Turtle-ID") end
+    if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\", \"tree\", \"mob\", \"dig\", \"storage\" (Lager) oder Turtle-ID") end
     if role=="turtle" and job=="mining" then
         section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
             {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
@@ -398,7 +398,7 @@ function M.load(c)
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
     if c.role=="info" then
         assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.")
-        assert(c.show=="all" or M.job(c.show) or M.id(c.show),"show: \"all\", \"farm\", \"mining\", \"tree\", \"mob\" oder Turtle-ID (Zahl).")
+        assert(c.show=="all" or c.show=="storage" or M.job(c.show) or M.id(c.show),"show: \"all\", \"farm\", \"mining\", \"tree\", \"mob\", \"dig\", \"storage\" oder Turtle-ID (Zahl).")
     end
     assert(type(c.autoDiscover)=="boolean" and type(c.autoPairPockets)=="boolean","autoDiscover/autoPairPockets: true oder false.")
     assert(type(c.devices)=="table" and type(c.pocketIds)=="table","devices/pocketIds fehlen.")
@@ -1311,18 +1311,19 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",storage="Lager (Kisten)"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
         print("")
-        local opts={"all","farm","mining","tree","mob"}
+        local opts={"all","farm","mining","tree","mob","dig","storage"}
         for i,v in ipairs(opts) do hint(i.." "..showText(v)) end
-        hint("6 Eine bestimmte Turtle")
-        local cur=type(c.show)=="number" and 6 or 1
+        local nT=#opts+1
+        hint(nT.." Eine bestimmte Turtle")
+        local cur=type(c.show)=="number" and nT or 1
         for i,v in ipairs(opts) do if c.show==v then cur=i end end
-        local n=ask("Auswahl",cur,1,6)
-        if n<=5 then c.show=opts[n]
+        local n=ask("Auswahl",cur,1,nT)
+        if n<nT then c.show=opts[n]
         else
             hint("ID steht an der Zentrale hinter dem Namen")
             hint("(z.B. Mine Nord #12 -> 12)")
@@ -2394,10 +2395,12 @@ function M.new(screen,cfg)
         if ui.storeOnly then
             -- Lager-Computer: nur die Lageransicht, oben Fuellstand + Uhr
             local nd=fleet.nodes or {ids={},entries={}}
-            local e1=nd.entries[nd.ids[1]];local st1=e1 and e1.data and e1.data.stats or {}
+            local sz,fl=0,0
+            for _,nid in ipairs(nd.ids) do local st1=nd.entries[nid].data and nd.entries[nid].data.stats or {}
+                sz=sz+num(st1.size);fl=fl+num(st1.pct)*num(st1.size) end
             text(2,1,"TOAST LAGER",colors.white,colors.blue)
             local clock=clockText()
-            local r=(st1.pct and (st1.pct.."% voll") or "").."  "..clock.." "
+            local r=(sz>0 and (math.floor(fl/sz+0.5).."% voll") or "").."  "..clock.." "
             if #r+13>w then r=clock.." " end
             right(1,r,colors.white,colors.blue)
             return ui.drawStore(nd,true,text,right,fill,pill,w,h,notice,2)
@@ -3038,9 +3041,27 @@ local function poll()
     pcall(rednet.send,cfg.controllerId,{kind="hello",role="info",version=1,controllerId=cfg.controllerId,
         info=common.nodeInfo(cfg,"info",gpsHost and {gps=gpsHost.served} or nil)},common.remoteProtocol)
 end
+-- show = "storage": Lageransicht (Kisten / Inhalt), Monitor antippen = umschalten
+local STORE=cfg.show=="storage"
+local function storeUi(s)
+    if not s.st.ui then
+        s.st.ui=UI.new(s.dev,cfg);s.st.ui.storeOnly=true;s.st.ui.filter="store";s.st.ui.canUpdate=false
+    else s.st.ui.setScreen(s.dev) end
+    return s.st.ui
+end
+local function storeFleet()
+    local nodes=fleet.nodes or {ids={},entries={}}
+    local ids,entries={},{}
+    for _,id in ipairs(nodes.ids or {}) do local e=nodes.entries[id];if e and e.role=="storage" then ids[#ids+1]=id;entries[id]=e end end
+    return {ids={},entries={},nodes={ids=ids,entries=entries}}
+end
 local function draw()
     for _,s in ipairs(screens) do
-        local ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st,cfg.show)
+        local ok,why
+        if STORE then
+            local ui=storeUi(s)
+            ok,why=pcall(ui.draw,storeFleet(),connected(),connected() and "" or "Keine Verbindung zur Zentrale")
+        else ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st,cfg.show) end
         if not ok then common.log("Infoscreen: "..tostring(why)) end
     end
 end
@@ -3071,6 +3092,18 @@ local function loop()
             poll();draw();timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
             bind();draw()
+        elseif STORE and e=="monitor_touch" then
+            for _,s in ipairs(screens) do if s.name==a and s.st.ui then s.st.ui.action(s.st.ui.click(b,c)) end end
+            draw()
+        elseif STORE and e=="mouse_click" then
+            for _,s in ipairs(screens) do if not s.name and s.st.ui then s.st.ui.action(s.st.ui.click(b,c)) end end
+            draw()
+        elseif STORE and e=="char" then
+            for _,s in ipairs(screens) do if not s.name and s.st.ui then s.st.ui.action(s.st.ui.char(a)) end end
+            draw()
+        elseif STORE and e=="key" then
+            for _,s in ipairs(screens) do if not s.name and s.st.ui then s.st.ui.action(s.st.ui.key(keys.getName(a))) end end
+            draw()
         elseif e=="char" and (a=="q" or a=="Q") then return end
     end
 end
@@ -6603,7 +6636,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.7.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

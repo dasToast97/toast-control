@@ -32,9 +32,27 @@ local function poll()
     pcall(rednet.send,cfg.controllerId,{kind="hello",role="info",version=1,controllerId=cfg.controllerId,
         info=common.nodeInfo(cfg,"info",gpsHost and {gps=gpsHost.served} or nil)},common.remoteProtocol)
 end
+-- show = "storage": Lageransicht (Kisten / Inhalt), Monitor antippen = umschalten
+local STORE=cfg.show=="storage"
+local function storeUi(s)
+    if not s.st.ui then
+        s.st.ui=UI.new(s.dev,cfg);s.st.ui.storeOnly=true;s.st.ui.filter="store";s.st.ui.canUpdate=false
+    else s.st.ui.setScreen(s.dev) end
+    return s.st.ui
+end
+local function storeFleet()
+    local nodes=fleet.nodes or {ids={},entries={}}
+    local ids,entries={},{}
+    for _,id in ipairs(nodes.ids or {}) do local e=nodes.entries[id];if e and e.role=="storage" then ids[#ids+1]=id;entries[id]=e end end
+    return {ids={},entries={},nodes={ids=ids,entries=entries}}
+end
 local function draw()
     for _,s in ipairs(screens) do
-        local ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st,cfg.show)
+        local ok,why
+        if STORE then
+            local ui=storeUi(s)
+            ok,why=pcall(ui.draw,storeFleet(),connected(),connected() and "" or "Keine Verbindung zur Zentrale")
+        else ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st,cfg.show) end
         if not ok then common.log("Infoscreen: "..tostring(why)) end
     end
 end
@@ -65,6 +83,18 @@ local function loop()
             poll();draw();timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
             bind();draw()
+        elseif STORE and e=="monitor_touch" then
+            for _,s in ipairs(screens) do if s.name==a and s.st.ui then s.st.ui.action(s.st.ui.click(b,c)) end end
+            draw()
+        elseif STORE and e=="mouse_click" then
+            for _,s in ipairs(screens) do if not s.name and s.st.ui then s.st.ui.action(s.st.ui.click(b,c)) end end
+            draw()
+        elseif STORE and e=="char" then
+            for _,s in ipairs(screens) do if not s.name and s.st.ui then s.st.ui.action(s.st.ui.char(a)) end end
+            draw()
+        elseif STORE and e=="key" then
+            for _,s in ipairs(screens) do if not s.name and s.st.ui then s.st.ui.action(s.st.ui.key(keys.getName(a))) end end
+            draw()
         elseif e=="char" and (a=="q" or a=="Q") then return end
     end
 end

@@ -1,5 +1,5 @@
 local M={
-    version="3.7",
+    version="3.7.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -138,7 +138,7 @@ function M.configText(c)
             {"auto","true = beim Start selbst per GPS suchen (wenn schon 4 andere laufen)"},
             {"x","X"},{"y","Y"},{"z","Z"}},c.gps)
     end
-    if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\" oder Turtle-ID") end
+    if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\", \"tree\", \"mob\", \"dig\", \"storage\" (Lager) oder Turtle-ID") end
     if role=="turtle" and job=="mining" then
         section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
             {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
@@ -268,7 +268,7 @@ function M.load(c)
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
     if c.role=="info" then
         assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.")
-        assert(c.show=="all" or M.job(c.show) or M.id(c.show),"show: \"all\", \"farm\", \"mining\", \"tree\", \"mob\" oder Turtle-ID (Zahl).")
+        assert(c.show=="all" or c.show=="storage" or M.job(c.show) or M.id(c.show),"show: \"all\", \"farm\", \"mining\", \"tree\", \"mob\", \"dig\", \"storage\" oder Turtle-ID (Zahl).")
     end
     assert(type(c.autoDiscover)=="boolean" and type(c.autoPairPockets)=="boolean","autoDiscover/autoPairPockets: true oder false.")
     assert(type(c.devices)=="table" and type(c.pocketIds)=="table","devices/pocketIds fehlen.")

@@ -153,8 +153,12 @@ local keepS=S.files
 S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files=keepS
 ok,err=install(S,false,31)
 check("Lager-Update behaelt Rolle",ok and cfgOf(S).role=="storage",err)
+print("O1b Infoscreen zeigt das Lager")
+S=Sim.new({config=MINECFG,input={"1","3","4","4","7","","n","n"}});S.files={}
+ok,err=install(S,false,32)
+check("show = storage",ok and cfgOf(S).show=="storage",err)
 print("O2 Infoscreen zeigt bestimmte Turtle")
-S=Sim.new({config=MINECFG,input={"1","3","4","4","6","12","","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","3","4","4","8","12","","n","n"}});S.files={}
 ok,err=install(S,false,31)
 kc=ok and cfgOf(S)
 check("show = 12",kc and kc.role=="info" and kc.show==12,err)

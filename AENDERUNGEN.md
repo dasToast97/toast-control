@@ -1,3 +1,10 @@
+# Toast Control 3.7.1
+
+- **Infoscreen kann das Lager zeigen:** Menü „Anzeige“ -> 7 Lager (Kisten).
+  Zeigt alle Lager mit Füllstand; Monitor antippen schaltet zwischen
+  **Kisten** und **Inhalt**, ein Item antippen zeigt, wo es liegt.
+- Infoscreen-Auswahl jetzt auch „Alle Aushub-Turtles“.
+
 # Toast Control 3.7
 
 ## Neu: Lager (Kistenüberwachung)

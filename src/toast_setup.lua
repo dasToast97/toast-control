@@ -361,18 +361,19 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",storage="Lager (Kisten)"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
         print("")
-        local opts={"all","farm","mining","tree","mob"}
+        local opts={"all","farm","mining","tree","mob","dig","storage"}
         for i,v in ipairs(opts) do hint(i.." "..showText(v)) end
-        hint("6 Eine bestimmte Turtle")
-        local cur=type(c.show)=="number" and 6 or 1
+        local nT=#opts+1
+        hint(nT.." Eine bestimmte Turtle")
+        local cur=type(c.show)=="number" and nT or 1
         for i,v in ipairs(opts) do if c.show==v then cur=i end end
-        local n=ask("Auswahl",cur,1,6)
-        if n<=5 then c.show=opts[n]
+        local n=ask("Auswahl",cur,1,nT)
+        if n<nT then c.show=opts[n]
         else
             hint("ID steht an der Zentrale hinter dem Namen")
             hint("(z.B. Mine Nord #12 -> 12)")

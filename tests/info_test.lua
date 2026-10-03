@@ -48,4 +48,38 @@ do
   check("zeigt die gewaehlte Turtle (#12) gross an",screen:find("Mine Nord",1,true) and screen:find("Abgebaut",1,true) and screen:find("Fortschritt",1,true),screen)
   check("laeuft weiter (kein Absturz)",S.result=="timeout",S.result.." "..table.concat(S.log," | "):sub(-200))
 end
+-- 3) Infoscreen zeigt das Lager (show = "storage"), Antippen schaltet auf Inhalt
+do
+  local CFG='return {role="info",name="Info Lager",controllerId=4,show="storage"}'
+  local S=Sim.new({config=CFG})
+  for _,n in ipairs({"toast_ui.lua","toast_info.lua"})do S.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a")end
+  S.protocol="toast.control.remote.v1";S.polling=false
+  local W,H=39,19;local rows={};local cx,cy=1,1
+  for y=1,H do rows[y]=string.rep(" ",W) end
+  local mon={getSize=function()return W,H end,isColor=function()return true end,setTextScale=function()end,
+    setBackgroundColor=function()end,setTextColor=function()end,clear=function()for y=1,H do rows[y]=string.rep(" ",W) end end,
+    setCursorPos=function(x,y)cx,cy=x,y end,write=function(s)if cy<1 or cy>H then return end;s=s:gsub("[\1-\31\128-\255]","=");local r=rows[cy];rows[cy]=(r:sub(1,cx-1)..s..r:sub(cx+#s)):sub(1,W);cx=cx+#s end}
+  local stats={chests={{n="Erze",p=95,u=25,s=27},{n="Holz",p=40,u=11,s=27}},items={{id="minecraft:oak_log",n="Oak Log",c=640,w={{i=2,c=640}}}},
+    used=36,size=54,pct=68,warn=90,count=2,types=1}
+  local fleet={ids={},entries={},nodes={ids={60},entries={[60]={role="storage",label="Keller",online=true,data={stats=stats}}}}}
+  local snap={}
+  S.actions={{t=2,fn=function(S)table.insert(S.queue,table.pack("rednet_message",4,{kind="fleet",version=1,controllerId=4,fleet=fleet},"toast.control.remote.v1"))end},
+    {t=4,fn=function(S)snap[1]=table.concat(rows,"\n");table.insert(S.queue,table.pack("monitor_touch","top",30,2))end},
+    {t=6,fn=function(S)snap[2]=table.concat(rows,"\n")end}}
+  local orig=Sim.env
+  Sim.env=function(S2)local G=orig(S2);G.turtle=nil;G.os.getComputerID=function()return 31 end
+    do local n=0;local c={};G.colors=setmetatable({},{__index=function(_,k)if not c[k] then n=n+1;c[k]=2^n end;return c[k] end}) end
+    G.peripheral.getNames=function()return {"top"} end
+    local gt=G.peripheral.getType;G.peripheral.getType=function(n)if n=="top" then return "monitor" end;return gt(n) end
+    local wr=G.peripheral.wrap;G.peripheral.wrap=function(n)if n=="top" then return mon end;return wr(n) end
+    G.rednet.send=function() return true end
+    G.textutils.formatTime=function()return "12:00" end;G.os.time=function()return 12 end
+    return G end
+  S.equip={right="computercraft:wireless_modem_advanced"}
+  Sim.run(S,8)
+  Sim.env=orig
+  check("Lager auf dem Infoscreen: Kisten + Fuellstand",snap[1] and snap[1]:find("TOAST LAGER",1,true) and snap[1]:find("Erze",1,true) and snap[1]:find("68% voll",1,true),snap[1])
+  check("Antippen -> Inhalt",snap[2] and snap[2]:find("Oak Log",1,true),snap[2])
+  check("laeuft weiter",S.result=="timeout",S.result.." "..table.concat(S.log," | "):sub(-300))
+end
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))

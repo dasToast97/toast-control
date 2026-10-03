@@ -531,10 +531,12 @@ function M.new(screen,cfg)
         if ui.storeOnly then
             -- Lager-Computer: nur die Lageransicht, oben Fuellstand + Uhr
             local nd=fleet.nodes or {ids={},entries={}}
-            local e1=nd.entries[nd.ids[1]];local st1=e1 and e1.data and e1.data.stats or {}
+            local sz,fl=0,0
+            for _,nid in ipairs(nd.ids) do local st1=nd.entries[nid].data and nd.entries[nid].data.stats or {}
+                sz=sz+num(st1.size);fl=fl+num(st1.pct)*num(st1.size) end
             text(2,1,"TOAST LAGER",colors.white,colors.blue)
             local clock=clockText()
-            local r=(st1.pct and (st1.pct.."% voll") or "").."  "..clock.." "
+            local r=(sz>0 and (math.floor(fl/sz+0.5).."% voll") or "").."  "..clock.." "
             if #r+13>w then r=clock.." " end
             right(1,r,colors.white,colors.blue)
             return ui.drawStore(nd,true,text,right,fill,pill,w,h,notice,2)
