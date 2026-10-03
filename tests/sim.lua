@@ -202,7 +202,9 @@ function Sim.env(S)
     end
     G.fs={open=fsopen,exists=function(p)return S.files[p]~=nil end,delete=function(p)S.files[p]=nil end,
         move=function(a,b)S.files[b]=S.files[a];S.files[a]=nil end,makeDir=function()end,
-        getSize=function(p)return #(S.files[p] or "")end,copy=function(a,b)S.files[b]=S.files[a]end,isDir=function()return false end}
+        getSize=function(p)return #(S.files[p] or "")end,copy=function(a,b)S.files[b]=S.files[a]end,isDir=function()return false end,
+        list=function()local seen,out={},{};for p in pairs(S.files)do local top=p:match("^/([^/]+)");if top and not seen[top]then seen[top]=true;out[#out+1]=top end end;table.sort(out);return out end,
+        getDrive=function()return "hdd" end,isReadOnly=function()return false end,getFreeSpace=function()return 900000 end}
     G.textutils={serialize=function(t)return ser(t)end,unserialize=function(s)local f=load("return "..s,"u","t",{});if not f then return nil end;local ok,v=pcall(f);return ok and v or nil end}
     G.os={clock=function()return S.T end,time=function()return S.gameTime and S.gameTime(S.T) or 0 end,epoch=function()return 1700000000000+math.floor(S.T*1000)end,
         getComputerID=function()return 7 end,getComputerLabel=function()return nil end,date=function()return "SIM" end,

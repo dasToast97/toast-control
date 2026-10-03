@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -115,7 +115,13 @@ while true do
     if ok then return end
     why=tostring(why)
     args={}
-    if why:find(NEW_JOB,1,true) then
+    if why:find("TOAST_UPDATE",1,true) then
+        -- Neue Version installiert: neues toast.lua laden und weitermachen
+        print("Update fertig, starte neu ...")
+        local f=loadfile("/toast.lua")
+        if f then return f() end
+        os.reboot()
+    elseif why:find(NEW_JOB,1,true) then
         -- An der Turtle "N" gedrueckt: neuer Auftrag -> Menue, dann neu starten
         configure(true);restarts=0
     elseif not afterCrash(why) then return end
@@ -123,11 +129,12 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.1",
+    version="3.2",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
-    actions={start=true,stop=true,once=true,reset=true},
+    actions={start=true,stop=true,once=true,reset=true,update=true},
+    updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
 }
 -- Standardwerte fuer Stabilitaet. Fehlen sie in einer alten Config, werden sie ergaenzt.
 M.recoveryDefaults={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8}
@@ -518,6 +525,27 @@ function M.addPosition(msg,c,job)
     msg.dimSeen=seen~=nil
     msg.dimSet=set
     return msg
+end
+-- ===== Selbst-Update (Update-Knopf an der Zentrale) =====
+-- Laedt den Installer von GitHub und fuehrt ihn ohne Fragen aus ("auto"):
+-- Config, Fortschritt und Autostart bleiben. Danach Neustart des Programms
+-- (error "TOAST_UPDATE" -> toast.lua laedt sich neu). Turtles machen dank
+-- gespeicherter Position und Auftrag dort weiter, wo sie waren.
+function M.selfUpdate(statusFn)
+    local say=statusFn or function() end
+    if not http then return false,"HTTP im Spiel/Server aus" end
+    say("Update","Lade neue Version ...")
+    local ok,h=pcall(http.get,M.updateUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000))
+    if not ok or not h then return false,"Download fehlgeschlagen" end
+    local code=h.readAll();h.close()
+    if type(code)~="string" or #code<1000 then return false,"Download leer" end
+    local fn,why=load(code,"@install","t",_ENV)
+    if not fn then return false,"Installer defekt: "..tostring(why) end
+    say("Update","Installiere ...")
+    local okRun,res=pcall(fn,"auto")
+    if not okRun then return false,"Update: "..tostring(res) end
+    M.log("Update installiert, Neustart")
+    error("TOAST_UPDATE",0)
 end
 function M.checkTree(t)
     assert(type(t)=="table","tree fehlt.")
@@ -1214,6 +1242,13 @@ local function loop()
         if e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
         elseif e=="timer" and a==timer then model.tick();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==frame and model.selfUpdateAt and (os.clock()>=model.selfUpdateAt or (model.waiting()==0 and os.clock()>=model.selfUpdateAt-20)) then
+            -- Alle Geraete haben das Update bekommen (oder Zeit um): jetzt die Zentrale selbst
+            model.selfUpdateAt=nil
+            model.notice="Zentrale installiert Update ...";draw()
+            local ok,why=common.selfUpdate()
+            if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
+            frame=os.startTimer(0.25)
         elseif e=="timer" and a==frame then
             if dirty then draw() end
             frame=os.startTimer(0.25)
@@ -1333,14 +1368,29 @@ function M.new(cfg)
         if not common.actions[action] then return false end
         if target~="all" and not common.job(target) and not (common.id(target) and devices[target]) then return false end
         local changed={}
-        local always=action=="stop" or action=="reset"
+        if action=="update" then target="all" end
+        local always=action=="stop" or action=="reset" or action=="update"
         for id,d in pairs(devices) do
             local e=m.entries[id]
             if matches(id,d,target) and (always or (m.online(id) and not e.data.recovery)) then
                 serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
-                m.pending[id]={message={kind="command",action=action,serial=serial},at=os.clock(),job=d.job}
+                m.pending[id]={message={kind="command",action=action,serial=serial},at=os.clock(),job=d.job,
+                    ttl=action=="update" and 180 or nil}
                 changed[#changed+1]=id
             end
+        end
+        if action=="update" then
+            -- Pockets und Infoscreens ebenfalls; die Zentrale selbst danach (kurz warten)
+            local n=0
+            for pid in pairs(pockets) do
+                serial=serial+1;n=n+1
+                send(pid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
+            end
+            m.selfUpdateAt=os.clock()+(#changed>0 and 25 or 3)
+            save()
+            for _,id in ipairs(changed) do local p=m.pending[id];dispatch(id,p.message,p.job) end
+            m.notice="Update an "..(#changed+n).." Geraete gesendet, Zentrale folgt ..."
+            return true
         end
         if #changed==0 then m.notice="Kein erreichbares Ziel / Position unklar";return false end
         save()
@@ -1385,7 +1435,7 @@ function M.new(cfg)
         if cfg.autoDiscover then for _,p in pairs(common.workerProtocols)do pcall(rednet.broadcast,{kind="poll"},p)end end
         local waiting,expired=0,0
         for id,p in pairs(m.pending)do
-            if os.clock()-p.at>=cfg.network.commandTimeout then m.pending[id]=nil;expired=expired+1
+            if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1
             else waiting=waiting+1;dispatch(id,p.message,p.job) end
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
@@ -1485,6 +1535,7 @@ M.coordText=coordText
 local function common_rows(rows,d)
     local pt=posText(d);if pt then rows[#rows+1]={"Position",pt} end
     local ct=coordText(d);if ct then rows[#rows+1]={"Koordinaten",ct} end
+    if d.toast then rows[#rows+1]={"Version",tostring(d.toast)..(d.toast~=common.version and (" (Zentrale "..common.version..")") or "")} end
     if d.dim then
         local names={overworld="Oberwelt",nether="Nether",["end"]="End"}
         local t=names[d.dim] or tostring(d.dim)
@@ -1844,7 +1895,7 @@ function M.new(screen,cfg)
             fill(1,colors.blue);text(2,1,"TOAST - Tasten",colors.white,colors.blue)
             local L={{"\24 \25","Turtle waehlen"},{"Enter","Details oeffnen"},{"\27 Back","zurueck"},
                 {"\27 \26 Tab","Reiter wechseln"},{"S","Start"},{"X","Stop"},{"E","einmal (1 Runde)"},
-                {"R",w>=30 and "Reset (2x druecken)" or "Reset (2x)"},{"Bild\24\25","Seite blaettern"},{"H / ?","diese Hilfe"},{"Q","beenden"}}
+                {"R",w>=30 and "Reset (2x druecken)" or "Reset (2x)"},{"U","Update alle (2x)"},{"Bild\24\25","Seite blaettern"},{"H / ?","diese Hilfe"},{"Q","beenden"}}
             local kw=w>=34 and 11 or 9
             for i,l in ipairs(L) do
                 if i+2>h-1 then break end
@@ -1892,6 +1943,14 @@ function M.new(screen,cfg)
         -- Kopfzeile
         fill(1,colors.blue)
         text(2,1,"TOAST",colors.white,colors.blue)
+        -- Update-Knopf: alle Geraete holen sich die neue Version und machen weiter
+        if ui.canUpdate~=false then
+            local up=confirming() and ui.confirm.action=="update"
+            local lab=up and "Sicher?" or "Update"
+            local x=8
+            text(x,1," "..lab.." ",up and colors.white or colors.blue,up and colors.red or colors.lightBlue)
+            ui.buttons[#ui.buttons+1]={x=x,y=1,w=#lab+2,action="update",enabled=link}
+        end
         if link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
         else right(1,"keine Verbindung ",colors.orange,colors.blue) end
         -- Reiter
@@ -2051,7 +2110,9 @@ function M.new(screen,cfg)
         if info:find("Warte auf Geraete",1,true) then info="" end
         local infoCol=colors.lightGray
         local goal=sel and "diese Turtle" or (ui.filter=="all" and "alle" or ("alle "..(JOB[ui.filter] and JOB[ui.filter].plural or ui.filter)))
-        if confirming() then
+        if confirming() and ui.confirm.action=="update" then
+            info=w>=40 and "Alle Geraete updaten? Update nochmal tippen" or "Update? Nochmal tippen";infoCol=colors.cyan
+        elseif confirming() then
             info=#goal+24<=w and ("Reset fuer "..goal.."? Nochmal = ja") or "Reset? Nochmal = ja";infoCol=colors.orange
         elseif info=="" or info:find("bestaetigt",1,true) then
             info="Ziel: "..goal
@@ -2065,7 +2126,7 @@ function M.new(screen,cfg)
         end
         text(1,foot,info:sub(1,w),infoCol)
         local pages=ui.pages or 1
-        local sure=confirming()
+        local sure=confirming() and ui.confirm.action=="reset"
         -- Reset: orange, wenn es Fehler gibt ("Fehler loeschen"), sonst unauffaellig grau
         -- Reset als dezenter Knopf: dunkelgrau, Schrift orange bei Fehlern, rot bei Nachfrage
         local function resetLabel(width)
@@ -2093,7 +2154,7 @@ function M.new(screen,cfg)
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)
         if not a then return end
-        if a~="reset" then ui.confirm=nil end
+        if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
         elseif a=="help" then ui.help=not ui.help
         elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
@@ -2122,10 +2183,10 @@ function M.new(screen,cfg)
             local index=indexOf(ui.selected)
             index=(index+(a=="next" and 1 or -1))%(#ui.ids+1)
             ui.selected=ui.ids[index];if ui.selected then ui.cursor=ui.selected end
-        elseif a=="reset" then
+        elseif a=="reset" or a=="update" then
             -- Sicherheitsabfrage: zweimal innerhalb von 5 s druecken/tippen
-            if confirming() then ui.confirm=nil;return "reset" end
-            ui.confirm={at=os.clock()};return
+            if confirming() and ui.confirm.action==a then ui.confirm=nil;return a end
+            ui.confirm={at=os.clock(),action=a};return
         else return a end
     end
     -- Tastatur: Sondertasten (Name aus keys.getName) und Zeichen
@@ -2155,7 +2216,7 @@ function M.new(screen,cfg)
         end
     end
     ui.keys={["0"]="group",["1"]="start",["2"]="stop",["3"]="once",["4"]="reset",
-        s="start",x="stop",e="once",r="reset",h="help",["?"]="help",
+        s="start",x="stop",e="once",r="reset",h="help",["?"]="help",u="update",
         a="filter:all",f="filter:farm",m="filter:mining"}
     return ui
 end
@@ -2192,7 +2253,7 @@ end
 local function action(a)
     local cmd=ui.action(a)
     if cmd and connected() and common.actions[cmd] then
-        local target=ui.target();local eligible=cmd=="stop" or cmd=="reset"
+        local target=ui.target();local eligible=cmd=="stop" or cmd=="reset" or cmd=="update"
         for _,id in ipairs(fleet.ids)do
             local e=fleet.entries[id]
             if (target=="all" or target==id or target==e.job) and e.online and e.data and not e.data.recovery then eligible=true end
@@ -2215,6 +2276,11 @@ local function loop()
             fleet,seen=b.fleet,os.clock();serial=math.max(serial,common.number(b.ack))
             if pending and common.number(b.ack)>=pending.message.serial then pending=nil end
             notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");draw()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="update" and b.controllerId==cfg.controllerId then
+            notice="Update wird installiert ...";draw()
+            local ok,why=common.selfUpdate()
+            if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
         elseif e=="timer" and a==timer then
             poll()
             if pending then
@@ -2294,6 +2360,10 @@ local function loop()
         if e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="update" and b.controllerId==cfg.controllerId then
+            local ok,why=common.selfUpdate()
+            if not ok then common.log("Update: "..tostring(why)) end
         elseif e=="timer" and a==timer then
             poll();draw();timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
@@ -2507,7 +2577,14 @@ local function equipTool()
     return false
 end
 local function isHome() return st.x == 0 and st.z == 0 end
+local function maybeUpdate()
+    if not run.updateReq then return end
+    run.updateReq = false
+    local ok, why = TC.selfUpdate(function(a, b) run.status, run.detail = a, b end)
+    if not ok then run.status, run.detail = "Update fehlgeschlagen", tostring(why); TC.log("Update: " .. tostring(why)) end
+end
 local function active()
+    maybeUpdate()
     -- radioTimeout = 0: auch ohne Zentrale weiterarbeiten.
     if run.mode ~= "off" and CFG.radioTimeout > 0 and os.clock() - run.lastContact > CFG.radioTimeout then
         fail("Funkverbindung verloren")
@@ -2874,11 +2951,13 @@ local function listener()
                 run.lastContact = os.clock()
                 sendStatus()
             elseif message.kind == "command" and common.serial(message.serial)
-                and ({ start = true, stop = true, once = true, reset = true })[message.action] then
+                and ({ start = true, stop = true, once = true, reset = true, update = true })[message.action] then
                 run.lastContact = os.clock()
                 if message.serial > (st.commandSerial or 0) then
                     st.commandSerial = message.serial
-                    if message.action == "stop" then
+                    if message.action == "update" then
+                        run.updateReq = true; run.status, run.detail = "Update", "Wird gleich installiert ..."
+                    elseif message.action == "stop" then
                         finish(); run.fault, run.retries, run.retryAt = nil, 0, nil
                     elseif message.action == "reset" then reset()
                     elseif not run.recovery then
@@ -3225,7 +3304,15 @@ end
 local function fail(why)
     run.mode,run.fault,run.retryAt="off",why,nil
 end
+-- Update-Knopf der Zentrale: nur zwischen zwei Schritten ausfuehren (sicherer Punkt)
+local function maybeUpdate()
+    if not run.updateReq then return end
+    run.updateReq=false
+    local ok,why=TC.selfUpdate(function(a,b) run.status,run.detail=a,b end)
+    if not ok then run.status,run.detail="Update fehlgeschlagen",tostring(why);TC.log("Update: "..tostring(why)) end
+end
 local function active()
+    maybeUpdate()
     -- radioTimeout=0: auch ohne Zentrale weiterarbeiten (z.B. Zentrale in entladenem Chunk).
     if run.mode~="off" and C.radioTimeout>0 and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
     return run.mode~="off" and not run.recovery
@@ -3997,11 +4084,12 @@ local function listener()
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
             if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token;sendStatus()
-            elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true})[b.action] then
+            elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
                     st.commandSerial=b.serial
-                    if b.action=="stop" then finish();run.fault,run.retries,run.retryAt=nil,0,nil
+                    if b.action=="update" then run.updateReq=true;run.status,run.detail="Update","Wird gleich installiert ..."
+                    elseif b.action=="stop" then finish();run.fault,run.retries,run.retryAt=nil,0,nil
                     elseif b.action=="reset" then reset()
                     elseif not run.recovery and st.next<=cells then
                         run.mode=b.action=="once" and "once" or "auto";run.fault,run.retries,run.retryAt=nil,0,nil
@@ -4291,6 +4379,11 @@ function W.new(o)
     end
     local radioTimeout=C.radioTimeout or 60
     function w.active()
+        if run.updateReq then
+            run.updateReq=false
+            local ok,why=common.selfUpdate(w.status)
+            if not ok then w.status("Update fehlgeschlagen",tostring(why));common.log("Update: "..tostring(why)) end
+        end
         if run.mode~="off" and radioTimeout>0 and os.clock()-run.lastContact>radioTimeout then w.fail("Funkverbindung verloren") end
         return run.mode~="off" and not run.recovery
     end
@@ -4642,7 +4735,8 @@ function W.new(o)
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
                         st.commandSerial=b.serial
-                        if b.action=="stop" then w.finish();run.fault,run.retries,run.retryAt=nil,0,nil
+                        if b.action=="update" then run.updateReq=true;w.status("Update","Wird gleich installiert ...")
+                        elseif b.action=="stop" then w.finish();run.fault,run.retries,run.retryAt=nil,0,nil
                         elseif b.action=="reset" then reset()
                         elseif not run.recovery then
                             run.mode=b.action=="once" and "once" or "auto"
@@ -5247,18 +5341,22 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
 -- Vor dem Schreiben wird ALLES Alte geloescht, damit nichts kollidiert.
 local args={...}
 local requested,clean
+-- "auto": Update ohne Fragen (vom Update-Knopf der Zentrale ausgeloest).
+-- Behaelt Config, Fortschritt und Autostart; startet nichts selbst.
+local auto=false
 for _,a in ipairs(args) do
     a=a:lower()
-    if a=="clean" or a=="neu" then clean=true
+    if a=="auto" then auto=true;clean=false
+    elseif a=="clean" or a=="neu" then clean=true
     elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="repeater" then requested=a
-    else error("Optional: farm / mining / repeater / clean",0) end
+    else error("Optional: farm / mining / repeater / clean / auto",0) end
 end
 local code=FILES
 local common=assert(load(code["toast_common.lua"],"@toast_common.lua"))()
@@ -5266,6 +5364,7 @@ local ui=assert(load(code["toast_setup.lua"],"@toast_setup.lua"))().new(common)
 local color=term.isColor and term.isColor()
 local function fg(c) if color then term.setTextColor(c) end end
 local function warn(s) fg(colors.orange);print(s);fg(colors.white) end
+local hadStartup=fs.exists("/startup.lua") and (function() local f=fs.open("/startup.lua","r");local v=f.readAll();f.close();return v end)()
 ui.header("Installation auf Geraet #"..os.getComputerID())
 print("")
 local newJob=false
@@ -5311,6 +5410,7 @@ local function config(path)
 end
 local oldFarm,oldMine=config("/farm.config.lua"),config("/mine.config.lua")
 local existing=config("/toast.config.lua")
+assert(not auto or existing,"Auto-Update: keine gueltige Config - bitte von Hand installieren.")
 if existing and not pcall(function()
     local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info" or copy.role=="gps") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.
@@ -5441,7 +5541,7 @@ c.label=c.name
 -- Einstellungen: Uebersicht mit Nummern (bei Update auf Wunsch).
 local before=ui.layoutKey(c,job)
 local show=clean or not existing or requested or newJob
-if not show then
+if not show and not auto then
     ui.header("Update")
     print("")
     show=ui.yesno("Einstellungen ansehen/aendern?",false)
@@ -5450,6 +5550,7 @@ while true do
     if show then ui.run(c,{role=role,job=job,installer=true,newJob=newJob and role=="turtle"}) end
     local ok,why=pcall(function() common.load(common.copy(c)) end)
     if ok then break end
+    if auto then error("Auto-Update: Config ungueltig: "..tostring(why),0) end
     ui.header("Einstellung ungueltig");warn(tostring(why));sleep(2);show=true
 end
 local resetProgress
@@ -5511,6 +5612,11 @@ if role=="turtle" and (checked.job=="farm" or checked.job=="mining") then
     dofile("/toast/"..prefix.."_common.lua").load(common.workerConfig(checked))
 end
 print("")
+if auto then
+    -- Autostart wie vorher; Neustart uebernimmt das laufende Programm
+    if hadStartup then local f=fs.open("/startup.lua","w");f.write(hadStartup);f.close() end
+    return true
+end
 if ui.yesno("Autostart einrichten?",true) then
     local f=assert(fs.open("/startup.lua","w"));f.write('shell.run("/toast.lua")\n');f.close()
 end

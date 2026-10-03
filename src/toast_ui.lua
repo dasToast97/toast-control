@@ -85,6 +85,7 @@ M.coordText=coordText
 local function common_rows(rows,d)
     local pt=posText(d);if pt then rows[#rows+1]={"Position",pt} end
     local ct=coordText(d);if ct then rows[#rows+1]={"Koordinaten",ct} end
+    if d.toast then rows[#rows+1]={"Version",tostring(d.toast)..(d.toast~=common.version and (" (Zentrale "..common.version..")") or "")} end
     if d.dim then
         local names={overworld="Oberwelt",nether="Nether",["end"]="End"}
         local t=names[d.dim] or tostring(d.dim)
@@ -444,7 +445,7 @@ function M.new(screen,cfg)
             fill(1,colors.blue);text(2,1,"TOAST - Tasten",colors.white,colors.blue)
             local L={{"\24 \25","Turtle waehlen"},{"Enter","Details oeffnen"},{"\27 Back","zurueck"},
                 {"\27 \26 Tab","Reiter wechseln"},{"S","Start"},{"X","Stop"},{"E","einmal (1 Runde)"},
-                {"R",w>=30 and "Reset (2x druecken)" or "Reset (2x)"},{"Bild\24\25","Seite blaettern"},{"H / ?","diese Hilfe"},{"Q","beenden"}}
+                {"R",w>=30 and "Reset (2x druecken)" or "Reset (2x)"},{"U","Update alle (2x)"},{"Bild\24\25","Seite blaettern"},{"H / ?","diese Hilfe"},{"Q","beenden"}}
             local kw=w>=34 and 11 or 9
             for i,l in ipairs(L) do
                 if i+2>h-1 then break end
@@ -492,6 +493,14 @@ function M.new(screen,cfg)
         -- Kopfzeile
         fill(1,colors.blue)
         text(2,1,"TOAST",colors.white,colors.blue)
+        -- Update-Knopf: alle Geraete holen sich die neue Version und machen weiter
+        if ui.canUpdate~=false then
+            local up=confirming() and ui.confirm.action=="update"
+            local lab=up and "Sicher?" or "Update"
+            local x=8
+            text(x,1," "..lab.." ",up and colors.white or colors.blue,up and colors.red or colors.lightBlue)
+            ui.buttons[#ui.buttons+1]={x=x,y=1,w=#lab+2,action="update",enabled=link}
+        end
         if link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
         else right(1,"keine Verbindung ",colors.orange,colors.blue) end
         -- Reiter
@@ -651,7 +660,9 @@ function M.new(screen,cfg)
         if info:find("Warte auf Geraete",1,true) then info="" end
         local infoCol=colors.lightGray
         local goal=sel and "diese Turtle" or (ui.filter=="all" and "alle" or ("alle "..(JOB[ui.filter] and JOB[ui.filter].plural or ui.filter)))
-        if confirming() then
+        if confirming() and ui.confirm.action=="update" then
+            info=w>=40 and "Alle Geraete updaten? Update nochmal tippen" or "Update? Nochmal tippen";infoCol=colors.cyan
+        elseif confirming() then
             info=#goal+24<=w and ("Reset fuer "..goal.."? Nochmal = ja") or "Reset? Nochmal = ja";infoCol=colors.orange
         elseif info=="" or info:find("bestaetigt",1,true) then
             info="Ziel: "..goal
@@ -665,7 +676,7 @@ function M.new(screen,cfg)
         end
         text(1,foot,info:sub(1,w),infoCol)
         local pages=ui.pages or 1
-        local sure=confirming()
+        local sure=confirming() and ui.confirm.action=="reset"
         -- Reset: orange, wenn es Fehler gibt ("Fehler loeschen"), sonst unauffaellig grau
         -- Reset als dezenter Knopf: dunkelgrau, Schrift orange bei Fehlern, rot bei Nachfrage
         local function resetLabel(width)
@@ -693,7 +704,7 @@ function M.new(screen,cfg)
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)
         if not a then return end
-        if a~="reset" then ui.confirm=nil end
+        if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
         elseif a=="help" then ui.help=not ui.help
         elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
@@ -722,10 +733,10 @@ function M.new(screen,cfg)
             local index=indexOf(ui.selected)
             index=(index+(a=="next" and 1 or -1))%(#ui.ids+1)
             ui.selected=ui.ids[index];if ui.selected then ui.cursor=ui.selected end
-        elseif a=="reset" then
+        elseif a=="reset" or a=="update" then
             -- Sicherheitsabfrage: zweimal innerhalb von 5 s druecken/tippen
-            if confirming() then ui.confirm=nil;return "reset" end
-            ui.confirm={at=os.clock()};return
+            if confirming() and ui.confirm.action==a then ui.confirm=nil;return a end
+            ui.confirm={at=os.clock(),action=a};return
         else return a end
     end
     -- Tastatur: Sondertasten (Name aus keys.getName) und Zeichen
@@ -755,7 +766,7 @@ function M.new(screen,cfg)
         end
     end
     ui.keys={["0"]="group",["1"]="start",["2"]="stop",["3"]="once",["4"]="reset",
-        s="start",x="stop",e="once",r="reset",h="help",["?"]="help",
+        s="start",x="stop",e="once",r="reset",h="help",["?"]="help",u="update",
         a="filter:all",f="filter:farm",m="filter:mining"}
     return ui
 end

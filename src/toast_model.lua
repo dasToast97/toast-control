@@ -78,14 +78,29 @@ function M.new(cfg)
         if not common.actions[action] then return false end
         if target~="all" and not common.job(target) and not (common.id(target) and devices[target]) then return false end
         local changed={}
-        local always=action=="stop" or action=="reset"
+        if action=="update" then target="all" end
+        local always=action=="stop" or action=="reset" or action=="update"
         for id,d in pairs(devices) do
             local e=m.entries[id]
             if matches(id,d,target) and (always or (m.online(id) and not e.data.recovery)) then
                 serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
-                m.pending[id]={message={kind="command",action=action,serial=serial},at=os.clock(),job=d.job}
+                m.pending[id]={message={kind="command",action=action,serial=serial},at=os.clock(),job=d.job,
+                    ttl=action=="update" and 180 or nil}
                 changed[#changed+1]=id
             end
+        end
+        if action=="update" then
+            -- Pockets und Infoscreens ebenfalls; die Zentrale selbst danach (kurz warten)
+            local n=0
+            for pid in pairs(pockets) do
+                serial=serial+1;n=n+1
+                send(pid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
+            end
+            m.selfUpdateAt=os.clock()+(#changed>0 and 25 or 3)
+            save()
+            for _,id in ipairs(changed) do local p=m.pending[id];dispatch(id,p.message,p.job) end
+            m.notice="Update an "..(#changed+n).." Geraete gesendet, Zentrale folgt ..."
+            return true
         end
         if #changed==0 then m.notice="Kein erreichbares Ziel / Position unklar";return false end
         save()
@@ -130,7 +145,7 @@ function M.new(cfg)
         if cfg.autoDiscover then for _,p in pairs(common.workerProtocols)do pcall(rednet.broadcast,{kind="poll"},p)end end
         local waiting,expired=0,0
         for id,p in pairs(m.pending)do
-            if os.clock()-p.at>=cfg.network.commandTimeout then m.pending[id]=nil;expired=expired+1
+            if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1
             else waiting=waiting+1;dispatch(id,p.message,p.job) end
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"

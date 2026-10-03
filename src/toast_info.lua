@@ -53,6 +53,10 @@ local function loop()
         if e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="update" and b.controllerId==cfg.controllerId then
+            local ok,why=common.selfUpdate()
+            if not ok then common.log("Update: "..tostring(why)) end
         elseif e=="timer" and a==timer then
             poll();draw();timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then

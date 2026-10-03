@@ -197,7 +197,14 @@ local function equipTool()
     return false
 end
 local function isHome() return st.x == 0 and st.z == 0 end
+local function maybeUpdate()
+    if not run.updateReq then return end
+    run.updateReq = false
+    local ok, why = TC.selfUpdate(function(a, b) run.status, run.detail = a, b end)
+    if not ok then run.status, run.detail = "Update fehlgeschlagen", tostring(why); TC.log("Update: " .. tostring(why)) end
+end
 local function active()
+    maybeUpdate()
     -- radioTimeout = 0: auch ohne Zentrale weiterarbeiten.
     if run.mode ~= "off" and CFG.radioTimeout > 0 and os.clock() - run.lastContact > CFG.radioTimeout then
         fail("Funkverbindung verloren")
@@ -564,11 +571,13 @@ local function listener()
                 run.lastContact = os.clock()
                 sendStatus()
             elseif message.kind == "command" and common.serial(message.serial)
-                and ({ start = true, stop = true, once = true, reset = true })[message.action] then
+                and ({ start = true, stop = true, once = true, reset = true, update = true })[message.action] then
                 run.lastContact = os.clock()
                 if message.serial > (st.commandSerial or 0) then
                     st.commandSerial = message.serial
-                    if message.action == "stop" then
+                    if message.action == "update" then
+                        run.updateReq = true; run.status, run.detail = "Update", "Wird gleich installiert ..."
+                    elseif message.action == "stop" then
                         finish(); run.fault, run.retries, run.retryAt = nil, 0, nil
                     elseif message.action == "reset" then reset()
                     elseif not run.recovery then

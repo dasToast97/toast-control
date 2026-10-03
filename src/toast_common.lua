@@ -1,9 +1,10 @@
 local M={
-    version="3.1",
+    version="3.2",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
-    actions={start=true,stop=true,once=true,reset=true},
+    actions={start=true,stop=true,once=true,reset=true,update=true},
+    updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
 }
 -- Standardwerte fuer Stabilitaet. Fehlen sie in einer alten Config, werden sie ergaenzt.
 M.recoveryDefaults={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8}
@@ -394,6 +395,27 @@ function M.addPosition(msg,c,job)
     msg.dimSeen=seen~=nil
     msg.dimSet=set
     return msg
+end
+-- ===== Selbst-Update (Update-Knopf an der Zentrale) =====
+-- Laedt den Installer von GitHub und fuehrt ihn ohne Fragen aus ("auto"):
+-- Config, Fortschritt und Autostart bleiben. Danach Neustart des Programms
+-- (error "TOAST_UPDATE" -> toast.lua laedt sich neu). Turtles machen dank
+-- gespeicherter Position und Auftrag dort weiter, wo sie waren.
+function M.selfUpdate(statusFn)
+    local say=statusFn or function() end
+    if not http then return false,"HTTP im Spiel/Server aus" end
+    say("Update","Lade neue Version ...")
+    local ok,h=pcall(http.get,M.updateUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000))
+    if not ok or not h then return false,"Download fehlgeschlagen" end
+    local code=h.readAll();h.close()
+    if type(code)~="string" or #code<1000 then return false,"Download leer" end
+    local fn,why=load(code,"@install","t",_ENV)
+    if not fn then return false,"Installer defekt: "..tostring(why) end
+    say("Update","Installiere ...")
+    local okRun,res=pcall(fn,"auto")
+    if not okRun then return false,"Update: "..tostring(res) end
+    M.log("Update installiert, Neustart")
+    error("TOAST_UPDATE",0)
 end
 function M.checkTree(t)
     assert(type(t)=="table","tree fehlt.")

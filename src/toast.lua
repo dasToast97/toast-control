@@ -112,7 +112,13 @@ while true do
     if ok then return end
     why=tostring(why)
     args={}
-    if why:find(NEW_JOB,1,true) then
+    if why:find("TOAST_UPDATE",1,true) then
+        -- Neue Version installiert: neues toast.lua laden und weitermachen
+        print("Update fertig, starte neu ...")
+        local f=loadfile("/toast.lua")
+        if f then return f() end
+        os.reboot()
+    elseif why:find(NEW_JOB,1,true) then
         -- An der Turtle "N" gedrueckt: neuer Auftrag -> Menue, dann neu starten
         configure(true);restarts=0
     elseif not afterCrash(why) then return end

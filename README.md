@@ -1,4 +1,4 @@
-# Toast Control 3.1
+# Toast Control 3.2
 
 Farm-, Mining-, Holz- und Mob-Turtles, Zentrale, Pocket und Infoscreens für CC:Tweaked (Minecraft Fabric 1.20.1).
 
@@ -21,6 +21,9 @@ wget run https://raw.githubusercontent.com/dasToast97/toast-control/main/install
 Antippen oder Tasten: **↑↓** Turtle wählen · **Enter** Details · **←** zurück ·
 **Tab / ←→** Reiter · **S** Start · **X** Stop · **E** 1x · **R** Reset (2x) ·
 **H** Hilfe · **Q** beenden.
+
+**Update für alle**: an der Zentrale oben **Update** (2x tippen) – alle Geräte
+aktualisieren sich selbst und machen weiter, wo sie waren.
 
 Neuer Auftrag (z. B. Mine fertig): an der Turtle **N** drücken oder `toast.lua neu`
 – neue Werte eingeben, Enter startet. Position jeder Turtle steht in den Details

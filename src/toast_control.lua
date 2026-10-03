@@ -53,6 +53,13 @@ local function loop()
         if e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
         elseif e=="timer" and a==timer then model.tick();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==frame and model.selfUpdateAt and (os.clock()>=model.selfUpdateAt or (model.waiting()==0 and os.clock()>=model.selfUpdateAt-20)) then
+            -- Alle Geraete haben das Update bekommen (oder Zeit um): jetzt die Zentrale selbst
+            model.selfUpdateAt=nil
+            model.notice="Zentrale installiert Update ...";draw()
+            local ok,why=common.selfUpdate()
+            if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
+            frame=os.startTimer(0.25)
         elseif e=="timer" and a==frame then
             if dirty then draw() end
             frame=os.startTimer(0.25)

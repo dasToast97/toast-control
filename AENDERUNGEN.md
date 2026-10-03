@@ -1,4 +1,24 @@
-# Toast Control 3.0
+# Toast Control 3.2
+
+## Neu in 3.2: Update für alle Geräte per Knopf
+
+Oben in der Zentrale (und auf dem Pocket) gibt es den Knopf **Update**
+(Taste **U**). Zweimal tippen (Sicherheitsabfrage), dann:
+1. Alle Turtles, Pockets und Infoscreens laden sich die neue Version selbst
+   von GitHub und installieren sie **ohne Fragen** – Config, Fortschritt und
+   Autostart bleiben.
+2. Turtles machen das an einem **sicheren Punkt zwischen zwei Schritten**,
+   starten neu und **arbeiten genau dort weiter**, wo sie waren (Position und
+   Auftrag sind gespeichert). Sie müssen dafür nicht zur Basis.
+3. Offline-Turtles bekommen den Befehl, sobald sie sich innerhalb von 3 Minuten melden.
+4. Zum Schluss aktualisiert sich die Zentrale selbst.
+- In den Details steht die **Version** jedes Geräts (mit Hinweis, wenn sie
+  älter als die der Zentrale ist).
+- Voraussetzung: HTTP ist im Spiel/Server erlaubt (Standard bei CC:Tweaked).
+- Repeater und GPS-Sender sind nicht dabei (die haben keinen Funkkanal zur
+  Zentrale) – dort bei Bedarf den Installer von Hand ausführen.
+- Von Hand ohne Fragen: `wget run <link> auto`.
+
 
 ## Update 3.1.3: Knöpfe schlicht und modern
 

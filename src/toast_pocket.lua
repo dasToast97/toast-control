@@ -28,7 +28,7 @@ end
 local function action(a)
     local cmd=ui.action(a)
     if cmd and connected() and common.actions[cmd] then
-        local target=ui.target();local eligible=cmd=="stop" or cmd=="reset"
+        local target=ui.target();local eligible=cmd=="stop" or cmd=="reset" or cmd=="update"
         for _,id in ipairs(fleet.ids)do
             local e=fleet.entries[id]
             if (target=="all" or target==id or target==e.job) and e.online and e.data and not e.data.recovery then eligible=true end
@@ -51,6 +51,11 @@ local function loop()
             fleet,seen=b.fleet,os.clock();serial=math.max(serial,common.number(b.ack))
             if pending and common.number(b.ack)>=pending.message.serial then pending=nil end
             notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");draw()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="update" and b.controllerId==cfg.controllerId then
+            notice="Update wird installiert ...";draw()
+            local ok,why=common.selfUpdate()
+            if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
         elseif e=="timer" and a==timer then
             poll()
             if pending then

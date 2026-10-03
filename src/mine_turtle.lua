@@ -233,7 +233,15 @@ end
 local function fail(why)
     run.mode,run.fault,run.retryAt="off",why,nil
 end
+-- Update-Knopf der Zentrale: nur zwischen zwei Schritten ausfuehren (sicherer Punkt)
+local function maybeUpdate()
+    if not run.updateReq then return end
+    run.updateReq=false
+    local ok,why=TC.selfUpdate(function(a,b) run.status,run.detail=a,b end)
+    if not ok then run.status,run.detail="Update fehlgeschlagen",tostring(why);TC.log("Update: "..tostring(why)) end
+end
 local function active()
+    maybeUpdate()
     -- radioTimeout=0: auch ohne Zentrale weiterarbeiten (z.B. Zentrale in entladenem Chunk).
     if run.mode~="off" and C.radioTimeout>0 and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
     return run.mode~="off" and not run.recovery
@@ -1005,11 +1013,12 @@ local function listener()
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
             if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token;sendStatus()
-            elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true})[b.action] then
+            elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
                     st.commandSerial=b.serial
-                    if b.action=="stop" then finish();run.fault,run.retries,run.retryAt=nil,0,nil
+                    if b.action=="update" then run.updateReq=true;run.status,run.detail="Update","Wird gleich installiert ..."
+                    elseif b.action=="stop" then finish();run.fault,run.retries,run.retryAt=nil,0,nil
                     elseif b.action=="reset" then reset()
                     elseif not run.recovery and st.next<=cells then
                         run.mode=b.action=="once" and "once" or "auto";run.fault,run.retries,run.retryAt=nil,0,nil
