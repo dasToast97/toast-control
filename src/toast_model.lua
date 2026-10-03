@@ -90,7 +90,8 @@ function M.new(cfg)
         if #changed==0 then m.notice="Kein erreichbares Ziel / Position unklar";return false end
         save()
         for _,id in ipairs(changed)do local p=m.pending[id];dispatch(id,p.message,p.job) end
-        m.notice=string.upper(action)..": "..#changed.." Turtle(s), warte auf ACK"
+        local names={start="Start",stop="Stopp",once="Einmal",reset="Reset"}
+        m.notice=(names[action] or action).." an "..#changed.." Turtle"..(#changed>1 and "s" or "").." gesendet ..."
         return true
     end
     local function key(id,protocol)return protocol..":"..id end
@@ -132,8 +133,8 @@ function M.new(cfg)
             if os.clock()-p.at>=cfg.network.commandTimeout then m.pending[id]=nil;expired=expired+1
             else waiting=waiting+1;dispatch(id,p.message,p.job) end
         end
-        if expired>0 then m.notice="Befehl nicht bestaetigt: "..expired
-        elseif waiting==0 and m.notice:find("warte auf ACK",1,true) then m.notice="Befehl von Turtle(s) bestaetigt" end
+        if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
+        elseif waiting==0 and m.notice:find("gesendet ...",1,true) then m.notice="Befehl bestaetigt" end
         for id in pairs(pockets)do m.reply(id)end
     end
     function m.waiting()local n=0;for _ in pairs(m.pending)do n=n+1 end;return n end

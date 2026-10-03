@@ -1345,7 +1345,8 @@ function M.new(cfg)
         if #changed==0 then m.notice="Kein erreichbares Ziel / Position unklar";return false end
         save()
         for _,id in ipairs(changed)do local p=m.pending[id];dispatch(id,p.message,p.job) end
-        m.notice=string.upper(action)..": "..#changed.." Turtle(s), warte auf ACK"
+        local names={start="Start",stop="Stopp",once="Einmal",reset="Reset"}
+        m.notice=(names[action] or action).." an "..#changed.." Turtle"..(#changed>1 and "s" or "").." gesendet ..."
         return true
     end
     local function key(id,protocol)return protocol..":"..id end
@@ -1387,8 +1388,8 @@ function M.new(cfg)
             if os.clock()-p.at>=cfg.network.commandTimeout then m.pending[id]=nil;expired=expired+1
             else waiting=waiting+1;dispatch(id,p.message,p.job) end
         end
-        if expired>0 then m.notice="Befehl nicht bestaetigt: "..expired
-        elseif waiting==0 and m.notice:find("warte auf ACK",1,true) then m.notice="Befehl von Turtle(s) bestaetigt" end
+        if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
+        elseif waiting==0 and m.notice:find("gesendet ...",1,true) then m.notice="Befehl bestaetigt" end
         for id in pairs(pockets)do m.reply(id)end
     end
     function m.waiting()local n=0;for _ in pairs(m.pending)do n=n+1 end;return n end
@@ -1454,7 +1455,7 @@ local JOB={
         rows=function(d) local r={{"Runden",short(d.rounds)},{"Gefaellt",short(d.harvested).." Baeume"},
             {"Holz",short(d.total).." Staemme"},{"Setzlinge",short(d.saplings)},{"Freie Slots",short(d.freeSlots)}}
             wait(r,d);return r end},
-    mob={name="Mobs",plural="Mob-Turtles",metric="Drops",unit="Items",once="1x",
+    mob={name="Mobs",plural="Mob-Turtles",metric="Drops",unit="Items",once="EINMAL",
         value=function(d) return num(d.total) end,aux={"Treffer",function(d) return num(d.hits) end,""},
         rows=function(d) local r={{"Art",MOB_MODES[d.mobMode] or "-"},{"Treffer",short(d.hits)},{"Drops",short(d.total).." Items"}}
             if d.lastHit and num(d.hits)>0 then r[#r+1]={"Letzter Mob","vor "..short(d.lastHit).." s"} end
@@ -1801,14 +1802,21 @@ function M.new(screen,cfg)
             screen.write(s)
         end
         local function right(y,s,fg,bg) s=tostring(s);text(math.max(1,w-#s+1),y,s,fg,bg) end
-        local function button(x,y,width,label,action,bg,enabled)
+        -- Knopf; height>1 = groesserer Knopf (leichter zu treffen am Monitor).
+        -- Zwischen nebeneinanderliegenden Knoepfen bleibt 1 Spalte Luft (gap).
+        local function button(x,y,width,label,action,bg,enabled,height,gap)
             if width<1 then return end
+            height=height or 1
+            local bw=width-(gap and width>4 and 1 or 0)
             local b=enabled and bg or colors.gray
-            local l=tostring(label):sub(1,width)
-            local pad=math.floor((width-#l)/2)
-            text(x,y,string.rep(" ",width),colors.white,b)
-            text(x+pad,y,l,enabled and colors.white or colors.lightGray,b)
-            ui.buttons[#ui.buttons+1]={x=x,y=y,w=width,action=action,enabled=enabled}
+            local l=tostring(label):sub(1,bw)
+            local pad=math.floor((bw-#l)/2)
+            local mid=y+math.floor((height-1)/2)
+            for yy=y,y+height-1 do
+                text(x,yy,string.rep(" ",bw),colors.white,b)
+                ui.buttons[#ui.buttons+1]={x=x,y=yy,w=bw,action=action,enabled=enabled}
+            end
+            text(x+pad,mid,l,enabled and colors.white or colors.lightGray,b)
         end
         screen.setBackgroundColor(colors.black);screen.setTextColor(colors.white);screen.clear()
         if not confirming() then ui.confirm=nil end
@@ -1883,18 +1891,33 @@ function M.new(screen,cfg)
             button(1+(i-1)*tw,2,width,lab,"filter:"..t[3],active and colors.lightBlue or colors.gray,true)
         end
         local third=math.floor(w/3)
-        -- Fusszeile: Hinweis + 2 Tastenreihen
-        local foot=h-2
+        -- Fusszeile: Hinweiszeile + grosse Tastenreihe + untere Reihe
+        -- Grosse Bildschirme bekommen hoehere Knoepfe (leichter zu treffen).
+        local bh=h>=30 and 3 or h>=19 and 2 or 1
+        local foot=h-1-bh
         local sel=ui.selected and entries[ui.selected]
         local job=sel and jobOf(sel) or (ui.filter~="all" and ui.filter) or nil
-        local once=JOB[job] and JOB[job].once or "1x"
-        local canStart=false
+        -- Was ist bei den Zielen gerade moeglich?
+        local canStart,canStop,faultsT,running=false,false,0,0
         for _,id in ipairs(ids) do
             local e=entries[id]
-            if link and (not ui.selected or ui.selected==id) and e and e.online and e.data and not e.data.recovery then canStart=true end
+            if (not ui.selected or ui.selected==id) and e then
+                local d=e.data or {}
+                local _,k=M.state(e,link)
+                local active=d.mode=="auto" or d.mode=="once" or (d.mode==nil and (k=="work" or k=="move" or k=="wait"))
+                if link and e.online and e.data and not d.recovery and not active then canStart=true end
+                if link and e.online and active then canStop=true;running=running+1 end
+                if link and (k=="fault" or k=="warn") then canStop=true;faultsT=faultsT+1 end
+            end
         end
-        for i,b in ipairs({{"START","start",colors.green},{"STOP","stop",colors.red},{once,"once",colors.blue}}) do
-            button(1+(i-1)*third,foot+1,i==3 and w-2*third or third,b[1],b[2],b[3],b[2]=="stop" and link or canStart)
+        ui.state={canStart=canStart,canStop=canStop,faults=faultsT,running=running}
+        local tw=third
+        local startL=tw>=11 and "\16 STARTEN" or tw>=8 and "STARTEN" or "START"
+        local stopL=tw>=11 and "\7 STOPPEN" or tw>=8 and "STOPPEN" or "STOP"
+        local onceL=JOB[job] and JOB[job].once or "EINMAL"
+        if tw>=11 and JOB[job] then onceL="\26 "..onceL elseif tw>=11 then onceL="\26 EINMAL" end
+        for i,b in ipairs({{startL,"start",colors.green,canStart},{stopL,"stop",colors.red,canStop},{onceL,"once",colors.blue,canStart}}) do
+            button(1+(i-1)*third,foot+1,i==3 and w-2*third or third,b[1],b[2],b[3],b[4],bh,i<3)
         end
         local perPage
         -- ===== Detailansicht =====
@@ -1902,7 +1925,7 @@ function M.new(screen,cfg)
             local d=sel.data or {}
             local label,kind=M.state(sel,link)
             local name=(sel.label and sel.label~="" and sel.label or JOB[jobOf(sel)].name).." #"..ui.selected
-            button(1,3,w,"< "..name,"group",colors.gray,true)
+            button(1,3,w,(w>=30 and "\27 ZURUECK  |  " or "\27 ")..name,"group",colors.gray,true)
             fill(4,COLOR[kind])
             local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
             text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
@@ -2014,14 +2037,20 @@ function M.new(screen,cfg)
         text(1,foot,info:sub(1,w),infoCol)
         local pages=ui.pages or 1
         local sure=confirming()
-        local rbg=sure and colors.red or colors.orange
+        -- Reset: orange, wenn es Fehler gibt ("Fehler loeschen"), sonst unauffaellig grau
+        local rbg=sure and colors.red or (faultsT>0 and colors.orange or colors.gray)
+        local function resetLabel(width)
+            if sure then return width>=24 and "SICHER? NOCHMAL TIPPEN" or "SICHER?" end
+            if faultsT>0 then return width>=24 and "FEHLER LOESCHEN + HEIM" or width>=15 and "FEHLER LOESCHEN" or width>=10 and "FEHLER WEG" or "RESET" end
+            return width>=24 and "RESET (STOPP + HEIM)" or "RESET"
+        end
+        local y2=h
         if not sel and pages>1 then
-            button(1,foot+2,third,"<","pageprev",colors.gray,ui.page>1)
-            button(1+third,foot+2,third,sure and "SICHER?" or "RESET","reset",rbg,link and #ids>0)
-            button(1+2*third,foot+2,w-2*third,ui.page.."/"..pages.." >","pagenext",colors.gray,ui.page<pages)
+            button(1,y2,third,"\27","pageprev",colors.gray,ui.page>1,1,true)
+            button(1+third,y2,third,resetLabel(third-1),"reset",rbg,link and #ids>0,1,true)
+            button(1+2*third,y2,w-2*third,ui.page.."/"..pages.." \26","pagenext",colors.gray,ui.page<pages)
         else
-            local long=sure and "SICHER? nochmal = RESET" or "RESET  (Fehler loeschen + heim)"
-            button(1,foot+2,w,w>=38 and long or (sure and "SICHER?" or "RESET"),"reset",rbg,link and #ids>0)
+            button(1,y2,w,resetLabel(w),"reset",rbg,link and #ids>0)
         end
     end
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end

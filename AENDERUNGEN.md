@@ -1,5 +1,19 @@
 # Toast Control 3.0
 
+## Update 3.1.3: Knöpfe übersichtlicher
+
+- **Größere Knöpfe** auf großen Bildschirmen (2–3 Zeilen hoch), mit kleinem
+  Abstand dazwischen – leichter zu treffen am Monitor.
+- **Klare Beschriftung**: STARTEN / STOPPEN / EINMAL (bzw. 1 Runde, 1 Gang),
+  mit Symbolen, wenn Platz ist.
+- **Nur was geht, ist aktiv**: STARTEN ist grau, wenn alle Ziele schon laufen;
+  STOPPEN ist grau, wenn nichts läuft.
+- **Reset** heißt jetzt je nach Lage „FEHLER LOESCHEN + HEIM“ (orange, wenn es
+  Fehler gibt) oder „RESET (STOPP + HEIM)“ (grau). Weiterhin mit Sicherheitsabfrage.
+- Detailansicht: „← ZURUECK | Name“ oben.
+- Meldungen verständlicher: „Start an 3 Turtles gesendet …“, „Befehl bestätigt“,
+  „Keine Antwort von 1 Turtle (Funk/Chunk?)“.
+
 ## Update 3.1.2: GPS-Sender per Installer
 
 Stationärer Computer im Installer: **4 GPS-Sender**.
