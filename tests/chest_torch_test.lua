@@ -63,4 +63,19 @@ check("Mine fertig",st.next and st.next>40,st.next)
 local spot3;for k,v in pairs(S.world) do if v=="minecraft:chest" and k~="0,1,0" and k~="0,-1,0" then spot3=k end end
 check("Kiste im Boden unter Spalte z=8",spot3=="0,1,8",spot3)
 check("befuellt",spot3 and (S.dropsAt[spot3] or 0)>=13,spot3 and S.dropsAt[spot3])
+
+print("K4 Gemischte Nachschubkiste oben: Fackeln, Kisten, Kohle -> holt alles")
+S=Sim.new({config=cfg("placeChests=true,torches=5,useCoal=false"),fuel=50,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1"
+S.top={{name="minecraft:torch",count=64},{name="minecraft:dirt",count=10},{name="minecraft:chest",count=64},{name="minecraft:torch",count=64},{name="minecraft:coal",count=64},{name="minecraft:chest",count=20}};S.topN=6
+Sim.run(S,600)
+st=state(S)
+local function inv(name) local n=0;for i=1,16 do if S.inv[i] and S.inv[i].name==name then n=n+S.inv[i].count end end;return n end
+check("Mine fertig (Fuel aus der Kiste)",st.next and st.next>20,tostring(st.next).." fuel="..S.fuel)
+check("Fackeln geholt",S.last and S.last.torchesPlaced==4 and inv("minecraft:torch")==60,inv("minecraft:torch"))
+check("Kisten geholt (1 Stapel)",inv("minecraft:chest")==64,inv("minecraft:chest"))
+local back={};for i=1,S.topN do local s=S.top[i];if s then back[s.name]=(back[s.name] or 0)+s.count end end
+check("Rest zurueck in die Kiste",back["minecraft:dirt"]==10 and back["minecraft:torch"]==64 and back["minecraft:chest"]==20,
+  tostring(back["minecraft:dirt"]).."/"..tostring(back["minecraft:torch"]).."/"..tostring(back["minecraft:chest"]))
+check("kein Dreck aus der Nachschubkiste unten abgeladen",not (S.chestNames["minecraft:dirt"]))
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

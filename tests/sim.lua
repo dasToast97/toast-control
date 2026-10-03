@@ -119,9 +119,20 @@ function Sim.new(opts)
             local ck=key(S.p.x,S.p.y+1,S.p.z);S.dropsAt=S.dropsAt or {};S.dropsAt[ck]=(S.dropsAt[ck] or 0)+n
             if it.count==0 then S.inv[S.sel]=nil end;return true end,
         dropUp=function(n)local it=S.inv[S.sel];if not it then return false end
-            n=math.min(n or it.count,it.count);it.count=it.count-n;S.coal=S.coal+n;if it.count==0 then S.inv[S.sel]=nil end;return true end,
+            n=math.min(n or it.count,it.count);it.count=it.count-n
+            if S.top then local i=1;while S.top[i] do i=i+1 end;S.top[i]={name=it.name,count=n};S.topN=math.max(S.topN or 0,i)
+            else S.coal=S.coal+n end
+            if it.count==0 then S.inv[S.sel]=nil end;return true end,
         drop=function()S.inv[S.sel]=nil;return true end,
-        suckUp=function(n)n=math.min(n or 64,64,S.coal);if n<=0 then return false end
+        suckUp=function(n)
+            if S.top then
+                if S.inv[S.sel] then return false end
+                for i=1,(S.topN or #S.top) do local st=S.top[i]
+                    if st then local k=math.min(n or 64,st.count);S.inv[S.sel]={name=st.name,count=k};st.count=st.count-k
+                        if st.count==0 then S.top[i]=nil end;return true end end
+                return false
+            end
+            n=math.min(n or 64,64,S.coal);if n<=0 then return false end
             if S.inv[S.sel] then return false end;S.inv[S.sel]={name="minecraft:coal",count=n};S.coal=S.coal-n;return true end,
         suck=function()return false end,
         refuel=function(n)local it=S.inv[S.sel];if not it or it.name~="minecraft:coal" then return false end

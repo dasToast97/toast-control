@@ -754,30 +754,65 @@ local minimum=2*(width+C.length)+4*C.height+40
 local fuelTarget=math.max(C.fuelTarget,minimum)
 local limit=turtle.getFuelLimit()
 assert(limit=="unlimited" or fuelTarget<=limit,"Fuelbedarf groesser als Tank; Config/Feld verkleinern.")
+-- Obere Kiste an der Basis = Nachschub: Kohle (Fuel) und, wenn eingeschaltet,
+-- Kisten (mine.placeChests) und Fackeln (mine.torches). Die Turtle holt alles in
+-- freie Slots, nimmt was sie braucht (Fuel bis fuelTarget, je 1 Stapel Kisten
+-- und Fackeln) und legt den Rest zurueck.
+local STOCK=64
 local function refuel()
-    if turtle.getFuelLevel()=="unlimited" then return true end
-    local value=80
-    while turtle.getFuelLevel()<fuelTarget do
-        if not active() then return false,"stopped" end
-        if not container(turtle.inspectUp) then return false,"Brennstoffkiste fehlt" end
-        local slot
-        for i=1,16 do if turtle.getItemCount(i)==0 then slot=i;break end end
-        if not slot then return false,"Inventar voll" end
-        turtle.select(slot)
-        local want=math.max(1,math.min(64,math.ceil((fuelTarget-turtle.getFuelLevel())/value)))
-        if not turtle.suckUp(want) then return false,"Treibstoff fehlt" end
-        local item=turtle.getItemDetail(slot)
-        if not item or not FUELS[item.name] then
-            turtle.dropUp()
-            return false,"Brennstoffkiste: nur Kohle/Holzkohle/Kohleblock"
-        end
-        value=FUELS[item.name]
-        while turtle.getItemCount(slot)>0 and turtle.getFuelLevel()<fuelTarget do
-            if not turtle.refuel(1) then return false,"Betanken fehlgeschlagen" end
-        end
-        -- Ueberschuss zurueck in die Brennstoffkiste, nicht ins Beutelager.
-        if turtle.getItemCount(slot)>0 then turtle.dropUp() end
+    local unlimited=turtle.getFuelLevel()=="unlimited"
+    local function needFuel() return not unlimited and turtle.getFuelLevel()<fuelTarget end
+    local function needChests() return C.placeChests and countItems(containers)<STOCK end
+    local function needTorches() return (C.torches or 0)>0 and countItems(TORCHES)<STOCK end
+    if not needFuel() and not needChests() and not needTorches() then return true end
+    if not container(turtle.inspectUp) then
+        if needFuel() then return false,"Brennstoffkiste fehlt" end
+        return true
     end
+    for _=1,4 do
+        if not active() and needFuel() then return false,"stopped" end
+        if not needFuel() and not needChests() and not needTorches() then break end
+        -- alles Erreichbare in freie Slots holen
+        local pulled={}
+        for i=1,16 do
+            if turtle.getItemCount(i)==0 then
+                turtle.select(i)
+                if not turtle.suckUp() then break end
+                pulled[#pulled+1]=i
+            end
+        end
+        if #pulled==0 then break end
+        for _,i in ipairs(pulled) do
+            local it=turtle.getItemDetail(i)
+            if it and FUELS[it.name] and needFuel() then
+                turtle.select(i)
+                while turtle.getItemCount(i)>0 and needFuel() do if not turtle.refuel(1) then break end end
+            end
+        end
+        -- Kisten/Fackeln: nur bis je 1 Stapel behalten, Rest + alles andere zurueck
+        local have={chest=0,torch=0}
+        for i=1,16 do
+            local isPulled=false;for _,p in ipairs(pulled) do if p==i then isPulled=true end end
+            local it=turtle.getItemDetail(i)
+            if it and not isPulled then
+                if containers[it.name] then have.chest=have.chest+it.count end
+                if TORCHES[it.name] then have.torch=have.torch+it.count end
+            end
+        end
+        for _,i in ipairs(pulled) do
+            local it=turtle.getItemDetail(i)
+            if it then
+                local keepN=0
+                if C.placeChests and containers[it.name] then keepN=math.max(0,STOCK-have.chest);have.chest=have.chest+math.min(keepN,it.count)
+                elseif (C.torches or 0)>0 and TORCHES[it.name] then keepN=math.max(0,STOCK-have.torch);have.torch=have.torch+math.min(keepN,it.count) end
+                local back=it.count-math.min(keepN,it.count)
+                if back>0 then turtle.select(i);turtle.dropUp(back) end
+            end
+        end
+        turtle.select(1)
+    end
+    turtle.select(1)
+    if needFuel() then return false,"Treibstoff fehlt" end
     return true
 end
 local function supplies()

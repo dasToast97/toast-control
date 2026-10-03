@@ -1,5 +1,15 @@
 # Toast Control 3.0
 
+## Update 3.0.2: Mining holt Kisten und Fackeln aus der oberen Kiste
+
+Die **obere Kiste** an der Basis ist jetzt die Nachschubkiste für alles:
+Kohle, Kisten und Fackeln dürfen gemischt drin liegen (auch anderes stört
+nicht mehr). Die Turtle holt sich bei jedem Basisbesuch:
+- Fuel bis „an der Basis bis hierhin tanken“,
+- je **1 Stapel Kisten** (wenn „Kisten unterwegs“ an) und **1 Stapel Fackeln**
+  (wenn Fackeln an),
+- und legt alles andere wieder zurück.
+
 ## Update 3.0.1: Wächter fährt im Gelände zufällig umher
 
 Die bisherige „Patrouille“ (nur außen im Rechteck, nur auf glattem Boden) ist
