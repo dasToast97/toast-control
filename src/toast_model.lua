@@ -92,9 +92,9 @@ function M.new(cfg)
     function m.command(action,target)
         if not common.actions[action] then return false end
         if target~="all" and not common.job(target) and not (common.id(target) and devices[target]) then return false end
+        if action=="update" then return m.startUpdate(common.id(target) and target or nil) end
         local changed={}
-        if action=="update" then target="all" end
-        local always=action=="stop" or action=="reset" or action=="update"
+        local always=action=="stop" or action=="reset"
         for id,d in pairs(devices) do
             local e=m.entries[id]
             if matches(id,d,target) and (always or (m.online(id) and not e.data.recovery)) then
@@ -103,22 +103,6 @@ function M.new(cfg)
                     ttl=action=="update" and 180 or nil}
                 changed[#changed+1]=id
             end
-        end
-        if action=="update" then
-            -- Pockets und Infoscreens ebenfalls; die Zentrale selbst danach (kurz warten)
-            local n=0
-            local sentTo={}
-            for pid in pairs(pockets) do sentTo[pid]=true end
-            for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then sentTo[nid]=true end end
-            for pid in pairs(sentTo) do
-                serial=serial+1;n=n+1
-                send(pid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
-            end
-            m.selfUpdateAt=os.clock()+(#changed>0 and 25 or 3)
-            save()
-            for _,id in ipairs(changed) do local p=m.pending[id];dispatch(id,p.message,p.job) end
-            m.notice="Update an "..(#changed+n).." Geraete gesendet, Zentrale folgt ..."
-            return true
         end
         if #changed==0 then m.notice="Kein erreichbares Ziel / Position unklar";return false end
         save()
@@ -176,6 +160,68 @@ function M.new(cfg)
         for id in pairs(pockets)do m.reply(id)end
     end
     function m.waiting()local n=0;for _ in pairs(m.pending)do n=n+1 end;return n end
+    -- ===== Update aller Geraete =====
+    -- Rueckmeldung: jedes Geraet meldet nach dem Neustart seine Version (Status,
+    -- Hello, Beacon). Fertig = Version ist die neue. Die Zentrale wartet nur,
+    -- bis alle fertig sind (hoechstens 3 min), statt pauschal.
+    local function versionOf(id)
+        local e=m.entries[id];if e and e.data and e.data.toast then return tostring(e.data.toast) end
+        local n=m.nodes[id];if n and n.data then return n.data.toast end
+    end
+    local function nodeOnline(id) local n=m.nodes[id];return n and os.clock()-n.seen<30 end
+    function m.startUpdate(only,version)
+        local run={at=os.clock(),ids={},before={},target=version}
+        local count=0
+        for id,d in pairs(devices) do
+            if only==nil or only==id then
+                local e=m.entries[id]
+                serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
+                m.pending[id]={message={kind="command",action="update",serial=serial},at=os.clock(),job=d.job,ttl=180}
+                dispatch(id,m.pending[id].message,d.job)
+                if m.online(id) then run.ids[#run.ids+1]=id;run.before[id]=versionOf(id) end
+                count=count+1
+            end
+        end
+        local targets={}
+        for pid in pairs(pockets) do targets[pid]=true end
+        for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then targets[nid]=true end end
+        for nid in pairs(targets) do
+            if only==nil or only==nid then
+                serial=serial+1;count=count+1
+                send(nid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
+                if nodeOnline(nid) then run.ids[#run.ids+1]=nid;run.before[nid]=versionOf(nid) end
+            end
+        end
+        save()
+        if only==nil then
+            m.updateRun=run
+            m.notice="Update an "..count.." Geraete gesendet ..."
+        end
+        return true
+    end
+    -- done, total, fertig?
+    function m.updateStatus()
+        local r=m.updateRun;if not r then return nil end
+        local done=0
+        for _,id in ipairs(r.ids) do
+            local v=versionOf(id)
+            if v and ((r.target and v==r.target) or (not r.target and v~=r.before[id])) then done=done+1 end
+        end
+        return done,#r.ids
+    end
+    -- Nachzuegler (waren offline oder neu): aeltere Version als die Zentrale -> einzeln updaten
+    m.healAt={}
+    function m.heal()
+        if m.updateRun then return end
+        local function check(id,online)
+            local v=versionOf(id)
+            if online and v and v~="?" and common.newer(common.version,v) and os.clock()-(m.healAt[id] or -1e9)>300 then
+                m.healAt[id]=os.clock();m.startUpdate(id)
+            end
+        end
+        for id in pairs(devices) do check(id,m.online(id)) end
+        for id,n in pairs(m.nodes) do if n.role=="repeater" or n.role=="gps" or pockets[id] then check(id,nodeOnline(id)) end end
+    end
     return m
 end
 return M

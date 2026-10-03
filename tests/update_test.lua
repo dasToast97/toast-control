@@ -51,7 +51,7 @@ for _,m in ipairs(S.sent) do
 end
 check("an beide Turtles (Ziel immer alle)",toTurtle==2,toTurtle)
 check("an das Pocket",toPocket==1,toPocket)
-check("Zentrale plant eigenes Update",model.selfUpdateAt~=nil)
+check("Zentrale verfolgt Update-Lauf",model.updateRun~=nil)
 local UI=G.dofile("/toast/toast_ui.lua")
 local ui=UI.new({getSize=function()return 39,19 end,isColor=function()return true end,setBackgroundColor=function()end,setTextColor=function()end,clear=function()end,setCursorPos=function()end,write=function()end},cfg)
 ui.draw(model.fleet(),true,"")
@@ -65,10 +65,27 @@ model.remote(41,{kind="node",version=1,controllerId=99,info={role="gps",name="fr
 local f=model.fleet()
 check("Repeater in der Netz-Liste",f.nodes and f.nodes.entries[40] and f.nodes.entries[40].role=="repeater" and f.nodes.entries[40].data.pos.x==1)
 check("fremde Zentrale ignoriert",f.nodes.entries[41]==nil)
-model.selfUpdateAt=nil;S.sent={}
+model.updateRun=nil;S.sent={}
 model.command("update","all")
 local toRep=0;for _,m in ipairs(S.sent) do if m.id==40 and m.msg.kind=="update" then toRep=toRep+1 end end
 check("Update an Repeater",toRep==1,toRep)
+
+print("U3b Rueckmeldung: fertig, sobald alle die neue Version melden")
+model.updateRun.target="9.9"
+local d0,t0=model.updateStatus()
+check("Lauf zaehlt Turtles + Repeater",t0==3 and d0==0,tostring(d0).."/"..tostring(t0))
+model.ingest(12,{kind="status",version=2,id=12,status="Abbau",ack=0,total=5,mode="auto",toast="9.9"},"toast.mine.v1")
+model.ingest(5,{kind="status",version=2,id=5,status="Bereit",ack=0,total=9,mode="off",toast="9.9"},"toast.farm.v2")
+local d1,t1=model.updateStatus()
+check("2 von 3 fertig",d1==2 and t1==3,tostring(d1).."/"..tostring(t1))
+model.remote(40,{kind="node",version=1,controllerId=0,info={role="repeater",name="Turm",toast="9.9"}},"toast.control.remote.v1")
+local d2,t2=model.updateStatus()
+check("alle fertig -> kein Warten",d2==3 and t2==3,tostring(d2).."/"..tostring(t2))
+model.updateRun=nil
+model.ingest(5,{kind="status",version=2,id=5,status="Bereit",ack=0,total=9,mode="off",toast="1.0"},"toast.farm.v2")
+S.sent={};model.heal()
+local healed=0;for _,m in ipairs(S.sent) do if m.id==5 and m.msg.action=="update" then healed=healed+1 end end
+check("Nachzuegler mit alter Version wird nachgeholt",healed==1,healed)
 
 print("U4 Repeater-Programm: Meldung an Zentrale + Update per Funk")
 S=Sim.new({config=[[return {role="repeater",name="Turm",gps={host=true,set=true,x=5,y=80,z=9,auto=false}}]]})

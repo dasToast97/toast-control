@@ -29,9 +29,16 @@ local gpsHost=common.gpsHost(cfg)
 local ui=UI.new(screen,cfg)
 local model=dofile("/toast/toast_model.lua").new(cfg)
 -- Automatisches Update: alle 5 min version.txt auf GitHub pruefen (ohne zu blockieren)
-local AUTO={next=os.clock()+60,url=nil,every=300}
+local AUTO={next=os.clock()+30,url=nil,every=(cfg.updateEvery or 5)*60}
 local function checkVersion()
-    if cfg.autoUpdate==false or not http or not http.request or AUTO.url or os.clock()<AUTO.next or model.selfUpdateAt then return end
+    if model.updateRun and not model.updateRun.target and not model.updateRun.asked and http and http.request and not AUTO.url then
+        -- Zielversion fuer die Fertig-Meldungen holen
+        model.updateRun.asked=true
+        AUTO.url=common.versionUrl.."?t="..math.floor(os.epoch("utc")/1000)
+        if not pcall(http.request,AUTO.url) then AUTO.url=nil end
+        return
+    end
+    if cfg.autoUpdate==false or not http or not http.request or AUTO.url or os.clock()<AUTO.next or model.updateRun then return end
     AUTO.next=os.clock()+AUTO.every
     AUTO.url=common.versionUrl.."?t="..math.floor(os.epoch("utc")/1000)
     if not pcall(http.request,AUTO.url) then AUTO.url=nil end
@@ -58,43 +65,44 @@ local function loop()
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
     local frame=os.startTimer(0.25)
-    -- Automatisches Update: kurz nach dem Start und dann alle updateEvery Minuten
-    local upTimer=cfg.autoUpdate and os.startTimer(30) or nil
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
-        elseif e=="timer" and a==timer then model.tick();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==timer then model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="http_success" and AUTO.url and a==AUTO.url then
             AUTO.url=nil
             local remote=b and b.readAll and b.readAll() or "";pcall(b.close)
             remote=remote:match("[%d%.]+")
-            if remote and common.newer(remote,common.version) then
+            if remote and model.updateRun and not model.updateRun.target then
+                model.updateRun.target=remote
+            elseif remote and common.newer(remote,common.version) then
                 common.log("Neue Version "..remote.." gefunden, Update fuer alle")
-                model.command("update","all")
+                model.startUpdate(nil,remote)
                 model.notice="Neue Version "..remote..": Update fuer alle gestartet"
                 dirty=true
             end
         elseif e=="http_failure" and AUTO.url and a==AUTO.url then AUTO.url=nil
-        elseif e=="timer" and a==upTimer then
-            upTimer=os.startTimer(cfg.updateEvery*60)
-            if not model.selfUpdateAt then
-                local ok,remote=pcall(common.remoteVersion)
-                if ok and remote and common.newer(remote,common.version) then
-                    common.log("Neue Version "..remote.." gefunden, Update fuer alle")
-                    model.command("update","all")
-                    model.notice="Neue Version "..remote..": Update fuer alle laeuft ..."
-                    dirty=true
+        elseif e=="timer" and a==frame and model.updateRun then
+            -- Fortschritt anzeigen; wenn alle fertig (oder 3 min um): Zentrale selbst
+            local run=model.updateRun
+            local done,total=model.updateStatus()
+            local age=os.clock()-run.at
+            model.notice="Update: "..done.."/"..total.." fertig"..(run.target and (" (v"..run.target..")") or "")
+            dirty=true
+            if (done>=total and (run.target or age>=10)) or age>=180 then
+                model.updateRun=nil
+                if run.target and not common.newer(run.target,common.version) then
+                    model.notice="Update fertig: alle "..done.."/"..total.." auf v"..run.target
+                else
+                    model.notice="Alle fertig ("..done.."/"..total.."), Zentrale installiert ...";draw()
+                    local ok,why=common.selfUpdate()
+                    if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
                 end
             end
-        elseif e=="timer" and a==frame and model.selfUpdateAt and (os.clock()>=model.selfUpdateAt or (model.waiting()==0 and os.clock()>=model.selfUpdateAt-20)) then
-            -- Alle Geraete haben das Update bekommen (oder Zeit um): jetzt die Zentrale selbst
-            model.selfUpdateAt=nil
-            model.notice="Zentrale installiert Update ...";draw()
-            local ok,why=common.selfUpdate()
-            if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
+            if dirty then draw() end
             frame=os.startTimer(0.25)
         elseif e=="timer" and a==frame then
             if dirty then draw() end

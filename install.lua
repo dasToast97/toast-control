@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.4.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.4.1",
+    version="3.5",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -169,7 +169,7 @@ function M.recovery(r)
 end
 -- ===== Standardwerte (fehlende Eintraege in der Config werden hiermit ergaenzt) =====
 M.DEFAULTS={
-    role="auto",job="auto",name="",controllerId=0,autoUpdate=true,
+    role="auto",job="auto",name="",controllerId=0,
     autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},autoUpdate=true,updateEvery=5,
     display={monitor="auto",size="3x4",textScale=0.5,pageSize=0},
     show="all",
@@ -314,7 +314,6 @@ function M.configText(c)
             {"monitor","\"auto\" = alle Monitore, oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
             {"textScale","nur ohne size: Schrift 0.5 bis 5"}},c.display)
         out[#out+1]=""
-        line(4,"autoUpdate",q(c.autoUpdate~=false),"alle 5 min neue Version suchen + alle updaten")
         line(4,"autoDiscover",q(c.autoDiscover),"neue Turtles automatisch aufnehmen")
         line(4,"autoPairPockets",q(c.autoPairPockets),"neue Pockets automatisch aufnehmen")
         line(4,"autoUpdate",q(c.autoUpdate),"neue Version selbst fuer alle installieren")
@@ -1173,9 +1172,6 @@ function S.new(common)
         header("Geraete")
         c.autoDiscover=yesno("Neue Turtles automatisch aufnehmen?",c.autoDiscover)
         c.autoPairPockets=yesno("Neue Pockets automatisch aufnehmen?",c.autoPairPockets)
-        hint("Alle 5 min nach neuer Version suchen;")
-        hint("dann updaten sich alle Geraete selbst.")
-        c.autoUpdate=yesno("Automatisch updaten?",c.autoUpdate~=false)
         hint("Automatisch updaten: Zentrale sieht")
         hint("regelmaessig nach einer neuen Version")
         hint("und aktualisiert dann ALLE Geraete.")
@@ -1352,9 +1348,16 @@ local gpsHost=common.gpsHost(cfg)
 local ui=UI.new(screen,cfg)
 local model=dofile("/toast/toast_model.lua").new(cfg)
 -- Automatisches Update: alle 5 min version.txt auf GitHub pruefen (ohne zu blockieren)
-local AUTO={next=os.clock()+60,url=nil,every=300}
+local AUTO={next=os.clock()+30,url=nil,every=(cfg.updateEvery or 5)*60}
 local function checkVersion()
-    if cfg.autoUpdate==false or not http or not http.request or AUTO.url or os.clock()<AUTO.next or model.selfUpdateAt then return end
+    if model.updateRun and not model.updateRun.target and not model.updateRun.asked and http and http.request and not AUTO.url then
+        -- Zielversion fuer die Fertig-Meldungen holen
+        model.updateRun.asked=true
+        AUTO.url=common.versionUrl.."?t="..math.floor(os.epoch("utc")/1000)
+        if not pcall(http.request,AUTO.url) then AUTO.url=nil end
+        return
+    end
+    if cfg.autoUpdate==false or not http or not http.request or AUTO.url or os.clock()<AUTO.next or model.updateRun then return end
     AUTO.next=os.clock()+AUTO.every
     AUTO.url=common.versionUrl.."?t="..math.floor(os.epoch("utc")/1000)
     if not pcall(http.request,AUTO.url) then AUTO.url=nil end
@@ -1381,43 +1384,44 @@ local function loop()
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
     local frame=os.startTimer(0.25)
-    -- Automatisches Update: kurz nach dem Start und dann alle updateEvery Minuten
-    local upTimer=cfg.autoUpdate and os.startTimer(30) or nil
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
-        elseif e=="timer" and a==timer then model.tick();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==timer then model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="http_success" and AUTO.url and a==AUTO.url then
             AUTO.url=nil
             local remote=b and b.readAll and b.readAll() or "";pcall(b.close)
             remote=remote:match("[%d%.]+")
-            if remote and common.newer(remote,common.version) then
+            if remote and model.updateRun and not model.updateRun.target then
+                model.updateRun.target=remote
+            elseif remote and common.newer(remote,common.version) then
                 common.log("Neue Version "..remote.." gefunden, Update fuer alle")
-                model.command("update","all")
+                model.startUpdate(nil,remote)
                 model.notice="Neue Version "..remote..": Update fuer alle gestartet"
                 dirty=true
             end
         elseif e=="http_failure" and AUTO.url and a==AUTO.url then AUTO.url=nil
-        elseif e=="timer" and a==upTimer then
-            upTimer=os.startTimer(cfg.updateEvery*60)
-            if not model.selfUpdateAt then
-                local ok,remote=pcall(common.remoteVersion)
-                if ok and remote and common.newer(remote,common.version) then
-                    common.log("Neue Version "..remote.." gefunden, Update fuer alle")
-                    model.command("update","all")
-                    model.notice="Neue Version "..remote..": Update fuer alle laeuft ..."
-                    dirty=true
+        elseif e=="timer" and a==frame and model.updateRun then
+            -- Fortschritt anzeigen; wenn alle fertig (oder 3 min um): Zentrale selbst
+            local run=model.updateRun
+            local done,total=model.updateStatus()
+            local age=os.clock()-run.at
+            model.notice="Update: "..done.."/"..total.." fertig"..(run.target and (" (v"..run.target..")") or "")
+            dirty=true
+            if (done>=total and (run.target or age>=10)) or age>=180 then
+                model.updateRun=nil
+                if run.target and not common.newer(run.target,common.version) then
+                    model.notice="Update fertig: alle "..done.."/"..total.." auf v"..run.target
+                else
+                    model.notice="Alle fertig ("..done.."/"..total.."), Zentrale installiert ...";draw()
+                    local ok,why=common.selfUpdate()
+                    if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
                 end
             end
-        elseif e=="timer" and a==frame and model.selfUpdateAt and (os.clock()>=model.selfUpdateAt or (model.waiting()==0 and os.clock()>=model.selfUpdateAt-20)) then
-            -- Alle Geraete haben das Update bekommen (oder Zeit um): jetzt die Zentrale selbst
-            model.selfUpdateAt=nil
-            model.notice="Zentrale installiert Update ...";draw()
-            local ok,why=common.selfUpdate()
-            if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
+            if dirty then draw() end
             frame=os.startTimer(0.25)
         elseif e=="timer" and a==frame then
             if dirty then draw() end
@@ -1552,9 +1556,9 @@ function M.new(cfg)
     function m.command(action,target)
         if not common.actions[action] then return false end
         if target~="all" and not common.job(target) and not (common.id(target) and devices[target]) then return false end
+        if action=="update" then return m.startUpdate(common.id(target) and target or nil) end
         local changed={}
-        if action=="update" then target="all" end
-        local always=action=="stop" or action=="reset" or action=="update"
+        local always=action=="stop" or action=="reset"
         for id,d in pairs(devices) do
             local e=m.entries[id]
             if matches(id,d,target) and (always or (m.online(id) and not e.data.recovery)) then
@@ -1563,22 +1567,6 @@ function M.new(cfg)
                     ttl=action=="update" and 180 or nil}
                 changed[#changed+1]=id
             end
-        end
-        if action=="update" then
-            -- Pockets und Infoscreens ebenfalls; die Zentrale selbst danach (kurz warten)
-            local n=0
-            local sentTo={}
-            for pid in pairs(pockets) do sentTo[pid]=true end
-            for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then sentTo[nid]=true end end
-            for pid in pairs(sentTo) do
-                serial=serial+1;n=n+1
-                send(pid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
-            end
-            m.selfUpdateAt=os.clock()+(#changed>0 and 25 or 3)
-            save()
-            for _,id in ipairs(changed) do local p=m.pending[id];dispatch(id,p.message,p.job) end
-            m.notice="Update an "..(#changed+n).." Geraete gesendet, Zentrale folgt ..."
-            return true
         end
         if #changed==0 then m.notice="Kein erreichbares Ziel / Position unklar";return false end
         save()
@@ -1636,6 +1624,68 @@ function M.new(cfg)
         for id in pairs(pockets)do m.reply(id)end
     end
     function m.waiting()local n=0;for _ in pairs(m.pending)do n=n+1 end;return n end
+    -- ===== Update aller Geraete =====
+    -- Rueckmeldung: jedes Geraet meldet nach dem Neustart seine Version (Status,
+    -- Hello, Beacon). Fertig = Version ist die neue. Die Zentrale wartet nur,
+    -- bis alle fertig sind (hoechstens 3 min), statt pauschal.
+    local function versionOf(id)
+        local e=m.entries[id];if e and e.data and e.data.toast then return tostring(e.data.toast) end
+        local n=m.nodes[id];if n and n.data then return n.data.toast end
+    end
+    local function nodeOnline(id) local n=m.nodes[id];return n and os.clock()-n.seen<30 end
+    function m.startUpdate(only,version)
+        local run={at=os.clock(),ids={},before={},target=version}
+        local count=0
+        for id,d in pairs(devices) do
+            if only==nil or only==id then
+                local e=m.entries[id]
+                serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
+                m.pending[id]={message={kind="command",action="update",serial=serial},at=os.clock(),job=d.job,ttl=180}
+                dispatch(id,m.pending[id].message,d.job)
+                if m.online(id) then run.ids[#run.ids+1]=id;run.before[id]=versionOf(id) end
+                count=count+1
+            end
+        end
+        local targets={}
+        for pid in pairs(pockets) do targets[pid]=true end
+        for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then targets[nid]=true end end
+        for nid in pairs(targets) do
+            if only==nil or only==nid then
+                serial=serial+1;count=count+1
+                send(nid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
+                if nodeOnline(nid) then run.ids[#run.ids+1]=nid;run.before[nid]=versionOf(nid) end
+            end
+        end
+        save()
+        if only==nil then
+            m.updateRun=run
+            m.notice="Update an "..count.." Geraete gesendet ..."
+        end
+        return true
+    end
+    -- done, total, fertig?
+    function m.updateStatus()
+        local r=m.updateRun;if not r then return nil end
+        local done=0
+        for _,id in ipairs(r.ids) do
+            local v=versionOf(id)
+            if v and ((r.target and v==r.target) or (not r.target and v~=r.before[id])) then done=done+1 end
+        end
+        return done,#r.ids
+    end
+    -- Nachzuegler (waren offline oder neu): aeltere Version als die Zentrale -> einzeln updaten
+    m.healAt={}
+    function m.heal()
+        if m.updateRun then return end
+        local function check(id,online)
+            local v=versionOf(id)
+            if online and v and v~="?" and common.newer(common.version,v) and os.clock()-(m.healAt[id] or -1e9)>300 then
+                m.healAt[id]=os.clock();m.startUpdate(id)
+            end
+        end
+        for id in pairs(devices) do check(id,m.online(id)) end
+        for id,n in pairs(m.nodes) do if n.role=="repeater" or n.role=="gps" or pockets[id] then check(id,nodeOnline(id)) end end
+    end
     return m
 end
 return M
@@ -5646,7 +5696,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.4.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

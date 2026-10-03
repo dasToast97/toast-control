@@ -1,4 +1,16 @@
-# Toast Control 3.4
+# Toast Control 3.5
+
+## Neu in 3.5: Rückmeldung nach dem Update
+
+- Jedes Gerät meldet nach dem Neustart seine **Version** an die Zentrale
+  (Turtles im Status, Pockets/Infoscreens beim Anmelden, Repeater und
+  GPS-Sender im 10-s-Signal).
+- Die Zentrale zeigt den Fortschritt live: „Update: 4/6 fertig (v3.5)“.
+- Sobald **alle** die neue Version melden, aktualisiert sich die Zentrale
+  sofort selbst – kein pauschales Warten mehr. Höchstens 3 Minuten, falls
+  ein Gerät hängt.
+- Nachzügler (waren offline, kommen später zurück) mit älterer Version
+  bekommen ihr Update automatisch einzeln nachgereicht.
 
 ## 3.4.1
 - `… install.lua auto` auf einem **neuen** Gerät (ohne Config) startet jetzt die

@@ -1,5 +1,5 @@
 local M={
-    version="3.4.1",
+    version="3.5",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -39,7 +39,7 @@ function M.recovery(r)
 end
 -- ===== Standardwerte (fehlende Eintraege in der Config werden hiermit ergaenzt) =====
 M.DEFAULTS={
-    role="auto",job="auto",name="",controllerId=0,autoUpdate=true,
+    role="auto",job="auto",name="",controllerId=0,
     autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},autoUpdate=true,updateEvery=5,
     display={monitor="auto",size="3x4",textScale=0.5,pageSize=0},
     show="all",
@@ -184,7 +184,6 @@ function M.configText(c)
             {"monitor","\"auto\" = alle Monitore, oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
             {"textScale","nur ohne size: Schrift 0.5 bis 5"}},c.display)
         out[#out+1]=""
-        line(4,"autoUpdate",q(c.autoUpdate~=false),"alle 5 min neue Version suchen + alle updaten")
         line(4,"autoDiscover",q(c.autoDiscover),"neue Turtles automatisch aufnehmen")
         line(4,"autoPairPockets",q(c.autoPairPockets),"neue Pockets automatisch aufnehmen")
         line(4,"autoUpdate",q(c.autoUpdate),"neue Version selbst fuer alle installieren")
