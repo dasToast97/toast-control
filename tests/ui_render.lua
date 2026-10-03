@@ -1,6 +1,6 @@
 package.path="/home/claude/toast/test/?.lua;"..package.path
 local Sim=require("sim")
-local S=Sim.new({config=""});local G=Sim.env(S);G.turtle=nil;G.os.getComputerID=function()return 4 end
+local S=Sim.new({config=""});local G=Sim.env(S);do local n=0;local c={};G.colors=setmetatable({},{__index=function(_,k)if not c[k] then n=n+1;c[k]=2^n end;return c[k] end}) end;G.turtle=nil;G.os.getComputerID=function()return 4 end
 for _,n in ipairs({"toast_common.lua","toast_model.lua","toast_ui.lua"})do S.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a")end
 G.textutils.formatTime=function()return "14:05" end;G.os.time=function()return 14 end
 local cfg=G.dofile("/toast/toast_common.lua").load({role="controller",controllerId=4})
@@ -19,12 +19,14 @@ end
 local function screen(W,H,color)
   local rows,cx,cy={},1,1
   for y=1,H do rows[y]=string.rep(" ",W) end
-  return {getSize=function()return W,H end,isColor=function()return color end,setBackgroundColor=function()end,setTextColor=function()end,
+  local bg
+  return {getSize=function()return W,H end,isColor=function()return color end,setBackgroundColor=function(c)bg=c end,setTextColor=function()end,
     clear=function()for y=1,H do rows[y]=string.rep(" ",W) end end,setCursorPos=function(x,y)cx,cy=x,y end,
-    write=function(s)if cy<1 or cy>H then return end;s=s:gsub("\7","*");local r=rows[cy];rows[cy]=(r:sub(1,cx-1)..s..r:sub(cx+#s)):sub(1,W);cx=cx+#s end,
+    write=function(s)if cy<1 or cy>H then return end;s=s:gsub("\7","*");if BARS and bg==G.colors.lime then s=s:gsub(" ","#") elseif BARS and bg==G.colors.gray then s=s:gsub(" ",".") end;local r=rows[cy];rows[cy]=(r:sub(1,cx-1)..s..r:sub(cx+#s)):sub(1,W);cx=cx+#s end,
     dump=function(title)print(title);print("+"..string.rep("-",W).."+");for y=1,H do print("|"..rows[y].."|") end;print("+"..string.rep("-",W).."+")end}
 end
 local mode=arg[1] or "all"
+BARS=os.getenv("BARS")
 if mode=="pocket" or mode=="all" then
   local sc=screen(26,20,true);local ui=UI.new(sc,cfg);ui.draw(fleet(),true,"");sc.dump("POCKET 26x20 - Uebersicht")
   ui.action("id:12");ui.draw(fleet(),true,"");sc.dump("POCKET - Detail Mine")

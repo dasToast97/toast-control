@@ -23,6 +23,9 @@ Die Zahlen 1–4 und A/F/M funktionieren weiter.
   beim Antippen am Monitor.
 - **Probleme oben**: Turtles mit Fehler/Problem stehen ganz oben in der Liste,
   dann die arbeitenden, dann der Rest.
+- **Grüne Fortschrittsbalken** vor den Prozentangaben in der Hauptübersicht
+  der Zentrale (ab 3x4) und der Infoscreens (Turtle-Liste und „Fortschritt“
+  der Mine-Kachel). Breite passt sich dem Bildschirm an.
 - Die Hinweiszeile zeigt die passenden Tasten, an der Zentrale sobald eine
   Taste gedrückt wurde.
 

@@ -1180,6 +1180,11 @@ function M.drawInfo(screen,fleet,link,st,show)
         for _,r in ipairs(rows) do
             P.text(x,yy,r[1],colors.lightGray)
             P.text(x+pw-#r[2],yy,r[2],colors.white)
+            if r.bar then
+                -- gruener Balken zwischen Bezeichnung und Prozent
+                local bx=x+#r[1]+1;local bw=pw-#r[1]-#r[2]-2
+                if bw>=3 then P.bar(bx,yy,bw,r.bar,colors.lime) end
+            end
             yy=yy+1
         end
         return yy
@@ -1191,11 +1196,11 @@ function M.drawInfo(screen,fleet,link,st,show)
     local farmRows,mineRows
     if compact then
         farmRows={{"Ertrag",short(farmTotal).."  ("..rate("farm",farmTotal).."/h)"}}
-        mineRows={{"Abgebaut",short(mineHarv).."  ("..rate("mine",mineHarv).."/h)"},{"Fortschritt",prog}}
+        mineRows={{"Abgebaut",short(mineHarv).."  ("..rate("mine",mineHarv).."/h)"},{"Fortschritt",prog,bar=progN>0 and progSum/progN or 0}}
     else
         farmRows={{"Ertrag",short(farmTotal).." Items"},{"pro Stunde",rate("farm",farmTotal)},{"Geerntet",short(farmHarv).." Pfl."}}
         mineRows={{"Abgebaut",short(mineHarv).." Bl."},{"pro Stunde",rate("mine",mineHarv)},
-            {"Abgeladen",short(mineTotal).." Items"},{"Fortschritt",prog}}
+            {"Abgeladen",short(mineTotal).." Items"},{"Fortschritt",prog,bar=progN>0 and progSum/progN or 0}}
     end
     if side then
         local pw=math.floor((w-3)/2)
@@ -1239,7 +1244,7 @@ function M.drawInfo(screen,fleet,link,st,show)
         elseif now-st.flip>=6 then st.page=st.page%pages+1;st.flip=now end
         if st.page>pages then st.page=1 end
         if pages>1 then P.right(y-1,st.page.."/"..pages,colors.lightGray) end
-        local barW=w>=40 and math.min(20,w-34) or 0
+        local barW=w>=60 and 20 or w>=40 and math.min(14,w-30) or w>=30 and 6 or 0
         for i=1,avail do
             local l=list[(st.page-1)*avail+i];if not l then break end
             local d=l.e.data or {}
@@ -1249,9 +1254,16 @@ function M.drawInfo(screen,fleet,link,st,show)
             local val=""
             if l.kind~="off" then val=l.job=="farm" and short(d.total) or short(d.harvested) end
             if barW>0 then
-                stx=w-8-barW-6
-                if l.kind~="off" then P.bar(w-barW-6+1,y,barW,num(d.scanned)/math.max(1,num(d.cells)),COLOR[l.kind]) end
-                P.right(y,val,colors.lightGray)
+                -- [Zustand] [gruener Balken] [Prozent] [Wert]
+                local valW=w>=40 and 6 or 0
+                local bx=w-valW-5-barW+1
+                stx=bx-9
+                if l.kind~="off" then
+                    local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
+                    P.bar(bx,y,barW,pc,colors.lime)
+                    P.text(bx+barW,y,string.format("%4d%%",math.floor(pc*100+0.5)),colors.lightGray)
+                end
+                if valW>0 then P.right(y,val,colors.lightGray) end
                 P.text(stx,y,l.label,COLOR[l.kind])
             else
                 P.text(stx,y,l.label,COLOR[l.kind])
@@ -1455,19 +1467,26 @@ function M.new(screen,cfg)
                 local yy=top+row-1
                 local name=e.label and e.label~="" and e.label or ((e.job=="farm" and "Farm" or "Mine").." #"..id)
                 local stW=8
-                local extra=""
-                if wide and kind~="off" then
-                    local pc=math.floor(math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))*100+0.5)
-                    extra=string.format("%4d%%   %-8s%6s",pc,e.job=="farm" and "Ertrag" or "Abgebaut",e.job=="farm" and short(d.total) or short(d.harvested))
-                end
-                local nameW=w-2-stW-1-(#extra>0 and #extra+2 or 0)
+                -- Rechts: [gruener Balken] [Prozent] [Wert] [Zustand]
+                local barW=w>=70 and 20 or w>=44 and 10 or w>=34 and 6 or 0
+                local value=wide and string.format("  %-8s%6s",e.job=="farm" and "Ertrag" or "Abgebaut",e.job=="farm" and short(d.total) or short(d.harvested)) or ""
+                local block=barW>0 and (barW+5+#value) or 0      -- Balken + " 100%" + Wert
+                local nameW=w-2-stW-1-(block>0 and block+1 or 0)
                 local mark=ui.kbd and id==ui.cursor
                 local bg=mark and colors.gray or colors.black
                 local sc=(mark and kind=="off") and colors.lightGray or COLOR[kind]
                 text(1,yy,string.rep(" ",w),colors.white,bg)
                 text(1,yy,mark and "\16" or "\7",mark and colors.white or sc,bg)
                 text(3,yy,name:sub(1,nameW),kind=="off" and (mark and colors.lightGray or colors.gray) or colors.white,bg)
-                if #extra>0 then text(w-stW-#extra-1,yy,extra,mark and colors.white or colors.lightGray,bg) end
+                if block>0 and kind~="off" then
+                    local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
+                    local x0=w-stW-block
+                    local f=math.floor(barW*pc+0.5)
+                    text(x0,yy,string.rep(" ",f),colors.white,colors.lime)
+                    text(x0+f,yy,string.rep(" ",barW-f),colors.white,mark and colors.black or colors.gray)
+                    text(x0+barW,yy,string.format("%4d%%",math.floor(pc*100+0.5)),mark and colors.white or colors.lightGray,bg)
+                    if #value>0 then text(x0+barW+5,yy,value,mark and colors.white or colors.lightGray,bg) end
+                end
                 right(yy,string.format("%-8s",label),sc,bg)
                 ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w,action="id:"..id,enabled=true}
             end
