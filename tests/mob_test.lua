@@ -35,33 +35,78 @@ Sim.run(S,60)
 check("4 abgewehrt",S.kills==4,S.kills)
 check("danach fertig/aus",S.last and S.last.mode=="off" and state(S).rounds==1,S.last and S.last.mode)
 
-print("M3 Patrouille 5x4: Mob im Weg wird angegriffen, Runde komplett")
-S=Sim.new({config=cfg([[{mode="patrol",attack="front",length=5,width=4,side="right",interval=30,fuelTarget=500,radioTimeout=0}]]),
-    default=false,actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end},{t=4,fn=function(S)S.mobs=2 end}}})
-S.protocol="toast.mob.v1";local m0=S.moves
-Sim.run(S,200)
+-- Gelaende: Boden auf Hoehe -1, Huegel, Grube, hohe Mauer (mit Luecke)
+local function terrain(S)
+    for x=-20,20 do for z=-1,21 do for y=1,4 do S.world[S.key(x,y,z)]="minecraft:dirt" end end end
+    S.world[S.key(0,1,0)]="minecraft:chest"
+    for x=3,5 do for z=3,5 do S.world[S.key(x,0,z)]="minecraft:stone" end end
+    S.world[S.key(4,-1,4)]="minecraft:stone";S.world[S.key(4,-2,4)]="minecraft:stone"
+    for x=1,2 do S.world[S.key(x,1,8)]=false;S.world[S.key(x,2,8)]=false end   -- Grube 2 tief
+    for z=1,10 do for y=0,-14,-1 do S.world[S.key(7,y,z)]="minecraft:obsidian" end end -- Mauer, zu hoch
+end
+local function track(S)
+    S.minY,S.maxY,S.maxX=0,0,0
+    for _,n in ipairs({"forward","up","down"}) do
+        local f=S.turtle[n]
+        S.turtle[n]=function() local ok,w=f()
+            if ok then S.minY=math.min(S.minY,-S.p.y);S.maxY=math.max(S.maxY,-S.p.y);S.maxX=math.max(S.maxX,math.abs(S.p.x)) end
+            return ok,w end
+    end
+end
+local PCFG=[[{mode="patrol",attack="front",length=16,width=12,side="right",climb=6,interval=5,fuelTarget=900,radioTimeout=0}]]
+print("M3 Waechter im Gelaende: zufaellig, bis Fuel knapp, dann heim + tanken")
+S=Sim.new({config=cfg(PCFG),default=false,fuel=500,world=terrain,
+    actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end},{t=4,fn=function(S)S.mobs=2 end}}})
+S.protocol="toast.mob.v1";track(S)
+Sim.run(S,3000)
 st=state(S)
-check("Runde fertig",st.rounds==1,tostring(st.rounds).." "..tail(S))
-check("14 Schritte (Umfang)",S.moves-m0==14,S.moves-m0)
-check("zu Hause, Blick vorne",S.p.x==0 and S.p.z==0 and S.p.dir==0,S.p.x..","..S.p.z.." d"..S.p.dir)
+check("eine Tankfuellung patrouilliert",st.rounds==1,tostring(st.rounds).." "..tail(S))
+check("mehrere Ziele angefahren",(st.targets or 0)>=5,st.targets)
+check("zu Hause, Blick vorne, Position stimmt",S.p.x==0 and S.p.z==0 and S.p.y==0 and S.p.dir==0 and st.x==0 and st.z==0 and st.y==0,S.p.x..","..S.p.y..","..S.p.z)
+check("nichts abgebaut",(S.digs or 0)==0,S.digs)
+check("ueber den Huegel geklettert",S.maxY>=2,S.maxY)
+check("Kletterhoehe nie ueberschritten",S.maxY<=6 and S.minY>=-6,S.minY..".."..S.maxY)
+check("nicht nur Rand: kam weit rein",S.maxX>=5,S.maxX)
+check("an Basis getankt",S.fuel>=850,S.fuel)
 
-print("M4 Patrouille links: Block im Weg -> Fehler, nichts abgebaut")
-S=Sim.new({config=cfg([[{mode="patrol",attack="front",length=5,width=3,side="left",interval=30,fuelTarget=500,radioTimeout=0}]]),
-    default=false,actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}},
-    world=function(S) S.world[S.key(-2,0,4)]="minecraft:oak_planks" end})
-S.protocol="toast.mob.v1"
-Sim.run(S,120)
-check("Fehler Weg blockiert",S.last and S.last.fault and S.last.fault:find("blockiert",1,true),S.last and S.last.fault)
-check("Block steht noch",S.world[S.key(-2,0,4)]=="minecraft:oak_planks")
-check("ist links gelaufen (traf den Block links)",S.last.fault:find("oak_planks",1,true)~=nil and S.p.x==0,S.last.fault)
+print("M4 Waechter links (gespiegelt), Dauerbetrieb: mehrere Tankrunden")
+S=Sim.new({config=cfg(PCFG:gsub('side="right"','side="left"')),default=false,fuel=300,
+    world=function(S) for x=-20,20 do for z=0,20 do S.world[S.key(x,1,z)]="minecraft:dirt" end end;S.world[S.key(0,1,0)]="minecraft:chest" end,
+    actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mob.v1";S.coal=30
+local minX=0
+do local f=S.turtle.forward;S.turtle.forward=function() local ok,w=f();if ok then minX=math.min(minX,S.p.x);S.maxXr=math.max(S.maxXr or 0,S.p.x) end;return ok,w end end
+Sim.run(S,4000)
+st=state(S)
+check("mehrere Tankrunden",(st.rounds or 0)>=2,st.rounds)
+check("nur links gefahren",minX<=-5 and (S.maxXr or 0)==0,minX.." / "..tostring(S.maxXr))
 
-print("M5 Patrouille: Absturz unterwegs -> Neustart, zurueck, weiter")
-S=Sim.new({config=cfg([[{mode="patrol",attack="front",length=4,width=4,side="right",interval=30,fuelTarget=500,radioTimeout=0}]]),
-    default=false,actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}})
-S.protocol="toast.mob.v1";S.crashAtMove=7
-Sim.run(S,200)
+print("M5 Waechter: Absturz unterwegs -> Neustart, Heimweg durchs Gelaende")
+S=Sim.new({config=cfg(PCFG),default=false,fuel=500,world=terrain,
+    actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}})
+S.protocol="toast.mob.v1";S.crashAtMove=60
+Sim.run(S,3000)
 st=state(S)
 check("Absturz geloggt",(S.files["/toast/fehler.log"] or ""):find("SIMULIERTER",1,true)~=nil)
 check("Runde danach fertig",st.rounds==1,tostring(st.rounds).." "..tail(S))
-check("Position stimmt + Basis",S.p.x==0 and S.p.z==0 and st.x==0 and st.z==0,S.p.x..","..S.p.z)
+check("Position stimmt + Basis",S.p.x==0 and S.p.z==0 and S.p.y==0 and st.x==0 and st.z==0,S.p.x..","..S.p.y..","..S.p.z)
+check("nichts abgebaut",(S.digs or 0)==0,S.digs)
+
+
+print("M6 Waechter auf schmalem Streifen: Graben runter, Huegel hoch")
+S=Sim.new({config=cfg([[{mode="patrol",attack="front",length=10,width=1,side="right",climb=4,interval=5,fuelTarget=400,radioTimeout=0}]]),
+    default=false,fuel=400,world=function(S)
+        for x=-3,3 do for z=-1,12 do for y=1,6 do S.world[S.key(x,y,z)]="minecraft:dirt" end end end
+        S.world[S.key(0,1,0)]="minecraft:chest"
+        S.world[S.key(0,1,5)]=false;S.world[S.key(0,2,5)]=false          -- Graben 2 tief
+        S.world[S.key(0,0,7)]="minecraft:stone";S.world[S.key(0,-1,7)]="minecraft:stone" -- Huegel 2 hoch
+    end,actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}})
+S.protocol="toast.mob.v1";track(S)
+Sim.run(S,2000)
+st=state(S)
+check("Runde fertig",st.rounds==1,st.rounds)
+check("im Graben unten",S.minY<=-2,S.minY)
+check("auf dem Huegel",S.maxY>=2,S.maxY)
+check("zu Hause",S.p.x==0 and S.p.y==0 and S.p.z==0)
+check("nichts abgebaut",(S.digs or 0)==0,S.digs)
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

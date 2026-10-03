@@ -187,7 +187,7 @@ check("Holzrunde nach Installation",ts.rounds==1 and ts.harvested==3,tostring(ts
 check("Status mit Name + Job",S.last and S.last.label=="Birken" and S.last.job=="tree")
 
 print("U Neue Mob-Turtle: Patrouille 6x3 links")
-S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","6","3","l","10","","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","6","3","l","","","10","","j","n"}});S.files={}
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Mob-Config gespeichert",kc and kc.job=="mob" and kc.mob.mode=="patrol" and kc.mob.length==6 and kc.mob.width==3

@@ -48,7 +48,7 @@ M.DEFAULTS={
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
     tree={trees=8,spacing=2,side="right",interval=120,bonemeal=false,maxHeight=32,keepSaplings=32,
         fuelTarget=1000,radioTimeout=60},
-    mob={mode="farm",attack="front",length=12,width=12,side="right",interval=30,fuelTarget=500,radioTimeout=0},
+    mob={mode="farm",attack="front",length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
@@ -131,11 +131,12 @@ function M.configText(c)
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.tree)
     elseif role=="turtle" and job=="mob" then
         section("mob","Mobs: Schwert-Turtle",{
-            {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Runde"},
+            {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Waechter"},
             {"attack","\"front\" oder \"all\" (auch oben/unten)"},
-            {"length","Patrouille: Laenge nach vorne"},{"width","Patrouille: Breite"},
-            {"side","Patrouille nach \"right\" oder \"left\""},{"interval","Patrouille: Pause in s"},
-            {"fuelTarget","Patrouille: bis hierhin tanken"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
+            {"length","Waechter: Gebiet nach vorne"},{"width","Waechter: Gebiet zur Seite"},
+            {"side","Waechter: Gebiet \"right\" oder \"left\""},{"climb","Waechter: max. Hoehe hoch/runter"},
+            {"interval","Waechter: Pause an der Basis in s"},
+            {"fuelTarget","Waechter: so voll tanken (= so lange unterwegs)"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
     elseif role=="turtle" then
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
@@ -251,6 +252,7 @@ function M.checkMob(m)
     assert(m.mode=="farm" or m.mode=="guard" or m.mode=="patrol","mob.mode: farm, guard oder patrol.")
     assert(m.attack=="front" or m.attack=="all","mob.attack: front oder all.")
     assert(M.integer(m.length,2,64) and M.integer(m.width,1,64),"mob.length 2-64, mob.width 1-64.")
+    assert(M.integer(m.climb,1,32),"mob.climb: 1 bis 32.")
     assert(m.side=="right" or m.side=="left","mob.side: right oder left.")
     assert(M.integer(m.interval,0,86400),"mob.interval: 0 bis 86400 s.")
     assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")

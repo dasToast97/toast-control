@@ -13,7 +13,7 @@ wget run https://raw.githubusercontent.com/dasToast97/toast-control/main/install
 - **1 Update:** löscht alles Alte, behält Config und Turtle-Fortschritt.
 - **2 Komplett neu:** löscht ALLES (mit `LOESCHEN` bestätigen). Turtle vorher an die Basis stellen.
 - Stationärer Computer: Auswahl **1 Zentrale / 2 Repeater / 3 Infoscreen** (ohne Monitor ist Repeater vorgewählt).
-- Turtle: Auswahl **1 Farm / 2 Mining / 3 Holz / 4 Mobs** (Mobfarm, Wache oder Patrouille).
+- Turtle: Auswahl **1 Farm / 2 Mining / 3 Holz / 4 Mobs** (Mobfarm, Wache oder Wächter im Gelände).
 - Direkt: `... install.lua clean`, `... install.lua farm|mining|tree|mob|repeater`
 
 ## Bedienung (Pocket / Zentrale)

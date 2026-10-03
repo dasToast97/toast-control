@@ -32,7 +32,7 @@ local function short(n)
     return tostring(math.floor(n))
 end
 -- ===== Aufgaben: Name, Hauptwert und Detailzeilen je Job =====
-local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Patrouille"}
+local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Waechter"}
 local function wait(rows,d) if num(d.wait)>0 then rows[#rows+1]={"Naechste",num(d.wait).." s"} end end
 local JOB={
     farm={name="Farm",plural="Farmen",metric="Ertrag",unit="Items",once="1 Runde",
@@ -58,7 +58,7 @@ local JOB={
         value=function(d) return num(d.total) end,aux={"Treffer",function(d) return num(d.hits) end,""},
         rows=function(d) local r={{"Art",MOB_MODES[d.mobMode] or "-"},{"Treffer",short(d.hits)},{"Drops",short(d.total).." Items"}}
             if d.lastHit and num(d.hits)>0 then r[#r+1]={"Letzter Mob","vor "..short(d.lastHit).." s"} end
-            if d.mobMode=="patrol" then r[#r+1]={"Runden",short(d.rounds)};wait(r,d) end
+            if d.mobMode=="patrol" then r[#r+1]={"Ziele",short(d.targets).." angefahren"};r[#r+1]={"Tankrunden",short(d.rounds)};wait(r,d) end
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }
 local ORDER={"farm","mining","tree","mob"}

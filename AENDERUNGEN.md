@@ -1,5 +1,23 @@
 # Toast Control 3.0
 
+## Update 3.0.1: Wächter fährt im Gelände zufällig umher
+
+Die bisherige „Patrouille“ (nur außen im Rechteck, nur auf glattem Boden) ist
+durch den **Wächter** ersetzt:
+- Fährt im Gebiet (Länge x Breite ab der Basis) **zufällige Ziele** an, nicht
+  nur den Rand. An jedem Ziel schaut er sich in alle Richtungen um.
+- **Gelände**: klettert über Hügel und Mauern (bis „max. Höhe“, Standard 8),
+  steigt in Senken und Gräben ab, bleibt am Boden. Zu hohe Hindernisse und
+  unerreichbare Stellen merkt er sich und umfährt sie. Baut **nie** etwas ab.
+- Fährt so lange, bis das Fuel **fast leer** ist, dann zurück zur Basis:
+  tanken (Kiste oben), Drops abladen (Kiste unten), kurze Pause, weiter.
+  1x = eine Tankfüllung. Je mehr er tankt („Tanken bis“), desto länger bleibt er draußen.
+- Der Heimweg läuft seine eigene Spur rückwärts (Schleifen gekürzt) – der Weg
+  ist sicher frei und er weiß genau, wie viel Fuel er dafür braucht.
+  Klappt das nicht (z. B. neuer Block im Weg), sucht er sich einen Weg.
+- Nach Absturz/Serverneustart findet er über die gespeicherte Spur heim.
+- Fortschrittsbalken = verbrauchter Tank bis zur nächsten Rückkehr.
+
 ## Neu in 3.0: Holzfarm, Mob-Turtles, Kisten und Fackeln beim Minen
 
 Im Installer gibt es jetzt vier Aufgaben: **1 Farm, 2 Mining, 3 Holz, 4 Mobs**.
@@ -26,8 +44,8 @@ Die Turtle fährt eine Fahrspur nach vorne, die Bäume stehen daneben
   liefert sie in die Kiste **unter** sich. Braucht kein Fuel.
 - **Wache**: steht an einer Stelle (Tor, Gang) und wehrt alles ab, was davor
   steht. 1x = bis 8 s Ruhe ist.
-- **Patrouille**: läuft ein Rechteck (Länge x Breite) ab der Basis ab und
-  greift an, was im Weg steht. Baut nie Blöcke ab. Basis: unten Drops, oben Kohle.
+- **Wächter** (siehe 3.0.1): fährt im Gebiet zufällig umher, folgt dem
+  Gelände und greift an, was im Weg steht. Basis: unten Drops, oben Kohle.
 - Optional auch oben/unten angreifen.
 - Achtung: Eine Turtle kann Mobs und Spieler **nicht** unterscheiden.
   Die Patrouille wartet erst kurz, bevor sie zuschlägt.

@@ -62,7 +62,7 @@ function S.new(common)
     local function treeText(t)
         return t.trees.." Baeume, Abst."..t.spacing.." "..bothName(t.side)..(t.bonemeal and " +Knochenm." or "")
     end
-    local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Patrouille"}
+    local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Waechter"}
     local function mobText(m)
         local s=MOB_MODES[m.mode] or m.mode
         if m.mode=="patrol" then s=s.." "..m.length.."x"..m.width.." "..sideName(m.side) end
@@ -143,18 +143,22 @@ function S.new(common)
         hint("1 Mobfarm: steht an der Toetungsstelle,")
         hint("  Drops in die Kiste unter ihr")
         hint("2 Wache: steht an einer Stelle")
-        hint("3 Patrouille: laeuft ein Rechteck ab")
+        hint("3 Waechter: faehrt im Gebiet umher")
         local cur=m.mode=="guard" and 2 or m.mode=="patrol" and 3 or 1
         m.mode=({"farm","guard","patrol"})[ask("Art",cur,1,3)]
         m.attack=yesno("Auch oben/unten angreifen?",m.attack=="all") and "all" or "front"
         if m.mode=="patrol" then
-            hint("Rechteck ab der Basis: nach vorne")
-            hint("Laenge, zur Seite Breite. Weg muss frei")
-            hint("sein (baut nichts ab).")
+            hint("Gebiet ab der Basis: nach vorne Laenge,")
+            hint("zur Seite Breite. Faehrt zufaellig umher,")
+            hint("klettert ueber Gelaende, baut nichts ab.")
             m.length=ask("Laenge (2-64)",m.length,2,64)
             m.width=ask("Breite (1-64)",m.width,1,64)
-            if m.width>1 then m.side=askSide("Rechteck nach",m.side) end
-            m.interval=ask("Pause zwischen Runden (s)",m.interval,0,86400)
+            if m.width>1 then m.side=askSide("Gebiet nach",m.side) end
+            m.climb=ask("Max. Hoehe hoch/runter (1-32)",m.climb or 8,1,32)
+            hint("Faehrt bis das Fuel knapp ist, dann")
+            hint("zur Basis tanken. Mehr Fuel = laenger.")
+            m.fuelTarget=ask("Tanken bis (100-100000)",m.fuelTarget,100,100000)
+            m.interval=ask("Pause an der Basis (s)",m.interval,0,86400)
         end
         fg(colors.orange)
         print(cut("Achtung: greift alles direkt vor"))
