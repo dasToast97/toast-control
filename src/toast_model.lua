@@ -108,7 +108,7 @@ function M.new(cfg)
         if not valid or not common.id(id) or id==cfg.controllerId or devices[id] or type(b)~="table" then return false end
         if not pockets[id] then
             if not (cfg.autoPairPockets and protocol==common.remoteProtocol and b.kind=="hello"
-                and b.version==1 and b.role=="pocket" and b.controllerId==cfg.controllerId) then return false end
+                and b.version==1 and (b.role=="pocket" or b.role=="info") and b.controllerId==cfg.controllerId) then return false end
             local n=0;for _ in pairs(pockets)do n=n+1 end
             if n>=64 then return false end
             pockets[id]=true;save()

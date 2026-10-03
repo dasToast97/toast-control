@@ -1,5 +1,5 @@
 local M={
-    version="2.7",
+    version="2.8",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -33,7 +33,7 @@ end
 M.DEFAULTS={
     role="auto",job="auto",name="",controllerId=0,
     autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},
-    display={monitor="auto",textScale=0.5,pageSize=0},
+    display={monitor="auto",size="3x4",textScale=0.5,pageSize=0,info=true},
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
@@ -91,7 +91,7 @@ function M.configText(c)
     end
     local role,job=c.role,c.job
     local what=role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining")) or
-        ({controller="Zentrale",pocket="Pocket",repeater="Repeater"})[role] or tostring(role)
+        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role] or tostring(role)
     out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
     out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
@@ -124,8 +124,13 @@ function M.configText(c)
     end
     if role=="controller" then
         section("display","Bildschirm",{
-            {"monitor","\"auto\", \"terminal\" oder Name"},{"textScale","Schriftgroesse 0.5 bis 5"},
-            {"pageSize","Zeilen pro Seite (0 = auto)"}},c.display)
+            {"monitor","\"auto\", \"terminal\" oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
+            {"textScale","nur ohne size: Schrift 0.5 bis 5"},{"pageSize","Zeilen pro Seite (0 = auto)"},
+            {"info","weitere Monitore = Infoscreen"}},c.display)
+    elseif role=="info" then
+        section("display","Bildschirm",{
+            {"monitor","\"auto\" = alle Monitore, oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
+            {"textScale","nur ohne size: Schrift 0.5 bis 5"}},c.display)
         out[#out+1]=""
         line(4,"autoDiscover",q(c.autoDiscover),"neue Turtles automatisch aufnehmen")
         line(4,"autoPairPockets",q(c.autoPairPockets),"neue Pockets automatisch aufnehmen")
@@ -138,7 +143,7 @@ function M.configText(c)
         out[#out+1]="    },"
         line(4,"pocketIds",q(c.pocketIds or {}),"bekannte Pockets")
     end
-    if role=="controller" or role=="pocket" then
+    if role=="controller" or role=="pocket" or role=="info" then
         section("network","Funk",{
             {"pollInterval","Abfrage alle x s"},{"staleAfter","nach x s OFFLINE"},
             {"commandTimeout","Befehl x s wiederholen"},{"maxDevices","hoechstens so viele Turtles"}},c.network)
@@ -156,7 +161,7 @@ function M.load(c)
     M.withDefaults(c)
     c.role=c.role or "auto"
     if c.role=="auto" then c.role=turtle and "turtle" or (pocket and "pocket" or "controller") end
-    assert(({controller=true,turtle=true,pocket=true,repeater=true})[c.role],"role: auto/controller/turtle/pocket/repeater")
+    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info")
     assert(M.id(c.controllerId),"controllerId: ganze ID 0 bis 65500.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
@@ -164,6 +169,7 @@ function M.load(c)
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
+    if c.role=="info" then assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.") end
     assert(type(c.autoDiscover)=="boolean" and type(c.autoPairPockets)=="boolean","autoDiscover/autoPairPockets: true oder false.")
     assert(type(c.devices)=="table" and type(c.pocketIds)=="table","devices/pocketIds fehlen.")
     local used={[c.controllerId]=true};local count=0
@@ -180,6 +186,7 @@ function M.load(c)
     end
     assert(pc==#c.pocketIds,"pocketIds: Liste ohne Luecken.")
     local d=c.display;assert(type(d)=="table" and type(d.monitor)=="string","display.monitor fehlt.")
+    assert(d.size=="auto" or M.parseSize(d.size),"display.size: Hoehe x Breite in Bloecken, z.B. \"3x4\" (max 6x8), oder \"auto\".")
     assert(M.integer(M.number(d.textScale)*2,1,10) and M.integer(d.pageSize,0,1000),"textScale/pageSize ungueltig.")
     local n=c.network;assert(type(n)=="table","network fehlt.")
     assert(M.number(n.pollInterval)>=0.25 and M.number(n.pollInterval)<=5,"pollInterval: 0.25 bis 5.")
@@ -244,6 +251,54 @@ function M.log(text)
             f.close()
         end
     end)
+end
+-- ===== Monitorgroesse in Bloecken (Hoehe x Breite) -> passende Schriftgroesse =====
+-- CC:Tweaked: Zeichen = (64 * Bloecke - 20) / (6 bzw. 9 * Schriftgroesse)
+M.SCALES={5,4.5,4,3.5,3,2.5,2,1.5,1,0.5}
+M.FIT={control={36,18},info={30,14}}       -- Mindestgroesse in Zeichen (Breite, Hoehe)
+function M.parseSize(size)
+    if type(size)~="string" then return nil end
+    local h,w=size:lower():gsub("%s",""):match("^(%d+)x(%d+)$")
+    h,w=tonumber(h),tonumber(w)
+    if h and w and h>=1 and h<=6 and w>=1 and w<=8 then return h,w end
+end
+function M.monitorChars(hB,wB,s)
+    return math.floor((64*wB-20)/(6*s)+0.5),math.floor((64*hB-20)/(9*s)+0.5)
+end
+function M.scaleFor(size,kind)
+    local hB,wB=M.parseSize(size);if not hB then return nil end
+    local fit=M.FIT[kind] or M.FIT.control
+    for _,s in ipairs(M.SCALES) do
+        local w,h=M.monitorChars(hB,wB,s)
+        if w>=fit[1] and h>=fit[2] then return s,w,h end
+    end
+    return 0.5,M.monitorChars(hB,wB,0.5)
+end
+-- Schrift fuer einen Monitor setzen. size "HxB": berechnet (und am echten Monitor
+-- nachgeprueft), "auto": ausprobiert. Gibt Schriftgroesse zurueck.
+function M.applyScale(mon,display,kind)
+    if not mon or not mon.setTextScale then return end
+    local fit=M.FIT[kind] or M.FIT.control
+    local function measure()
+        for _,s in ipairs(M.SCALES) do
+            pcall(mon.setTextScale,s)
+            local w,h=mon.getSize()
+            if w>=fit[1] and h>=fit[2] then return s end
+        end
+        pcall(mon.setTextScale,0.5);return 0.5
+    end
+    local size=display and display.size
+    if size=="auto" or kind=="extra" then return measure() end
+    local s=M.scaleFor(size,kind)
+    if s then
+        pcall(mon.setTextScale,s)
+        local w,h=mon.getSize()
+        -- Angabe passt nicht zum echten Monitor (z.B. kleiner): selbst ausmessen
+        if w<math.min(fit[1],26) or h<math.min(fit[2],12) then return measure() end
+        return s
+    end
+    pcall(mon.setTextScale,display and display.textScale or 0.5)
+    return display and display.textScale
 end
 -- ===== CCChunkloader (Mod) =====
 -- Anzahl Chunks -> Radius des Mods (Chunks mit Abstand < Radius werden geladen).

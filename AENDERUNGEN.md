@@ -1,4 +1,26 @@
-# Toast Control 2.7
+# Toast Control 2.8
+
+## Neu in 2.8
+
+**Neue Oberfläche für Zentrale und Pocket** – passt sich der Bildschirmgröße an:
+Kopfzeile mit Verbindung, Reiter Alle / Farm / Mine mit Anzahl, Übersicht je
+Gruppe (Farm: Ertrag, Mine: Abgebaut), Liste aller Turtles mit farbigem Punkt
+und Zustand in Worten (grün arbeitet, blau Heimweg, türkis wartet, orange
+Problem, rot Fehler, grau offline). Antippen zeigt Details mit
+Fortschrittsbalken – nur die passenden Werte: Farm = Runden, Geerntet
+(Pflanzen), Ertrag (Items), Saatgut; Mine = Gänge, Abgebaut (Blöcke),
+Abgeladen (Items), freie Slots. „Beute“ gibt es nicht mehr.
+
+**Infoscreens** (nur Anzeige, keine Knöpfe): Übersicht mit Kacheln für Farm
+und Mine, „pro Stunde“-Werten, Problemliste und allen Turtles mit
+Fortschrittsbalken (blättert selbst).
+- Jeder weitere Monitor an der Zentrale wird automatisch Infoscreen.
+- Oder eigener Computer mit Monitor: im Installer „3 Infoscreen“.
+
+**Monitorgröße in Blöcken:** `display.size = "3x4"` (Höhe x Breite, Standard
+3x4, max 6x8, oder `"auto"`). Die Schrift wird so gewählt, dass alles passt –
+z. B. 3x4 → 39 x 19 Zeichen, 4x8 → 82 x 26. Weitere Monitore an der Zentrale
+werden automatisch ausgemessen. Einstellbar im Menü unter „Monitor“.
 
 ## Neu in 2.7
 

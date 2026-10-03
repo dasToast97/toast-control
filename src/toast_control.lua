@@ -14,7 +14,7 @@ local function bindScreen()
     end
     if found then
         screen,name=found,peripheral.getName(found)
-        pcall(screen.setTextScale,cfg.display.textScale)
+        common.applyScale(screen,cfg.display,"control")
     else
         if cfg.display.monitor~="auto" and cfg.display.monitor~="terminal" then
             print("Advanced Monitor '"..cfg.display.monitor.."' fehlt, nutze Bildschirm.")
@@ -22,18 +22,39 @@ local function bindScreen()
         screen,name=term,nil
     end
 end
-bindScreen()
-local ui=dofile("/toast/toast_ui.lua").new(screen,cfg)
+-- Weitere Farbmonitore an der Zentrale zeigen die Info-Uebersicht (nur Anzeige).
+local infoScreens,infoState={},{}
+local function bindInfo()
+    infoScreens={}
+    if cfg.display.info==false then return end
+    for _,n in ipairs(peripheral.getNames()) do
+        if n~=name and peripheral.getType(n)=="monitor" then
+            local m=peripheral.wrap(n)
+            if m and m.isColor and m.isColor() then
+                common.applyScale(m,cfg.display,"extra")    -- jeder weitere Monitor wird selbst ausgemessen
+                infoScreens[n]=m;infoState[n]=infoState[n] or {}
+            end
+        end
+    end
+end
+bindScreen();bindInfo()
+local UI=dofile("/toast/toast_ui.lua")
+local ui=UI.new(screen,cfg)
 local model=dofile("/toast/toast_model.lua").new(cfg)
 local dirty=true
 -- Zeichnen gedrosselt: Viele Statusmeldungen loesen nicht mehr je ein
 -- komplettes Neuzeichnen aus (verhinderte Lag bei grossen Flotten).
 local function draw()
-    local ok,why=pcall(ui.draw,model.fleet(),true,model.notice)
+    local fleet=model.fleet()
+    local ok,why=pcall(ui.draw,fleet,true,model.notice)
     if not ok then
         common.log("Anzeigefehler: "..tostring(why))
         bindScreen();ui.setScreen(screen)
-        pcall(ui.draw,model.fleet(),true,model.notice)
+        pcall(ui.draw,fleet,true,model.notice)
+    end
+    for n,m in pairs(infoScreens) do
+        local okI,whyI=pcall(UI.drawInfo,m,fleet,true,infoState[n])
+        if not okI then common.log("Infoscreen "..n..": "..tostring(whyI));infoScreens[n]=nil end
     end
     dirty=false
 end
@@ -56,7 +77,7 @@ local function loop()
             frame=os.startTimer(0.25)
         elseif e=="peripheral" or e=="peripheral_detach" then
             common.refreshModems()
-            local before=screen;bindScreen()
+            local before=screen;bindScreen();bindInfo()
             if screen~=before then
                 if before~=term then pcall(term.clear) end
                 ui.setScreen(screen);draw()
@@ -79,6 +100,7 @@ if deliberate then
 end
 pcall(rednet.unhost,common.protocol)
 if screen~=term then pcall(screen.clear) end
+for _,m in pairs(infoScreens) do pcall(function() m.setBackgroundColor(colors.black);m.clear() end) end
 term.clear();term.setCursorPos(1,1)
 if deliberate then
     print("Zentrale beendet. Stopp/Heimfahrt fuer alle Turtles angefordert.")

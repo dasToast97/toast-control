@@ -131,16 +131,35 @@ function S.new(common)
             if t==0 or t>=10 then sec.radioTimeout=t;break end
         end
     end
-    local function editMonitor(c)
+    local function editMonitor(c,role)
         local d=c.display
-        header("Bildschirm der Zentrale")
-        hint("auto = Advanced Monitor suchen")
+        local kind=role=="info" and "info" or "control"
+        header(role=="info" and "Bildschirm des Infoscreens" or "Bildschirm der Zentrale")
+        hint("Monitor: auto = Advanced Monitor suchen,")
         hint("terminal = Computerbildschirm")
+        local names={}
+        for _,n in ipairs(peripheral.getNames()) do if peripheral.getType(n)=="monitor" then names[#names+1]=n end end
+        if #names>0 then hint("Gefunden: "..table.concat(names,", ")) end
         write(cut("Monitor ["..d.monitor.."]: "))
         local v=read();if v~="" then d.monitor=v end
-        hint("Schrift: 1 = 0.5 (klein) ... 10 = 5")
-        local sz=ask("Schriftgroesse",math.floor(d.textScale*2+0.5),1,10)
-        d.textScale=sz/2
+        hint("Groesse in Bloecken: Hoehe x Breite")
+        hint("z.B. 3x4 (max 6x8), auto = ausmessen")
+        while true do
+            write(cut("Groesse ["..tostring(d.size).."]: "))
+            local sv=read():lower():gsub("%s","")
+            if sv=="" then sv=d.size end
+            if sv=="auto" or common.parseSize(sv) then d.size=sv;break end
+            fg(colors.orange);print("  z.B. 3x4 oder auto");fg(colors.white)
+        end
+        if d.size~="auto" then
+            local s,w,h=common.scaleFor(d.size,kind)
+            hint("-> Schrift "..s..", "..w.." x "..h.." Zeichen")
+        end
+        if role=="controller" then
+            hint("Weitere Monitore an der Zentrale zeigen")
+            hint("die Info-Uebersicht (Groesse automatisch).")
+            d.info=yesno("Weitere Monitore als Infoscreen?",d.info~=false)
+        else sleep(1.5) end
     end
     local function editDevices(c)
         header("Geraete")
@@ -174,9 +193,13 @@ function S.new(common)
             list[#list+1]={"Funk",function() return radioText((job=="farm" and c.farm or c.mine).radioTimeout) end,
                 function() editRadio(c,job) end}
         end
+        if role=="controller" or role=="info" then
+            list[#list+1]={"Monitor",function() return (c.display.monitor=="auto" and "" or (c.display.monitor.." "))
+                ..(c.display.size=="auto" and "Groesse auto" or (tostring(c.display.size).." Bloecke"))
+                ..(role=="controller" and c.display.info~=false and " +Info" or "") end,
+                function() editMonitor(c,role) end}
+        end
         if role=="controller" then
-            list[#list+1]={"Monitor",function() return c.display.monitor.." / Schrift "..c.display.textScale end,
-                function() editMonitor(c) end}
             list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "
                 ..(c.autoPairPockets and "Pockets auto" or "Pockets fest") end,function() editDevices(c) end}
         end
@@ -185,7 +208,7 @@ function S.new(common)
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
         local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(info.job=="farm" and "Farm" or "Mining"))
-            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater"})[info.role].." #"..os.getComputerID())
+            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
             header(what)

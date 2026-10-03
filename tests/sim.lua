@@ -168,7 +168,8 @@ function Sim.env(S)
             local m={isWireless=function()return true end,_side=sd};if not f or f(sd,m) then return m end end
             if t=="monitor" then return nil end end,
         getName=function(m)return m and m._side or "right" end,getType=function(side)return S.sideType(side)end,
-        wrap=function(side)if S.sideType(side)=="chunkloader" then return S.clDev end end}
+        wrap=function(side)if S.sideType(side)=="chunkloader" then return S.clDev end end,
+        getNames=function()local t={};for _,sd in ipairs({"left","right"})do if S.equip[sd] then t[#t+1]=sd end end;return t end}
     G.rednet={open=function()end,send=function(id,msg,p)if not S.modemSide() then return false end
             S.sent[#S.sent+1]={id=id,msg=msg,p=p};S.last=msg;return true end,
         broadcast=function()end,host=function()end,unhost=function()end,lookup=function()end}
