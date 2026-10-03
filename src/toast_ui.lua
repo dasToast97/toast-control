@@ -520,7 +520,7 @@ function M.new(screen,cfg)
         local rank,pos={fault=1,warn=2,work=3,move=3,wait=3,done=4,idle=4,off=5},{}
         for i,id in ipairs(ids) do local _,k=M.state(entries[id] or {},link);pos[id]=(rank[k] or 4)*10000+i end
         table.sort(ids,function(a,b) return pos[a]<pos[b] end)
-        if ui.filter~="net" then
+        if ui.filter~="net" and ui.filter~="store" then
             ui.ids=ids
             if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
             if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
@@ -528,6 +528,17 @@ function M.new(screen,cfg)
         end
         -- Kopfzeile
         fill(1,colors.blue)
+        if ui.storeOnly then
+            -- Lager-Computer: nur die Lageransicht, oben Fuellstand + Uhr
+            local nd=fleet.nodes or {ids={},entries={}}
+            local e1=nd.entries[nd.ids[1]];local st1=e1 and e1.data and e1.data.stats or {}
+            text(2,1,"TOAST LAGER",colors.white,colors.blue)
+            local clock=clockText()
+            local r=(st1.pct and (st1.pct.."% voll") or "").."  "..clock.." "
+            if #r+13>w then r=clock.." " end
+            right(1,r,colors.white,colors.blue)
+            return ui.drawStore(nd,true,text,right,fill,pill,w,h,notice,2)
+        end
         text(2,1,"TOAST",colors.white,colors.blue)
         -- Update-Knopf: alle Geraete holen sich die neue Version und machen weiter
         if ui.canUpdate~=false then
@@ -554,6 +565,8 @@ function M.new(screen,cfg)
         end
         -- Netz: Repeater, GPS-Sender, Infoscreens, Pockets
         local nodes=fleet.nodes or {ids={},entries={}}
+        local nStore=0;for _,nid in ipairs(nodes.ids) do if nodes.entries[nid].role=="storage" then nStore=nStore+1 end end
+        if nStore>0 or ui.filter=="store" then tabs[#tabs+1]={"Lager",nStore,"store"} end
         if #nodes.ids>0 or ui.filter=="net" then tabs[#tabs+1]={"Netz",#nodes.ids,"net"} end
         ui.tabs={};for i,t in ipairs(tabs) do ui.tabs[i]=t[3] end
         local tw=math.floor(w/#tabs)
@@ -563,7 +576,7 @@ function M.new(screen,cfg)
             local lab=t[1].." "..t[2]
             if #lab>width-2 then
                 -- schmaler Bildschirm (Pocket): Kurzname + Anzahl, z.B. "M3"
-                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",Netz="N"}
+                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",Lager="L",Netz="N"}
                 local sh=SH[t[1]] or t[1]:sub(1,1)
                 lab=(#t[1]<=width-1) and t[1] or ((#(sh..t[2])<=width-1) and (sh..t[2]) or sh)
             end
@@ -576,6 +589,7 @@ function M.new(screen,cfg)
             end
         end
         if ui.filter=="net" then return ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice) end
+        if ui.filter=="store" then return ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,3) end
         local third=math.floor(w/3)
         -- Fusszeile: Hinweiszeile + grosse Tastenreihe + untere Reihe
         -- Grosse Bildschirme bekommen hoehere Knoepfe (leichter zu treffen).
@@ -753,7 +767,144 @@ function M.new(screen,cfg)
         if not sel and pages>1 then right(foot,ui.page.."/"..pages,colors.gray) end
     end
     -- ===== Netz-Ansicht =====
-    local NODE_NAMES={repeater="Repeater",gps="GPS-Sender",info="Infoscreen",pocket="Pocket"}
+    local NODE_NAMES={repeater="Repeater",gps="GPS-Sender",info="Infoscreen",pocket="Pocket",storage="Lager"}
+    -- ===== Lager (Kistenueberwachung) =====
+    -- Kisten mit Fuellstand oder Inhalt (alle Lager zusammen, mit Suche).
+    -- Tippen auf ein Item zeigt, in welchen Kisten es liegt.
+    local function fillColor(p,warn)
+        p=num(p);if p>=100 then return colors.red elseif p>=num(warn or 90) then return colors.orange end
+        return colors.lime
+    end
+    function ui.textInput() return ui.filter=="store" end
+    function ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,y0)
+        ui.ids={};ui.selected=nil
+        local stores={}
+        for _,id in ipairs(nodes.ids or {}) do
+            local e=nodes.entries[id]
+            if e.role=="storage" then stores[#stores+1]={id=id,e=e,st=(e.data and e.data.stats) or {}} end
+        end
+        ui.storeView=ui.storeView or "chests"
+        ui.search=ui.search or ""
+        local y=y0 or 3
+        -- Umschalter Kisten / Inhalt
+        local half=math.floor(w/2)
+        local isC=ui.storeView=="chests" and not ui.storeItem
+        pill(1,y,half-1,"Kisten","sview:chests",isC and colors.lightBlue or colors.gray,true,isC and colors.black or colors.white)
+        pill(half+1,y,w-half,"Inhalt","sview:items",(not isC) and colors.lightBlue or colors.gray,true,(not isC) and colors.black or colors.white)
+        y=y+1
+        if #stores==0 then
+            text(1,y+1,"Noch kein Lager gemeldet.",colors.lightGray)
+            text(1,y+2,"Computer an die Kisten stellen",colors.lightGray)
+            text(1,y+3,"(oder per Netzwerkkabel) und",colors.lightGray)
+            text(1,y+4,"als 5 'Lager' installieren.",colors.lightGray)
+            return
+        end
+        local multi=#stores>1
+        local rows={}
+        if ui.storeItem then
+            -- Wo liegt das Item?
+            local name,total=ui.storeItem,0
+            local where={}
+            for _,s in ipairs(stores) do
+                for _,it in ipairs(s.st.items or {}) do
+                    if it.id==ui.storeItem then
+                        name=it.n or it.id;total=total+num(it.c)
+                        for _,wh in ipairs(it.w or {}) do
+                            local ch=(s.st.chests or {})[wh.i] or {}
+                            where[#where+1]={label=(multi and ((s.e.label~="" and s.e.label or ("Lager #"..s.id)).." / ") or "")..tostring(ch.n or ("Kiste "..wh.i)),c=num(wh.c),p=ch.p}
+                        end
+                    end
+                end
+            end
+            pill(1,y,math.min(w,#name+(w>=30 and 12 or 3)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"sback",colors.gray,true)
+            y=y+1
+            text(1,y,"Gesamt",colors.lightGray);right(y,short(total).." Stueck",colors.white);y=y+1
+            for _,wh in ipairs(where) do rows[#rows+1]={kind="where",label=wh.label,c=wh.c,p=wh.p} end
+            if #where==0 then rows[1]={kind="note",label="Nicht mehr im Lager."} end
+        elseif ui.storeView=="chests" then
+            for _,s in ipairs(stores) do
+                local st=s.st
+                local lname=s.e.label~="" and s.e.label or ("Lager #"..s.id)
+                rows[#rows+1]={kind="head",label=lname..(s.e.online and "" or " (offline)"),p=st.pct,warn=st.warn,
+                    info=short(st.count).." Kisten, "..short(st.types).." Sorten",on=s.e.online}
+                for _,ch in ipairs(st.chests or {}) do
+                    rows[#rows+1]={kind="chest",label=tostring(ch.n),p=ch.p,warn=st.warn,slots=num(ch.u).."/"..num(ch.s)}
+                end
+            end
+        else
+            -- Inhalt aller Lager, zusammengezaehlt, mit Suche
+            local byId,list={},{}
+            for _,s in ipairs(stores) do
+                for _,it in ipairs(s.st.items or {}) do
+                    local e=byId[it.id]
+                    if not e then e={id=it.id,n=tostring(it.n or it.id),c=0,first=nil};byId[it.id]=e;list[#list+1]=e end
+                    e.c=e.c+num(it.c)
+                    if not e.first and it.w and it.w[1] then local ch=(s.st.chests or {})[it.w[1].i];e.first=ch and ch.n end
+                end
+            end
+            local q=ui.search:lower()
+            local shown={}
+            for _,e in ipairs(list) do
+                if q=="" or e.n:lower():find(q,1,true) or e.id:lower():find(q,1,true) then shown[#shown+1]=e end
+            end
+            table.sort(shown,function(a,b) return a.c>b.c end)
+            if ui.kbd or q~="" then
+                text(1,y,"Suche: ",colors.lightGray);text(8,y,(q~="" and q or "")..(ui.kbd and "_" or ""),colors.yellow)
+                right(y,#shown.." Sorten",colors.lightGray);y=y+1
+            end
+            for _,e in ipairs(shown) do rows[#rows+1]={kind="item",label=e.n,c=e.c,id=e.id,first=e.first} end
+            if #shown==0 then rows[1]={kind="note",label=q~="" and ("Nichts gefunden: "..q) or "Lager ist leer."} end
+        end
+        -- Seiten
+        local avail=math.max(1,h-y)
+        local pages=math.max(1,math.ceil(#rows/avail))
+        ui.page=math.max(1,math.min(ui.page or 1,pages));ui.storePages=pages
+        local first=(ui.page-1)*avail
+        for i=1,avail do
+            local r=rows[first+i];if not r then break end
+            local yy=y+i-1
+            if r.kind=="head" then
+                local pc=string.format("%3d%%",num(r.p))
+                text(1,yy,r.label:sub(1,w-6),r.on and colors.white or colors.gray)
+                right(yy,pc,fillColor(r.p,r.warn))
+                if w>=40 then text(math.max(#r.label+3,w-6-#r.info-1),yy,r.info,colors.lightGray) end
+            elseif r.kind=="chest" or r.kind=="where" then
+                local nameW=math.min(w>=40 and 18 or 10,math.max(6,w-16))
+                local tail=r.kind=="where" and short(r.c) or string.format("%3d%%",num(r.p))
+                local barX=nameW+3
+                local barW=w-barX-#tail-1
+                text(2,yy,r.label:sub(1,nameW),colors.white)
+                if r.kind=="chest" and barW>=3 then thinBar(text,barX,yy,barW,num(r.p)/100,fillColor(r.p,r.warn),colors.black)
+                elseif r.kind=="where" and r.p and barW>=3 then thinBar(text,barX,yy,barW,num(r.p)/100,fillColor(r.p,90),colors.black) end
+                right(yy,tail,r.kind=="chest" and fillColor(r.p,r.warn) or colors.white)
+            elseif r.kind=="item" then
+                local cnt=short(r.c)
+                local loc=(w>=44 and r.first) and tostring(r.first) or nil
+                local nameW=w-#cnt-2-(loc and (#loc+2) or 0)
+                text(1,yy,r.label:sub(1,nameW),colors.white)
+                if loc then text(w-#cnt-#loc-2,yy,loc,colors.gray) end
+                right(yy,cnt,colors.lightGray)
+                ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w,action="sitem:"..r.id,enabled=true}
+            else text(1,yy,r.label:sub(1,w),colors.lightGray) end
+        end
+        -- Fusszeile
+        if pages>1 then
+            local pw=math.max(4,math.floor(w/6))
+            pill(1,h,pw,"\27","pageprev",colors.gray,ui.page>1,colors.white)
+            pill(w-pw+1,h,pw,"\26","pagenext",colors.gray,ui.page<pages,colors.white)
+            local m=ui.page.."/"..pages
+            text(math.floor((w-#m)/2)+1,h,m,colors.lightGray)
+        else
+            local info=tostring(notice or "")
+            if info:find("Warte auf",1,true) or info:find("bestaetigt",1,true) or info:find("Verbunden",1,true) then info="" end
+            if info=="" then
+                info=ui.storeItem and "Zurueck: Pfeil links / Backspace"
+                    or (ui.storeView=="items" and (ui.kbd and "Tippen = suchen, Item = wo liegt es" or "Item antippen = wo liegt es")
+                    or (w>=30 and "Orange = fast voll, Rot = voll" or "Orange fast voll, Rot voll"))
+            end
+            text(1,h,info:sub(1,w),colors.lightGray)
+        end
+    end
     function ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice)
         local ids=nodes.ids
         ui.ids=ids
@@ -823,12 +974,21 @@ function M.new(screen,cfg)
         if not a then return end
         if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
+        elseif a:match("^sview:") then ui.storeView=a:sub(7);ui.storeItem=nil;ui.page=1;return
+        elseif a:match("^sitem:") then ui.storeItem=a:sub(7);ui.page=1;return
+        elseif a=="sback" then ui.storeItem=nil;return
+        elseif ui.filter=="store" and (a=="up" or a=="down") then
+            if a=="up" then ui.page=math.max(1,(ui.page or 1)-1) else ui.page=math.min(ui.storePages or 1,(ui.page or 1)+1) end
+            return
+        elseif ui.filter=="store" and a=="group" then
+            if ui.storeItem then ui.storeItem=nil elseif (ui.search or "")~="" then ui.search=ui.search:sub(1,-2);ui.page=1 end
+            return
         elseif a=="help" then ui.help=not ui.help
         elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
         elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected
         elseif a=="group" then ui.cursor=ui.selected or ui.cursor;ui.selected=nil;ui.followCursor=true
         elseif a=="pageprev" then ui.page=math.max(1,ui.page-1)
-        elseif a=="pagenext" then ui.page=math.min(ui.pages or 1,ui.page+1)
+        elseif a=="pagenext" then ui.page=math.min((ui.filter=="store" and ui.storePages) or ui.pages or 1,ui.page+1)
         elseif a=="tabprev" or a=="tabnext" then
             local TABS=ui.tabs or {"all","farm","mining"}
             local i=1;for k,t in ipairs(TABS) do if t==ui.filter then i=k end end
@@ -863,6 +1023,10 @@ function M.new(screen,cfg)
         if not name then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.filter=="store" and name=="left" and ui.storeItem then return "sback" end
+        if ui.filter=="store" and ui.storeOnly and (name=="left" or name=="right" or name=="tab") then
+            return "sview:"..(ui.storeView=="items" and "chests" or "items")
+        end
         if name=="left" then return ui.selected and "group" or "tabprev" end
         if name=="right" then return ui.selected and nil or "tabnext" end
         local a=KEYS[name]
@@ -873,6 +1037,11 @@ function M.new(screen,cfg)
         if not ch then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.filter=="store" and ch:match("^[%w _%-]$") then
+            -- Lager: Buchstaben = Suche im Inhalt
+            ui.search=((ui.search or "")..ch:lower()):sub(1,24);ui.storeView="items";ui.storeItem=nil;ui.page=1
+            return "redraw"
+        end
         return ui.keys[ch:lower()] or ui.keys[ch]
     end
     function ui.target() return ui.selected or ui.filter end

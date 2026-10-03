@@ -118,7 +118,7 @@ local function loop()
         elseif e=="mouse_click" and not name and a==1 then action(ui.click(b,c))
         elseif (e=="monitor_resize" and a==name) or (e=="term_resize" and not name) then draw()
         elseif e=="char" then
-            if (a=="q" or a=="Q") and not ui.help then quit=true;return end
+            if (a=="q" or a=="Q") and not ui.help and not ui.textInput() then quit=true;return end
             action(ui.char(a))
         elseif e=="key" then action(ui.key(keys.getName(a)))
         elseif e=="mouse_scroll" then action(a>0 and "down" or "up") end

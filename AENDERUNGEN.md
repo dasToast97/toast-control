@@ -1,3 +1,21 @@
+# Toast Control 3.7
+
+## Neu: Lager (Kistenüberwachung)
+
+Neue Rolle für stationäre Computer: **5 Lager**. Der Computer liest alle Kisten,
+Fässer, Shulker usw. aus, die direkt an ihm stehen oder per **Netzwerkkabel +
+Kabelmodem** angeschlossen sind (Modem rechtsklicken = verbunden).
+
+- **Kisten:** Füllstand je Kiste und gesamt mit Balken. Orange = fast voll
+  (einstellbar, Standard ab 90 %), Rot = voll. Stapelgrößen werden beachtet
+  (16 Enderperlen = voller Slot).
+- **Inhalt:** alle Items zusammengezählt, meiste oben. **Suche** per Tastatur:
+  einfach lostippen (z.B. `dia`). Item antippen = **in welchen Kisten es liegt**.
+- Anzeige auf dem eigenen Monitor und am Computer. In **Zentrale und Pocket**
+  gibt es dafür den Reiter **Lager** (alle Lager zusammen).
+- Eigene Namen für Kisten im Menü `toast.lua config` -> Lager.
+- Läuft auch als GPS-Sender mit und wird beim Update mit aktualisiert.
+
 # Toast Control 3.6.5
 
 - Normale Arbeit wie „Graebt“ oder „Sucht Baeume“ wird nicht mehr orange als

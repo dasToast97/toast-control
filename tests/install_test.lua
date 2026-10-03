@@ -143,6 +143,16 @@ ok,err=install(S,false,30)
 kc=ok and cfgOf(S)
 check("Infoscreen mit Name + Zentrale",kc and kc.role=="info" and kc.name=="Info Halle" and kc.controllerId==4
   and S.files["/toast/toast_info.lua"] and S.files["/toast/toast_ui.lua"] and not S.files["/toast/toast_control.lua"] and kc.display and not kc.mine,err)
+print("O1 Computer -> 5 Lager")
+S=Sim.new({config=MINECFG,input={"1","5","4","1","Keller","","j","n"}});S.files={}
+ok,err=install(S,false,31)
+kc=ok and cfgOf(S)
+check("Lager mit Name + Zentrale",kc and kc.role=="storage" and kc.name=="Keller" and kc.controllerId==4 and kc.storage and kc.storage.interval==10
+  and S.files["/toast/toast_storage.lua"] and S.files["/toast/toast_ui.lua"] and not S.files["/toast/toast_control.lua"] and not kc.mine,err)
+local keepS=S.files
+S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files=keepS
+ok,err=install(S,false,31)
+check("Lager-Update behaelt Rolle",ok and cfgOf(S).role=="storage",err)
 print("O2 Infoscreen zeigt bestimmte Turtle")
 S=Sim.new({config=MINECFG,input={"1","3","4","4","6","12","","n","n"}});S.files={}
 ok,err=install(S,false,31)

@@ -218,6 +218,30 @@ function S.new(common)
         local ok,why=pcall(common.checkDig,d)
         if not ok then fg(colors.orange);print(cut(tostring(why)));fg(colors.white);sleep(2) end
     end
+    local function editStorage(c)
+        local s=c.storage
+        header("Lager (Kistenueberwachung)")
+        hint("Kisten direkt am Computer oder per")
+        hint("Netzwerkkabel + Kabelmodem (rechts-")
+        hint("klick aufs Modem = rot = verbunden).")
+        s.interval=ask("Neu auslesen alle x s (2-600)",s.interval,2,600)
+        s.warnAt=ask("Orange ab x % voll (50-100)",s.warnAt,50,100)
+        local found={}
+        for _,n in ipairs(peripheral.getNames()) do
+            local t=tostring(peripheral.getType(n) or "")
+            local m=peripheral.wrap(n)
+            if not t:find("turtle",1,true) and t~="monitor" and t~="modem" and m and type(m.list)=="function" then found[#found+1]=n end
+        end
+        table.sort(found)
+        if #found==0 then fg(colors.orange);print(cut("Keine Kisten gefunden."));fg(colors.white);sleep(1.5);return end
+        if not yesno(#found.." Kisten gefunden. Namen geben?",false) then return end
+        hint("Enter = behalten, - = Standardname")
+        for _,n in ipairs(found) do
+            write(cut(n.." ["..(s.names[n] or "-").."]: "))
+            local v=read()
+            if v=="-" then s.names[n]=nil elseif v~="" then s.names[n]=common.label(v) end
+        end
+    end
     local FACE_NAMES={north="Norden",east="Osten",south="Sueden",west="Westen"}
     local DIMS={"auto","overworld","nether","end"}
     local DIM_TEXT={auto="Dim. auto",overworld="Oberwelt",nether="Nether",["end"]="End"}
@@ -405,7 +429,13 @@ function S.new(common)
             list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
         end
-        if role=="controller" or role=="info" then
+        if role=="storage" then
+            list[#list+1]={"Lager",function() local s=c.storage
+                local n=0;for _ in pairs(s.names) do n=n+1 end
+                return "alle "..s.interval.." s, orange ab "..s.warnAt.."%"..(n>0 and (", "..n.." Namen") or "") end,
+                function() editStorage(c) end}
+        end
+        if role=="controller" or role=="info" or role=="storage" then
             list[#list+1]={"Monitor",function() return (c.display.monitor=="auto" and "" or (c.display.monitor.." "))
                 ..(c.display.size=="auto" and "Groesse auto" or (tostring(c.display.size).." Bloecke"))
                 end,
@@ -418,7 +448,7 @@ function S.new(common)
             list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "
                 ..(c.autoPairPockets and "Pockets auto" or "Pockets fest")..(c.autoUpdate and ", Update auto" or "") end,function() editDevices(c) end}
         end
-        if role=="controller" or role=="info" or role=="repeater" then
+        if role=="controller" or role=="info" or role=="repeater" or role=="storage" then
             list[#list+1]={"GPS",function()
                 local g=c.gps
                 if g.host==false then return "aus" end
@@ -438,7 +468,7 @@ function S.new(common)
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
         local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
-            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[info.role].." #"..os.getComputerID())
+            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
             header(what)

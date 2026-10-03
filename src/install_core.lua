@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.6.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -76,7 +76,7 @@ if auto and not existing then
     sleep(1)
 end
 if existing and not pcall(function()
-    local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info" or copy.role=="gps") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
+    local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info" or copy.role=="gps" or copy.role=="storage") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.
     warn("Vorhandene Config ungueltig, wird neu erstellt.")
     existing=nil
@@ -99,6 +99,7 @@ local role=turtle and "turtle" or (pocket and "pocket" or "controller")
 if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") then role="repeater" end
 if not turtle and not pocket and c.role=="info" and not requested then role="info" end
 if not turtle and not pocket and c.role=="gps" and not requested then role="gps" end
+if not turtle and not pocket and c.role=="storage" and not requested then role="storage" end
 -- Neuer stationaerer Computer: Zentrale oder Repeater? Ohne Monitor ist Repeater vorgewaehlt.
 if role=="controller" and not requested and (clean or not existing) then
     local monitor=peripheral.find("monitor")~=nil
@@ -108,6 +109,7 @@ if role=="controller" and not requested and (clean or not existing) then
     fg(colors.yellow);write("2 ");fg(colors.white);print("Repeater  (leitet Funk weiter)")
     fg(colors.yellow);write("3 ");fg(colors.white);print("Infoscreen  (zeigt nur Infos/Stats)")
     fg(colors.yellow);write("4 ");fg(colors.white);print("GPS-Sender  (fuer Turtle-Koordinaten)")
+    fg(colors.yellow);write("5 ");fg(colors.white);print("Lager  (Kisten: Fuellstand + Inhalt)")
     print("")
     while true do
         write("Auswahl ["..(monitor and "1" or "2").."]: ")
@@ -117,6 +119,7 @@ if role=="controller" and not requested and (clean or not existing) then
         if v=="2" then role="repeater";break end
         if v=="3" then role="info";break end
         if v=="4" then role="gps";break end
+        if v=="5" then role="storage";break end
     end
 end
 assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaerem Computer installieren.")
@@ -229,6 +232,7 @@ if role=="controller" then
 elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="toast_ui.lua"
 elseif role=="info" then names[#names+1]="toast_info.lua";names[#names+1]="toast_ui.lua"
 elseif role=="gps" then names[#names+1]="toast_gps.lua"
+elseif role=="storage" then names[#names+1]="toast_storage.lua";names[#names+1]="toast_ui.lua"
 elseif role=="turtle" and (job=="tree" or job=="mob" or job=="dig") then
     names[#names+1]=job.."_turtle.lua";names[#names+1]="toast_worker.lua"
 elseif role=="turtle" then
@@ -266,7 +270,7 @@ ui.header("Fertig")
 print("")
 fg(colors.lime);print("Toast Control "..common.version.." installiert");fg(colors.white)
 print((role=="turtle" and ("Turtle / "..(common.JOB_NAMES[job] or job))
-    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[role])..(c.name~="" and (" / "..c.name) or ""))
+    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[role])..(c.name~="" and (" / "..c.name) or ""))
 if role~="controller" and role~="repeater" and role~="gps" then print("Zentrale #"..c.controllerId) end
 print(clean and "Komplett neu installiert." or "Update: Einstellungen behalten.")
 if resetProgress then print("Neuer Auftrag: alter Fortschritt geloescht.") end

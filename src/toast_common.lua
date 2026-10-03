@@ -1,5 +1,5 @@
 local M={
-    version="3.6.5",
+    version="3.7",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -55,6 +55,7 @@ M.DEFAULTS={
     tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
         fuelTarget=2000,radioTimeout=60},
     mob={mode="farm",attack="front",nightOnly=false,length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
+    storage={interval=10,warnAt=90,names={}},
     dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
 }
@@ -63,7 +64,7 @@ local function copy(v)
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,base=true,gps=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,storage=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -108,7 +109,7 @@ function M.configText(c)
     end
     local role,job=c.role,c.job
     local what=role=="turtle" and ("Turtle / "..(M.JOB_NAMES[job] or tostring(job))) or
-        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[role] or tostring(role)
+        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[role] or tostring(role)
     out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
     out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
@@ -118,7 +119,15 @@ function M.configText(c)
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" and role~="gps" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
-    if role=="controller" or role=="info" or role=="repeater" then
+    if role=="storage" then
+        section("storage","Lager: Kisten am Computer / per Netzwerkkabel",{
+            {"interval","alle x Sekunden neu auslesen (2-600)"},{"warnAt","ab x % voll orange (50-100)"},
+            {"names","eigene Namen: [\"minecraft:chest_3\"] = \"Erze\""}},c.storage)
+        section("display","Bildschirm",{
+            {"monitor","\"auto\" = alle Monitore, \"terminal\" oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
+            {"textScale","nur ohne size: Schrift 0.5 bis 5"}},c.display)
+    end
+    if role=="controller" or role=="info" or role=="repeater" or role=="storage" then
         section("gps","Nebenbei GPS-Sender (spart eigene GPS-Computer)",{
             {"host","true = GPS-Anfragen beantworten"},{"set","true = Koordinaten unten stimmen"},
             {"auto","true = beim Start selbst per GPS suchen"},
@@ -231,7 +240,13 @@ function M.load(c)
     M.withDefaults(c)
     c.role=c.role or "auto"
     if c.role=="auto" then c.role=turtle and "turtle" or (pocket and "pocket" or "controller") end
-    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true,gps=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info/gps")
+    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true,gps=true,storage=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info/gps/storage")
+    if c.role=="storage" then
+        local s=c.storage
+        assert(not turtle and not pocket,"Lager auf einem stationaeren Computer installieren.")
+        assert(type(s)=="table" and M.integer(s.interval,2,600) and M.integer(s.warnAt,50,100) and type(s.names)=="table",
+            "storage: interval 2-600, warnAt 50-100, names = Tabelle.")
+    end
     if c.role=="gps" then
         local g=c.gps
         assert(not turtle and not pocket,"GPS-Sender auf einem stationaeren Computer installieren.")

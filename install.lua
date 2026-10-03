@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.6.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -52,7 +52,7 @@ local function runOnce()
         },{__index=_ENV})
         return assert(loadfile("/toast/"..name.."_turtle.lua","t",env))(table.unpack(args))
     end
-    local program=({controller="toast_control.lua",pocket="toast_pocket.lua",repeater="repeater.lua",info="toast_info.lua",gps="toast_gps.lua"})[cfg.role]
+    local program=({controller="toast_control.lua",pocket="toast_pocket.lua",repeater="repeater.lua",info="toast_info.lua",gps="toast_gps.lua",storage="toast_storage.lua"})[cfg.role]
     return assert(loadfile("/toast/"..program,"t",_ENV))(table.unpack(args))
 end
 
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.6.5",
+    version="3.7",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -185,6 +185,7 @@ M.DEFAULTS={
     tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
         fuelTarget=2000,radioTimeout=60},
     mob={mode="farm",attack="front",nightOnly=false,length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
+    storage={interval=10,warnAt=90,names={}},
     dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
 }
@@ -193,7 +194,7 @@ local function copy(v)
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,base=true,gps=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,storage=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -238,7 +239,7 @@ function M.configText(c)
     end
     local role,job=c.role,c.job
     local what=role=="turtle" and ("Turtle / "..(M.JOB_NAMES[job] or tostring(job))) or
-        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[role] or tostring(role)
+        ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[role] or tostring(role)
     out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
     out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
@@ -248,7 +249,15 @@ function M.configText(c)
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" and role~="gps" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
-    if role=="controller" or role=="info" or role=="repeater" then
+    if role=="storage" then
+        section("storage","Lager: Kisten am Computer / per Netzwerkkabel",{
+            {"interval","alle x Sekunden neu auslesen (2-600)"},{"warnAt","ab x % voll orange (50-100)"},
+            {"names","eigene Namen: [\"minecraft:chest_3\"] = \"Erze\""}},c.storage)
+        section("display","Bildschirm",{
+            {"monitor","\"auto\" = alle Monitore, \"terminal\" oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
+            {"textScale","nur ohne size: Schrift 0.5 bis 5"}},c.display)
+    end
+    if role=="controller" or role=="info" or role=="repeater" or role=="storage" then
         section("gps","Nebenbei GPS-Sender (spart eigene GPS-Computer)",{
             {"host","true = GPS-Anfragen beantworten"},{"set","true = Koordinaten unten stimmen"},
             {"auto","true = beim Start selbst per GPS suchen"},
@@ -361,7 +370,13 @@ function M.load(c)
     M.withDefaults(c)
     c.role=c.role or "auto"
     if c.role=="auto" then c.role=turtle and "turtle" or (pocket and "pocket" or "controller") end
-    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true,gps=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info/gps")
+    assert(({controller=true,turtle=true,pocket=true,repeater=true,info=true,gps=true,storage=true})[c.role],"role: auto/controller/turtle/pocket/repeater/info/gps/storage")
+    if c.role=="storage" then
+        local s=c.storage
+        assert(not turtle and not pocket,"Lager auf einem stationaeren Computer installieren.")
+        assert(type(s)=="table" and M.integer(s.interval,2,600) and M.integer(s.warnAt,50,100) and type(s.names)=="table",
+            "storage: interval 2-600, warnAt 50-100, names = Tabelle.")
+    end
     if c.role=="gps" then
         local g=c.gps
         assert(not turtle and not pocket,"GPS-Sender auf einem stationaeren Computer installieren.")
@@ -1153,6 +1168,30 @@ function S.new(common)
         local ok,why=pcall(common.checkDig,d)
         if not ok then fg(colors.orange);print(cut(tostring(why)));fg(colors.white);sleep(2) end
     end
+    local function editStorage(c)
+        local s=c.storage
+        header("Lager (Kistenueberwachung)")
+        hint("Kisten direkt am Computer oder per")
+        hint("Netzwerkkabel + Kabelmodem (rechts-")
+        hint("klick aufs Modem = rot = verbunden).")
+        s.interval=ask("Neu auslesen alle x s (2-600)",s.interval,2,600)
+        s.warnAt=ask("Orange ab x % voll (50-100)",s.warnAt,50,100)
+        local found={}
+        for _,n in ipairs(peripheral.getNames()) do
+            local t=tostring(peripheral.getType(n) or "")
+            local m=peripheral.wrap(n)
+            if not t:find("turtle",1,true) and t~="monitor" and t~="modem" and m and type(m.list)=="function" then found[#found+1]=n end
+        end
+        table.sort(found)
+        if #found==0 then fg(colors.orange);print(cut("Keine Kisten gefunden."));fg(colors.white);sleep(1.5);return end
+        if not yesno(#found.." Kisten gefunden. Namen geben?",false) then return end
+        hint("Enter = behalten, - = Standardname")
+        for _,n in ipairs(found) do
+            write(cut(n.." ["..(s.names[n] or "-").."]: "))
+            local v=read()
+            if v=="-" then s.names[n]=nil elseif v~="" then s.names[n]=common.label(v) end
+        end
+    end
     local FACE_NAMES={north="Norden",east="Osten",south="Sueden",west="Westen"}
     local DIMS={"auto","overworld","nether","end"}
     local DIM_TEXT={auto="Dim. auto",overworld="Oberwelt",nether="Nether",["end"]="End"}
@@ -1340,7 +1379,13 @@ function S.new(common)
             list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
         end
-        if role=="controller" or role=="info" then
+        if role=="storage" then
+            list[#list+1]={"Lager",function() local s=c.storage
+                local n=0;for _ in pairs(s.names) do n=n+1 end
+                return "alle "..s.interval.." s, orange ab "..s.warnAt.."%"..(n>0 and (", "..n.." Namen") or "") end,
+                function() editStorage(c) end}
+        end
+        if role=="controller" or role=="info" or role=="storage" then
             list[#list+1]={"Monitor",function() return (c.display.monitor=="auto" and "" or (c.display.monitor.." "))
                 ..(c.display.size=="auto" and "Groesse auto" or (tostring(c.display.size).." Bloecke"))
                 end,
@@ -1353,7 +1398,7 @@ function S.new(common)
             list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "
                 ..(c.autoPairPockets and "Pockets auto" or "Pockets fest")..(c.autoUpdate and ", Update auto" or "") end,function() editDevices(c) end}
         end
-        if role=="controller" or role=="info" or role=="repeater" then
+        if role=="controller" or role=="info" or role=="repeater" or role=="storage" then
             list[#list+1]={"GPS",function()
                 local g=c.gps
                 if g.host==false then return "aus" end
@@ -1373,7 +1418,7 @@ function S.new(common)
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
         local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
-            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[info.role].." #"..os.getComputerID())
+            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
             header(what)
@@ -1562,7 +1607,7 @@ local function loop()
         elseif e=="mouse_click" and not name and a==1 then action(ui.click(b,c))
         elseif (e=="monitor_resize" and a==name) or (e=="term_resize" and not name) then draw()
         elseif e=="char" then
-            if (a=="q" or a=="Q") and not ui.help then quit=true;return end
+            if (a=="q" or a=="Q") and not ui.help and not ui.textInput() then quit=true;return end
             action(ui.char(a))
         elseif e=="key" then action(ui.key(keys.getName(a)))
         elseif e=="mouse_scroll" then action(a>0 and "down" or "up") end
@@ -1644,7 +1689,7 @@ function M.new(cfg)
     local function node(id,info)
         if type(info)~="table" then return end
         local role=info.role
-        if not ({repeater=true,gps=true,info=true,pocket=true})[role] then return end
+        if not ({repeater=true,gps=true,info=true,pocket=true,storage=true})[role] then return end
         local n=0;for _ in pairs(m.nodes) do n=n+1 end
         if not m.nodes[id] and n>=128 then return end
         m.nodes[id]={role=role,label=common.label(info.name),seen=os.clock(),
@@ -1773,7 +1818,7 @@ function M.new(cfg)
         end
         local targets={}
         for pid in pairs(pockets) do targets[pid]=true end
-        for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then targets[nid]=true end end
+        for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" or nd.role=="storage" then targets[nid]=true end end
         for nid in pairs(targets) do
             if only==nil or only==nid then
                 serial=serial+1;count=count+1
@@ -1809,7 +1854,7 @@ function M.new(cfg)
             end
         end
         for id in pairs(devices) do check(id,m.online(id)) end
-        for id,n in pairs(m.nodes) do if n.role=="repeater" or n.role=="gps" or pockets[id] then check(id,nodeOnline(id)) end end
+        for id,n in pairs(m.nodes) do if n.role=="repeater" or n.role=="gps" or n.role=="storage" or pockets[id] then check(id,nodeOnline(id)) end end
     end
     return m
 end
@@ -2338,7 +2383,7 @@ function M.new(screen,cfg)
         local rank,pos={fault=1,warn=2,work=3,move=3,wait=3,done=4,idle=4,off=5},{}
         for i,id in ipairs(ids) do local _,k=M.state(entries[id] or {},link);pos[id]=(rank[k] or 4)*10000+i end
         table.sort(ids,function(a,b) return pos[a]<pos[b] end)
-        if ui.filter~="net" then
+        if ui.filter~="net" and ui.filter~="store" then
             ui.ids=ids
             if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
             if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
@@ -2346,6 +2391,17 @@ function M.new(screen,cfg)
         end
         -- Kopfzeile
         fill(1,colors.blue)
+        if ui.storeOnly then
+            -- Lager-Computer: nur die Lageransicht, oben Fuellstand + Uhr
+            local nd=fleet.nodes or {ids={},entries={}}
+            local e1=nd.entries[nd.ids[1]];local st1=e1 and e1.data and e1.data.stats or {}
+            text(2,1,"TOAST LAGER",colors.white,colors.blue)
+            local clock=clockText()
+            local r=(st1.pct and (st1.pct.."% voll") or "").."  "..clock.." "
+            if #r+13>w then r=clock.." " end
+            right(1,r,colors.white,colors.blue)
+            return ui.drawStore(nd,true,text,right,fill,pill,w,h,notice,2)
+        end
         text(2,1,"TOAST",colors.white,colors.blue)
         -- Update-Knopf: alle Geraete holen sich die neue Version und machen weiter
         if ui.canUpdate~=false then
@@ -2372,6 +2428,8 @@ function M.new(screen,cfg)
         end
         -- Netz: Repeater, GPS-Sender, Infoscreens, Pockets
         local nodes=fleet.nodes or {ids={},entries={}}
+        local nStore=0;for _,nid in ipairs(nodes.ids) do if nodes.entries[nid].role=="storage" then nStore=nStore+1 end end
+        if nStore>0 or ui.filter=="store" then tabs[#tabs+1]={"Lager",nStore,"store"} end
         if #nodes.ids>0 or ui.filter=="net" then tabs[#tabs+1]={"Netz",#nodes.ids,"net"} end
         ui.tabs={};for i,t in ipairs(tabs) do ui.tabs[i]=t[3] end
         local tw=math.floor(w/#tabs)
@@ -2381,7 +2439,7 @@ function M.new(screen,cfg)
             local lab=t[1].." "..t[2]
             if #lab>width-2 then
                 -- schmaler Bildschirm (Pocket): Kurzname + Anzahl, z.B. "M3"
-                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",Netz="N"}
+                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",Lager="L",Netz="N"}
                 local sh=SH[t[1]] or t[1]:sub(1,1)
                 lab=(#t[1]<=width-1) and t[1] or ((#(sh..t[2])<=width-1) and (sh..t[2]) or sh)
             end
@@ -2394,6 +2452,7 @@ function M.new(screen,cfg)
             end
         end
         if ui.filter=="net" then return ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice) end
+        if ui.filter=="store" then return ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,3) end
         local third=math.floor(w/3)
         -- Fusszeile: Hinweiszeile + grosse Tastenreihe + untere Reihe
         -- Grosse Bildschirme bekommen hoehere Knoepfe (leichter zu treffen).
@@ -2571,7 +2630,144 @@ function M.new(screen,cfg)
         if not sel and pages>1 then right(foot,ui.page.."/"..pages,colors.gray) end
     end
     -- ===== Netz-Ansicht =====
-    local NODE_NAMES={repeater="Repeater",gps="GPS-Sender",info="Infoscreen",pocket="Pocket"}
+    local NODE_NAMES={repeater="Repeater",gps="GPS-Sender",info="Infoscreen",pocket="Pocket",storage="Lager"}
+    -- ===== Lager (Kistenueberwachung) =====
+    -- Kisten mit Fuellstand oder Inhalt (alle Lager zusammen, mit Suche).
+    -- Tippen auf ein Item zeigt, in welchen Kisten es liegt.
+    local function fillColor(p,warn)
+        p=num(p);if p>=100 then return colors.red elseif p>=num(warn or 90) then return colors.orange end
+        return colors.lime
+    end
+    function ui.textInput() return ui.filter=="store" end
+    function ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,y0)
+        ui.ids={};ui.selected=nil
+        local stores={}
+        for _,id in ipairs(nodes.ids or {}) do
+            local e=nodes.entries[id]
+            if e.role=="storage" then stores[#stores+1]={id=id,e=e,st=(e.data and e.data.stats) or {}} end
+        end
+        ui.storeView=ui.storeView or "chests"
+        ui.search=ui.search or ""
+        local y=y0 or 3
+        -- Umschalter Kisten / Inhalt
+        local half=math.floor(w/2)
+        local isC=ui.storeView=="chests" and not ui.storeItem
+        pill(1,y,half-1,"Kisten","sview:chests",isC and colors.lightBlue or colors.gray,true,isC and colors.black or colors.white)
+        pill(half+1,y,w-half,"Inhalt","sview:items",(not isC) and colors.lightBlue or colors.gray,true,(not isC) and colors.black or colors.white)
+        y=y+1
+        if #stores==0 then
+            text(1,y+1,"Noch kein Lager gemeldet.",colors.lightGray)
+            text(1,y+2,"Computer an die Kisten stellen",colors.lightGray)
+            text(1,y+3,"(oder per Netzwerkkabel) und",colors.lightGray)
+            text(1,y+4,"als 5 'Lager' installieren.",colors.lightGray)
+            return
+        end
+        local multi=#stores>1
+        local rows={}
+        if ui.storeItem then
+            -- Wo liegt das Item?
+            local name,total=ui.storeItem,0
+            local where={}
+            for _,s in ipairs(stores) do
+                for _,it in ipairs(s.st.items or {}) do
+                    if it.id==ui.storeItem then
+                        name=it.n or it.id;total=total+num(it.c)
+                        for _,wh in ipairs(it.w or {}) do
+                            local ch=(s.st.chests or {})[wh.i] or {}
+                            where[#where+1]={label=(multi and ((s.e.label~="" and s.e.label or ("Lager #"..s.id)).." / ") or "")..tostring(ch.n or ("Kiste "..wh.i)),c=num(wh.c),p=ch.p}
+                        end
+                    end
+                end
+            end
+            pill(1,y,math.min(w,#name+(w>=30 and 12 or 3)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"sback",colors.gray,true)
+            y=y+1
+            text(1,y,"Gesamt",colors.lightGray);right(y,short(total).." Stueck",colors.white);y=y+1
+            for _,wh in ipairs(where) do rows[#rows+1]={kind="where",label=wh.label,c=wh.c,p=wh.p} end
+            if #where==0 then rows[1]={kind="note",label="Nicht mehr im Lager."} end
+        elseif ui.storeView=="chests" then
+            for _,s in ipairs(stores) do
+                local st=s.st
+                local lname=s.e.label~="" and s.e.label or ("Lager #"..s.id)
+                rows[#rows+1]={kind="head",label=lname..(s.e.online and "" or " (offline)"),p=st.pct,warn=st.warn,
+                    info=short(st.count).." Kisten, "..short(st.types).." Sorten",on=s.e.online}
+                for _,ch in ipairs(st.chests or {}) do
+                    rows[#rows+1]={kind="chest",label=tostring(ch.n),p=ch.p,warn=st.warn,slots=num(ch.u).."/"..num(ch.s)}
+                end
+            end
+        else
+            -- Inhalt aller Lager, zusammengezaehlt, mit Suche
+            local byId,list={},{}
+            for _,s in ipairs(stores) do
+                for _,it in ipairs(s.st.items or {}) do
+                    local e=byId[it.id]
+                    if not e then e={id=it.id,n=tostring(it.n or it.id),c=0,first=nil};byId[it.id]=e;list[#list+1]=e end
+                    e.c=e.c+num(it.c)
+                    if not e.first and it.w and it.w[1] then local ch=(s.st.chests or {})[it.w[1].i];e.first=ch and ch.n end
+                end
+            end
+            local q=ui.search:lower()
+            local shown={}
+            for _,e in ipairs(list) do
+                if q=="" or e.n:lower():find(q,1,true) or e.id:lower():find(q,1,true) then shown[#shown+1]=e end
+            end
+            table.sort(shown,function(a,b) return a.c>b.c end)
+            if ui.kbd or q~="" then
+                text(1,y,"Suche: ",colors.lightGray);text(8,y,(q~="" and q or "")..(ui.kbd and "_" or ""),colors.yellow)
+                right(y,#shown.." Sorten",colors.lightGray);y=y+1
+            end
+            for _,e in ipairs(shown) do rows[#rows+1]={kind="item",label=e.n,c=e.c,id=e.id,first=e.first} end
+            if #shown==0 then rows[1]={kind="note",label=q~="" and ("Nichts gefunden: "..q) or "Lager ist leer."} end
+        end
+        -- Seiten
+        local avail=math.max(1,h-y)
+        local pages=math.max(1,math.ceil(#rows/avail))
+        ui.page=math.max(1,math.min(ui.page or 1,pages));ui.storePages=pages
+        local first=(ui.page-1)*avail
+        for i=1,avail do
+            local r=rows[first+i];if not r then break end
+            local yy=y+i-1
+            if r.kind=="head" then
+                local pc=string.format("%3d%%",num(r.p))
+                text(1,yy,r.label:sub(1,w-6),r.on and colors.white or colors.gray)
+                right(yy,pc,fillColor(r.p,r.warn))
+                if w>=40 then text(math.max(#r.label+3,w-6-#r.info-1),yy,r.info,colors.lightGray) end
+            elseif r.kind=="chest" or r.kind=="where" then
+                local nameW=math.min(w>=40 and 18 or 10,math.max(6,w-16))
+                local tail=r.kind=="where" and short(r.c) or string.format("%3d%%",num(r.p))
+                local barX=nameW+3
+                local barW=w-barX-#tail-1
+                text(2,yy,r.label:sub(1,nameW),colors.white)
+                if r.kind=="chest" and barW>=3 then thinBar(text,barX,yy,barW,num(r.p)/100,fillColor(r.p,r.warn),colors.black)
+                elseif r.kind=="where" and r.p and barW>=3 then thinBar(text,barX,yy,barW,num(r.p)/100,fillColor(r.p,90),colors.black) end
+                right(yy,tail,r.kind=="chest" and fillColor(r.p,r.warn) or colors.white)
+            elseif r.kind=="item" then
+                local cnt=short(r.c)
+                local loc=(w>=44 and r.first) and tostring(r.first) or nil
+                local nameW=w-#cnt-2-(loc and (#loc+2) or 0)
+                text(1,yy,r.label:sub(1,nameW),colors.white)
+                if loc then text(w-#cnt-#loc-2,yy,loc,colors.gray) end
+                right(yy,cnt,colors.lightGray)
+                ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w,action="sitem:"..r.id,enabled=true}
+            else text(1,yy,r.label:sub(1,w),colors.lightGray) end
+        end
+        -- Fusszeile
+        if pages>1 then
+            local pw=math.max(4,math.floor(w/6))
+            pill(1,h,pw,"\27","pageprev",colors.gray,ui.page>1,colors.white)
+            pill(w-pw+1,h,pw,"\26","pagenext",colors.gray,ui.page<pages,colors.white)
+            local m=ui.page.."/"..pages
+            text(math.floor((w-#m)/2)+1,h,m,colors.lightGray)
+        else
+            local info=tostring(notice or "")
+            if info:find("Warte auf",1,true) or info:find("bestaetigt",1,true) or info:find("Verbunden",1,true) then info="" end
+            if info=="" then
+                info=ui.storeItem and "Zurueck: Pfeil links / Backspace"
+                    or (ui.storeView=="items" and (ui.kbd and "Tippen = suchen, Item = wo liegt es" or "Item antippen = wo liegt es")
+                    or (w>=30 and "Orange = fast voll, Rot = voll" or "Orange fast voll, Rot voll"))
+            end
+            text(1,h,info:sub(1,w),colors.lightGray)
+        end
+    end
     function ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice)
         local ids=nodes.ids
         ui.ids=ids
@@ -2641,12 +2837,21 @@ function M.new(screen,cfg)
         if not a then return end
         if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
+        elseif a:match("^sview:") then ui.storeView=a:sub(7);ui.storeItem=nil;ui.page=1;return
+        elseif a:match("^sitem:") then ui.storeItem=a:sub(7);ui.page=1;return
+        elseif a=="sback" then ui.storeItem=nil;return
+        elseif ui.filter=="store" and (a=="up" or a=="down") then
+            if a=="up" then ui.page=math.max(1,(ui.page or 1)-1) else ui.page=math.min(ui.storePages or 1,(ui.page or 1)+1) end
+            return
+        elseif ui.filter=="store" and a=="group" then
+            if ui.storeItem then ui.storeItem=nil elseif (ui.search or "")~="" then ui.search=ui.search:sub(1,-2);ui.page=1 end
+            return
         elseif a=="help" then ui.help=not ui.help
         elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
         elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected
         elseif a=="group" then ui.cursor=ui.selected or ui.cursor;ui.selected=nil;ui.followCursor=true
         elseif a=="pageprev" then ui.page=math.max(1,ui.page-1)
-        elseif a=="pagenext" then ui.page=math.min(ui.pages or 1,ui.page+1)
+        elseif a=="pagenext" then ui.page=math.min((ui.filter=="store" and ui.storePages) or ui.pages or 1,ui.page+1)
         elseif a=="tabprev" or a=="tabnext" then
             local TABS=ui.tabs or {"all","farm","mining"}
             local i=1;for k,t in ipairs(TABS) do if t==ui.filter then i=k end end
@@ -2681,6 +2886,10 @@ function M.new(screen,cfg)
         if not name then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.filter=="store" and name=="left" and ui.storeItem then return "sback" end
+        if ui.filter=="store" and ui.storeOnly and (name=="left" or name=="right" or name=="tab") then
+            return "sview:"..(ui.storeView=="items" and "chests" or "items")
+        end
         if name=="left" then return ui.selected and "group" or "tabprev" end
         if name=="right" then return ui.selected and nil or "tabnext" end
         local a=KEYS[name]
@@ -2691,6 +2900,11 @@ function M.new(screen,cfg)
         if not ch then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.filter=="store" and ch:match("^[%w _%-]$") then
+            -- Lager: Buchstaben = Suche im Inhalt
+            ui.search=((ui.search or "")..ch:lower()):sub(1,24);ui.storeView="items";ui.storeItem=nil;ui.page=1
+            return "redraw"
+        end
         return ui.keys[ch:lower()] or ui.keys[ch]
     end
     function ui.target() return ui.selected or ui.filter end
@@ -2777,7 +2991,7 @@ local function loop()
         elseif e=="mouse_click" and a==1 then action(ui.click(b,c))
         elseif e=="term_resize" then draw()
         elseif e=="char" then
-            if (a=="q" or a=="Q") and not ui.help then return end
+            if (a=="q" or a=="Q") and not ui.help and not ui.textInput() then return end
             action(ui.char(a))
         elseif e=="key" then action(ui.key(keys.getName(a)))
         elseif e=="mouse_scroll" then action(a>0 and "down" or "up") end
@@ -6217,7 +6431,179 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.6.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+FILES["toast_storage.lua"]=[======[
+-- Toast Control: Lager / Kistenueberwachung.
+-- Ein Computer neben den Kisten (oder per Netzwerkkabel + Kabelmodem mit vielen
+-- Kisten verbunden) liest alle Kisten, Faesser, Shulker usw. aus:
+--   - Fuellstand je Kiste und gesamt (orange = fast voll, rot = voll)
+--   - Inhalt: welche Items, wie viele, in welchen Kisten (mit Suche)
+-- Anzeige auf dem eigenen Monitor (oder Computerbildschirm). Die Zentrale und
+-- die Pockets zeigen dasselbe im Reiter "Lager".
+local common=dofile("/toast/toast_common.lua")
+local cfg=common.load();assert(cfg.role=="storage","Lager erforderlich.")
+local C=cfg.storage
+local UI=dofile("/toast/toast_ui.lua")
+pcall(common.refreshModems)
+local gpsHost=common.gpsHost(cfg)
+local ME=os.getComputerID()
+-- ===== Kisten finden und auslesen =====
+local maxCount,display={},{}
+local function shortName(id)
+    local s=tostring(id):gsub("^[^:]+:",""):gsub("_"," ")
+    return (s:gsub("^%l",string.upper))
+end
+local KIND={chest="Kiste",trapped_chest="Kiste",barrel="Fass",shulker_box="Shulker",hopper="Trichter",
+    dropper="Spender",dispenser="Werfer",furnace="Ofen",blast_furnace="Hochofen",smoker="Raeucher"}
+local SIDES={left="links",right="rechts",top="oben",bottom="unten",front="vorne",back="hinten"}
+local function isInventory(n)
+    local t=tostring(peripheral.getType(n) or "")
+    if t:find("turtle",1,true) or t=="computer" or t=="monitor" or t=="modem" then return false end
+    if peripheral.hasType then
+        local ok,r=pcall(peripheral.hasType,n,"inventory");if ok and r then return true end
+    end
+    local m=peripheral.wrap(n)
+    return m~=nil and type(m.list)=="function" and type(m.size)=="function"
+end
+local function label(n)
+    if type(C.names)=="table" and type(C.names[n])=="string" and C.names[n]~="" then return C.names[n] end
+    local t=tostring(peripheral.getType(n) or n):gsub("^[^:]+:","")
+    if t:find("shulker_box",1,true) then t="shulker_box" end
+    local kind=KIND[t] or shortName(t)
+    if SIDES[n] then return kind.." "..SIDES[n] end
+    local num=n:match("_(%d+)$")
+    return kind..(num and (" "..num) or "")
+end
+local data={chests={},items={},used=0,size=0,pct=0,warn=C.warnAt,count=0,types=0}
+local scanning=false
+local function scan()
+    scanning=true
+    local names={}
+    for _,n in ipairs(peripheral.getNames()) do if isInventory(n) then names[#names+1]=n end end
+    table.sort(names)
+    local chests,items,byId={},{},{}
+    local used,size,fill=0,0,0
+    for _,n in ipairs(names) do
+        local inv=peripheral.wrap(n)
+        local okS,sz=pcall(inv.size)
+        local okL,lst=pcall(inv.list)
+        if okS and okL and type(sz)=="number" and type(lst)=="table" then
+            local u,f,content=0,0,{}
+            for slot,it in pairs(lst) do
+                if type(it)=="table" and it.name then
+                    u=u+1
+                    local id=it.name
+                    if not maxCount[id] then
+                        local okD,det=pcall(inv.getItemDetail,slot)
+                        maxCount[id]=(okD and type(det)=="table" and det.maxCount) or 64
+                        display[id]=(okD and type(det)=="table" and det.displayName) or shortName(id)
+                    end
+                    f=f+it.count/math.max(1,maxCount[id])
+                    content[id]=(content[id] or 0)+it.count
+                end
+            end
+            local idx=#chests+1
+            chests[idx]={n=label(n),pid=n,p=sz>0 and math.floor(f/sz*100+0.5) or 0,u=u,s=sz}
+            used,size,fill=used+u,size+sz,fill+f
+            for id,c in pairs(content) do
+                local e=byId[id]
+                if not e then e={id=id,n=display[id] or shortName(id),c=0,w={}};byId[id]=e;items[#items+1]=e end
+                e.c=e.c+c;e.w[#e.w+1]={i=idx,c=c}
+            end
+        end
+    end
+    table.sort(items,function(a,b) return a.c>b.c end)
+    for _,e in ipairs(items) do table.sort(e.w,function(a,b) return a.c>b.c end) end
+    data={chests=chests,items=items,used=used,size=size,pct=size>0 and math.floor(fill/size*100+0.5) or 0,
+        warn=C.warnAt,count=#chests,types=#items,full=0}
+    for _,ch in ipairs(chests) do if ch.p>=C.warnAt then data.full=data.full+1 end end
+    scanning=false
+end
+-- Fuer Zentrale/Pocket: kompakt (max. 64 Kisten, 150 Sorten, je 6 Fundorte)
+local function compact()
+    local ch={}
+    for i=1,math.min(64,#data.chests) do local c=data.chests[i];ch[i]={n=c.n,p=c.p,u=c.u,s=c.s} end
+    local it={}
+    for i=1,math.min(150,#data.items) do
+        local e=data.items[i];local w={}
+        for k=1,math.min(6,#e.w) do if e.w[k].i<=64 then w[#w+1]=e.w[k] end end
+        it[i]={id=e.id,n=e.n,c=e.c,w=w}
+    end
+    return {chests=ch,items=it,used=data.used,size=data.size,pct=data.pct,warn=data.warn,count=data.count,
+        types=data.types,full=data.full,gps=gpsHost and gpsHost.served or nil}
+end
+-- ===== Anzeige =====
+local screens={}
+local function bind()
+    local old={}
+    for _,s in ipairs(screens) do old[s.name or "term"]=s.ui end
+    screens={}
+    if cfg.display.monitor~="terminal" then
+        for _,n in ipairs(peripheral.getNames()) do
+            if peripheral.getType(n)=="monitor" and (cfg.display.monitor=="auto" or cfg.display.monitor==n) then
+                local m=peripheral.wrap(n)
+                if m and m.isColor and m.isColor() then
+                    common.applyScale(m,cfg.display,"info")
+                    screens[#screens+1]={dev=m,name=n,ui=old[n]}
+                end
+            end
+        end
+    end
+    -- Computerbildschirm zeigt immer mit (Suche per Tastatur)
+    screens[#screens+1]={dev=term,name=nil,ui=old.term}
+    for _,s in ipairs(screens) do
+        if not s.ui then
+            s.ui=UI.new(s.dev,cfg);s.ui.storeOnly=true;s.ui.filter="store";s.ui.canUpdate=false
+            s.ui.storeView=s.name and "chests" or "items"
+        else s.ui.setScreen(s.dev) end
+    end
+end
+local function fleet()
+    local name=(cfg.label and cfg.label~="" and cfg.label) or (cfg.name and cfg.name~="" and cfg.name) or "Lager"
+    return {ids={},entries={},nodes={ids={ME},entries={[ME]={role="storage",label=name,online=true,data={stats=data}}}}}
+end
+local notice=""
+local function draw()
+    local f=fleet()
+    for _,s in ipairs(screens) do
+        local ok,why=pcall(s.ui.draw,f,true,notice)
+        if not ok then common.log("Lager-Anzeige: "..tostring(why)) end
+    end
+end
+local function beacon() common.nodeBeacon(cfg,"storage",compact()) end
+-- ===== Ablauf =====
+bind()
+term.clear();term.setCursorPos(1,1);print("Lese Kisten ...")
+scan();draw();beacon()
+local scanTimer=os.startTimer(C.interval)
+local beaconTimer=os.startTimer(10)
+local function screenOf(name) for _,s in ipairs(screens) do if s.name==name then return s end end end
+local function act(s,a)
+    if not s or not a then return end
+    s.ui.action(a);draw()
+end
+while true do
+    local e,a,b,c,d,f=os.pullEvent()
+    if gpsHost and gpsHost.event(e,a,b,c,d,f) then
+        -- GPS-Anfrage beantwortet
+    elseif e=="rednet_message" and common.isUpdateFor(cfg,a,b) then
+        notice="Update wird installiert ...";draw()
+        local ok,why=common.selfUpdate(nil,b.target)
+        if not ok then notice="Update: "..tostring(why);common.log(notice);draw() end
+    elseif e=="timer" and a==scanTimer then
+        scan();draw();scanTimer=os.startTimer(C.interval)
+    elseif e=="timer" and a==beaconTimer then
+        pcall(common.refreshModems);beacon();beaconTimer=os.startTimer(10)
+    elseif e=="monitor_touch" then local s=screenOf(a);if s then act(s,s.ui.click(b,c)) end
+    elseif e=="mouse_click" then local s=screenOf(nil);act(s,s.ui.click(b,c))
+    elseif e=="mouse_scroll" then local s=screenOf(nil);act(s,a>0 and "down" or "up")
+    elseif e=="char" then local s=screenOf(nil);act(s,s.ui.char(a))
+    elseif e=="key" then local s=screenOf(nil);act(s,s.ui.key(keys.getName(a)))
+    elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
+        bind();if e~="monitor_resize" and e~="term_resize" then scan() end;draw()
+    end
+end
+]======]
+-- TOAST CONTROL 3.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -6295,7 +6681,7 @@ if auto and not existing then
     sleep(1)
 end
 if existing and not pcall(function()
-    local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info" or copy.role=="gps") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
+    local copy=common.copy(existing);copy.role=((copy.role=="repeater" or copy.role=="info" or copy.role=="gps" or copy.role=="storage") and not turtle and not pocket) and copy.role or nil;common.load(copy) end) then
     -- Kaputte/inkompatible Config nicht uebernehmen, sondern neu anlegen.
     warn("Vorhandene Config ungueltig, wird neu erstellt.")
     existing=nil
@@ -6318,6 +6704,7 @@ local role=turtle and "turtle" or (pocket and "pocket" or "controller")
 if requested=="repeater" or (not turtle and not pocket and c.role=="repeater") then role="repeater" end
 if not turtle and not pocket and c.role=="info" and not requested then role="info" end
 if not turtle and not pocket and c.role=="gps" and not requested then role="gps" end
+if not turtle and not pocket and c.role=="storage" and not requested then role="storage" end
 -- Neuer stationaerer Computer: Zentrale oder Repeater? Ohne Monitor ist Repeater vorgewaehlt.
 if role=="controller" and not requested and (clean or not existing) then
     local monitor=peripheral.find("monitor")~=nil
@@ -6327,6 +6714,7 @@ if role=="controller" and not requested and (clean or not existing) then
     fg(colors.yellow);write("2 ");fg(colors.white);print("Repeater  (leitet Funk weiter)")
     fg(colors.yellow);write("3 ");fg(colors.white);print("Infoscreen  (zeigt nur Infos/Stats)")
     fg(colors.yellow);write("4 ");fg(colors.white);print("GPS-Sender  (fuer Turtle-Koordinaten)")
+    fg(colors.yellow);write("5 ");fg(colors.white);print("Lager  (Kisten: Fuellstand + Inhalt)")
     print("")
     while true do
         write("Auswahl ["..(monitor and "1" or "2").."]: ")
@@ -6336,6 +6724,7 @@ if role=="controller" and not requested and (clean or not existing) then
         if v=="2" then role="repeater";break end
         if v=="3" then role="info";break end
         if v=="4" then role="gps";break end
+        if v=="5" then role="storage";break end
     end
 end
 assert(role~="repeater" or (not turtle and not pocket),"Repeater auf stationaerem Computer installieren.")
@@ -6448,6 +6837,7 @@ if role=="controller" then
 elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="toast_ui.lua"
 elseif role=="info" then names[#names+1]="toast_info.lua";names[#names+1]="toast_ui.lua"
 elseif role=="gps" then names[#names+1]="toast_gps.lua"
+elseif role=="storage" then names[#names+1]="toast_storage.lua";names[#names+1]="toast_ui.lua"
 elseif role=="turtle" and (job=="tree" or job=="mob" or job=="dig") then
     names[#names+1]=job.."_turtle.lua";names[#names+1]="toast_worker.lua"
 elseif role=="turtle" then
@@ -6485,7 +6875,7 @@ ui.header("Fertig")
 print("")
 fg(colors.lime);print("Toast Control "..common.version.." installiert");fg(colors.white)
 print((role=="turtle" and ("Turtle / "..(common.JOB_NAMES[job] or job))
-    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender"})[role])..(c.name~="" and (" / "..c.name) or ""))
+    or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[role])..(c.name~="" and (" / "..c.name) or ""))
 if role~="controller" and role~="repeater" and role~="gps" then print("Zentrale #"..c.controllerId) end
 print(clean and "Komplett neu installiert." or "Update: Einstellungen behalten.")
 if resetProgress then print("Neuer Auftrag: alter Fortschritt geloescht.") end

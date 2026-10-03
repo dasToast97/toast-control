@@ -55,7 +55,7 @@ function M.new(cfg)
     local function node(id,info)
         if type(info)~="table" then return end
         local role=info.role
-        if not ({repeater=true,gps=true,info=true,pocket=true})[role] then return end
+        if not ({repeater=true,gps=true,info=true,pocket=true,storage=true})[role] then return end
         local n=0;for _ in pairs(m.nodes) do n=n+1 end
         if not m.nodes[id] and n>=128 then return end
         m.nodes[id]={role=role,label=common.label(info.name),seen=os.clock(),
@@ -184,7 +184,7 @@ function M.new(cfg)
         end
         local targets={}
         for pid in pairs(pockets) do targets[pid]=true end
-        for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then targets[nid]=true end end
+        for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" or nd.role=="storage" then targets[nid]=true end end
         for nid in pairs(targets) do
             if only==nil or only==nid then
                 serial=serial+1;count=count+1
@@ -220,7 +220,7 @@ function M.new(cfg)
             end
         end
         for id in pairs(devices) do check(id,m.online(id)) end
-        for id,n in pairs(m.nodes) do if n.role=="repeater" or n.role=="gps" or pockets[id] then check(id,nodeOnline(id)) end end
+        for id,n in pairs(m.nodes) do if n.role=="repeater" or n.role=="gps" or n.role=="storage" or pockets[id] then check(id,nodeOnline(id)) end end
     end
     return m
 end
