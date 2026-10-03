@@ -67,7 +67,7 @@ function Sim.new(opts)
         if not S.hasTool() then return false,"No tool to dig with" end
         if b=="minecraft:bedrock" then return false,"Unbreakable block detected" end
         if b:find("lava",1,true) or b:find("water",1,true) then return false,"Nothing to dig here" end
-        S.world[key(x,y,z)]=false;S.digs=(S.digs or 0)+1;if b=="minecraft:wheat_ripe" and S.seedDrops then add("minecraft:wheat",1);add("minecraft:wheat_seeds",S.seedDrops);return true end
+        S.world[key(x,y,z)]=false;S.digs=(S.digs or 0)+1;S.dugNames=S.dugNames or {};S.dugNames[b]=(S.dugNames[b] or 0)+1;if b=="minecraft:wheat_ripe" and S.seedDrops then add("minecraft:wheat",1);add("minecraft:wheat_seeds",S.seedDrops);return true end
         add(b=="minecraft:stone" and "minecraft:cobblestone" or b:find("coal_ore",1,true) and "minecraft:coal" or b,1);return true
     end end
     local function mv(kind)return function()
@@ -204,7 +204,7 @@ function Sim.env(S)
         move=function(a,b)S.files[b]=S.files[a];S.files[a]=nil end,makeDir=function()end,
         getSize=function(p)return #(S.files[p] or "")end,copy=function(a,b)S.files[b]=S.files[a]end,isDir=function()return false end}
     G.textutils={serialize=function(t)return ser(t)end,unserialize=function(s)local f=load("return "..s,"u","t",{});if not f then return nil end;local ok,v=pcall(f);return ok and v or nil end}
-    G.os={clock=function()return S.T end,epoch=function()return 1700000000000+math.floor(S.T*1000)end,
+    G.os={clock=function()return S.T end,time=function()return S.gameTime and S.gameTime(S.T) or 0 end,epoch=function()return 1700000000000+math.floor(S.T*1000)end,
         getComputerID=function()return 7 end,getComputerLabel=function()return nil end,date=function()return "SIM" end,
         startTimer=function(t)local id=S.nextTimer;S.nextTimer=id+1;S.timers[id]=S.T+t;return id end,
         pullEventRaw=function(f)return coroutine.yield(f)end}

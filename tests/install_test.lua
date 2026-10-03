@@ -168,26 +168,27 @@ S=Sim.new({config=MINECFG,input={"1","1","2","","9x9","4 x 3","","n","n"}});S.fi
 ok,err=install(S,false,4)
 check("4x3 trotz Falscheingabe",ok and cfgOf(S).display.size=="4x3",err)
 
-print("T Neue Holzfarm: 3 Baeume beidseitig, Abstand 2, Knochenmehl aus")
-S=Sim.new({config=MINECFG,input={"1","3","4","1","Birken","3","3","2","3","60","n","20","","j","n"}});S.files={}
+print("T Neuer Holzfaeller: Gebiet 6 x 3 rechts, max Baumhoehe 20")
+S=Sim.new({config=MINECFG,input={"1","3","4","1","Birken","3","6","3","r","","20","","60","","j","n"}});S.files={}
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
-check("Holz-Config gespeichert",kc and kc.job=="tree" and kc.tree.trees==3 and kc.tree.spacing==2 and kc.tree.side=="both"
-  and kc.tree.interval==60 and kc.tree.bonemeal==false and kc.tree.maxHeight==20 and not kc.mine and not kc.farm and not kc.chunkload,err)
+check("Holz-Config gespeichert",kc and kc.job=="tree" and kc.tree.length==6 and kc.tree.width==3 and kc.tree.side=="right"
+  and kc.tree.interval==60 and kc.tree.replant==true and kc.tree.maxHeight==20 and not kc.mine and not kc.farm and not kc.chunkload,err)
 check("Holz-Programme installiert",S.files["/toast/tree_turtle.lua"] and S.files["/toast/toast_worker.lua"] and not S.files["/toast/mine_turtle.lua"])
 S.T=0;S.timers={};S.queue={};S.input={};S.protocol="toast.tree.v1"
 S.actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}
 S.inv[1]={name="minecraft:spruce_sapling",count=12}
+for x=-2,4 do for z=-1,8 do for y=-8,0 do S.world[S.key(x,y,z)]=false end;S.world[S.key(x,1,z)]="minecraft:dirt" end end
 S.world[S.key(0,1,0)]="minecraft:chest";S.world[S.key(0,-1,0)]="minecraft:chest"
-for x=-2,2 do for z=0,8 do for y=-8,0 do if S.world[S.key(x,y,z)]==nil then S.world[S.key(x,y,z)]=false end end end end
-S.growTree(1,0,1);S.growTree(-1,0,4);S.growTree(1,0,7)
-Sim.run(S,600)
+S.growTree(2,0,1);S.growTree(0,0,4);S.growTree(1,0,6)
+Sim.run(S,1500)
 local ts=load("return "..(S.files["/toast_tree_state"] or "{}"))()
-check("Holzrunde nach Installation",ts.rounds==1 and ts.harvested==3,tostring(ts.rounds).."/"..tostring(ts.harvested))
+local left={};for k,v in pairs(S.world) do if v=="minecraft:birch_log" then left[#left+1]=k end end
+check("Holzrunde nach Installation",ts.rounds==1 and ts.harvested==3,tostring(ts.rounds).."/"..tostring(ts.harvested).." rest "..table.concat(left," "))
 check("Status mit Name + Job",S.last and S.last.label=="Birken" and S.last.job=="tree")
 
 print("U Neue Mob-Turtle: Patrouille 6x3 links")
-S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","6","3","l","","","10","","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","","6","3","l","","","10","","j","n"}});S.files={}
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Mob-Config gespeichert",kc and kc.job=="mob" and kc.mob.mode=="patrol" and kc.mob.length==6 and kc.mob.width==3

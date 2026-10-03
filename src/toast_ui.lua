@@ -17,6 +17,7 @@ function M.state(e,link)
     if s=="Rueckkehr" then return "Heimweg","move" end
     if s=="Warten" then return "Wartet","wait" end
     if s=="Wache" then return "Wacht","wait" end
+    if s=="Tagpause" then return "Tagpause","wait" end
     if s=="Fertig" then return "Fertig","done" end
     if s=="Bereit" or s=="Reset" or s=="" then return "Bereit","idle" end
     return "Problem","warn"
@@ -52,8 +53,8 @@ local JOB={
     tree={name="Holz",plural="Holzfarmen",metric="Holz",unit="Staemme",once="1 Runde",
         value=function(d) return num(d.total) end,aux={"Gefaellt",function(d) return num(d.harvested) end," Baeume"},
         rows=function(d) local r={{"Runden",short(d.rounds)},{"Gefaellt",short(d.harvested).." Baeume"},
-            {"Holz",short(d.total).." Staemme"},{"Setzlinge",short(d.saplings)}}
-            if num(d.bonemeal)>0 then r[#r+1]={"Knochenmehl",short(d.bonemeal)} end;wait(r,d);return r end},
+            {"Holz",short(d.total).." Staemme"},{"Setzlinge",short(d.saplings)},{"Freie Slots",short(d.freeSlots)}}
+            wait(r,d);return r end},
     mob={name="Mobs",plural="Mob-Turtles",metric="Drops",unit="Items",once="1x",
         value=function(d) return num(d.total) end,aux={"Treffer",function(d) return num(d.hits) end,""},
         rows=function(d) local r={{"Art",MOB_MODES[d.mobMode] or "-"},{"Treffer",short(d.hits)},{"Drops",short(d.total).." Items"}}

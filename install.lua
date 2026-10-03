@@ -154,9 +154,9 @@ M.DEFAULTS={
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
-    tree={trees=8,spacing=2,side="right",interval=120,bonemeal=false,maxHeight=32,keepSaplings=32,
-        fuelTarget=1000,radioTimeout=60},
-    mob={mode="farm",attack="front",length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
+    tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
+        fuelTarget=2000,radioTimeout=60},
+    mob={mode="farm",attack="front",nightOnly=false,length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
@@ -231,16 +231,18 @@ function M.configText(c)
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
     elseif role=="turtle" and job=="tree" then
-        section("tree","Holzfarm: Fahrspur nach vorne, Baeume neben der Spur",{
-            {"trees","Baeume hintereinander (1-32)"},{"spacing","freie Bloecke zwischen Baeumen (1-6)"},
-            {"side","Baeume \"right\", \"left\" oder \"both\""},{"interval","Pause zwischen Runden in s"},
-            {"bonemeal","true = Knochenmehl auf Setzlinge"},{"maxHeight","hoechstens so hoch faellen"},
+        section("tree","Holzfaeller: Gebiet vor der Basis, Baeume stehen beliebig",{
+            {"length","Gebiet nach vorne (1-128)"},{"width","Gebiet zur Seite (1-128)"},
+            {"side","Gebiet \"right\" oder \"left\""},{"climb","max. Hoehe hoch/runter im Gelaende"},
+            {"maxHeight","Baeume hoechstens so hoch faellen"},{"replant","true = Setzling nachpflanzen"},
+            {"interval","Pause zwischen Runden in s"},
             {"keepSaplings","so viele Setzlinge behalten"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.tree)
     elseif role=="turtle" and job=="mob" then
         section("mob","Mobs: Schwert-Turtle",{
             {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Waechter"},
             {"attack","\"front\" oder \"all\" (auch oben/unten)"},
+            {"nightOnly","true = nur nachts aktiv (18:30-5:30)"},
             {"length","Waechter: Gebiet nach vorne"},{"width","Waechter: Gebiet zur Seite"},
             {"side","Waechter: Gebiet \"right\" oder \"left\""},{"climb","Waechter: max. Hoehe hoch/runter"},
             {"interval","Waechter: Pause an der Basis in s"},
@@ -344,11 +346,12 @@ function M.load(c)
 end
 function M.checkTree(t)
     assert(type(t)=="table","tree fehlt.")
-    assert(M.integer(t.trees,1,32),"tree.trees: 1 bis 32.")
-    assert(M.integer(t.spacing,1,6),"tree.spacing: 1 bis 6.")
-    assert(t.side=="right" or t.side=="left" or t.side=="both","tree.side: right, left oder both.")
-    assert(M.integer(t.interval,1,86400),"tree.interval: 1 bis 86400 s.")
-    assert(type(t.bonemeal)=="boolean","tree.bonemeal: true oder false.")
+    assert(M.integer(t.length,1,128) and M.integer(t.width,1,128),"tree.length/width: 1 bis 128.")
+    if t.side=="both" then t.side="right" end
+    assert(t.side=="right" or t.side=="left","tree.side: right oder left.")
+    assert(M.integer(t.climb,1,32),"tree.climb: 1 bis 32.")
+    assert(type(t.replant)=="boolean","tree.replant: true oder false.")
+    assert(M.integer(t.interval,0,86400),"tree.interval: 0 bis 86400 s.")
     assert(M.integer(t.maxHeight,4,64),"tree.maxHeight: 4 bis 64.")
     assert(M.integer(t.keepSaplings,1,256),"tree.keepSaplings: 1 bis 256.")
     assert(M.integer(t.fuelTarget,100,100000),"tree.fuelTarget: 100 bis 100000.")
@@ -361,6 +364,7 @@ function M.checkMob(m)
     assert(m.attack=="front" or m.attack=="all","mob.attack: front oder all.")
     assert(M.integer(m.length,2,64) and M.integer(m.width,1,64),"mob.length 2-64, mob.width 1-64.")
     assert(M.integer(m.climb,1,32),"mob.climb: 1 bis 32.")
+    assert(type(m.nightOnly)=="boolean","mob.nightOnly: true oder false.")
     assert(m.side=="right" or m.side=="left","mob.side: right oder left.")
     assert(M.integer(m.interval,0,86400),"mob.interval: 0 bis 86400 s.")
     assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")
@@ -606,13 +610,13 @@ function S.new(common)
     end
     local function bothName(s) return s=="both" and "beidseitig" or sideName(s) end
     local function treeText(t)
-        return t.trees.." Baeume, Abst."..t.spacing.." "..bothName(t.side)..(t.bonemeal and " +Knochenm." or "")
+        return "Gebiet "..t.length.."x"..t.width.." "..sideName(t.side)..(t.replant and " +pflanzen" or "")
     end
     local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Waechter"}
     local function mobText(m)
         local s=MOB_MODES[m.mode] or m.mode
         if m.mode=="patrol" then s=s.." "..m.length.."x"..m.width.." "..sideName(m.side) end
-        return s..(m.attack=="all" and " +oben/unten" or "")
+        return s..(m.attack=="all" and " +oben/unten" or "")..(m.nightOnly and " nachts" or "")
     end
     local function chunkText(cl)
         if not cl.enabled then return "aus" end
@@ -670,18 +674,18 @@ function S.new(common)
     end
     local function editTree(c)
         local t=c.tree
-        header("Holzfarm (von der Basis aus nach vorne)")
-        hint("Fahrspur nach vorne, Baeume daneben.")
+        header("Holzfaeller (Gebiet vor der Basis)")
+        hint("Sucht im Gebiet nach Baeumen (egal wo),")
+        hint("folgt dem Gelaende, faellt ganze Staemme.")
         hint("Unten Kiste=Holz, oben=Kohle, hinten=")
-        hint("Setzlinge. Birke/Fichte am besten.")
-        t.trees=ask("Baeume hintereinander (1-32)",t.trees,1,32)
-        t.spacing=ask("Abstand zwischen Baeumen (1-6)",t.spacing,1,6)
-        hint("1 rechts  2 links  3 beidseitig")
-        local cur=t.side=="left" and 2 or t.side=="both" and 3 or 1
-        t.side=({"right","left","both"})[ask("Baeume",cur,1,3)]
-        t.interval=ask("Pause zwischen Runden (s)",t.interval,1,86400)
-        t.bonemeal=yesno("Knochenmehl benutzen?",t.bonemeal==true)
+        hint("Setzlinge (optional).")
+        t.length=ask("Gebiet nach vorne (1-128)",t.length,1,128)
+        t.width=ask("Gebiet zur Seite (1-128)",t.width,1,128)
+        if t.width>1 then t.side=askSide("Gebiet nach",t.side=="left" and "left" or "right") end
+        t.climb=ask("Max. Hoehe hoch/runter (1-32)",t.climb or 8,1,32)
         t.maxHeight=ask("Max. Baumhoehe (4-64)",t.maxHeight,4,64)
+        t.replant=yesno("Setzlinge nachpflanzen?",t.replant~=false)
+        t.interval=ask("Pause zwischen Runden (s)",t.interval,0,86400)
     end
     local function editMob(c)
         local m=c.mob
@@ -693,6 +697,9 @@ function S.new(common)
         local cur=m.mode=="guard" and 2 or m.mode=="patrol" and 3 or 1
         m.mode=({"farm","guard","patrol"})[ask("Art",cur,1,3)]
         m.attack=yesno("Auch oben/unten angreifen?",m.attack=="all") and "all" or "front"
+        hint("Tagsueber Pause, nur nachts aktiv")
+        hint("(Spielzeit 18:30 bis 5:30)?")
+        m.nightOnly=yesno("Nur nachts?",m.nightOnly==true)
         if m.mode=="patrol" then
             hint("Gebiet ab der Basis: nach vorne Laenge,")
             hint("zur Seite Breite. Faehrt zufaellig umher,")
@@ -876,7 +883,7 @@ function S.new(common)
         if job=="mining" then local m=c.mine
             return table.concat({m.length,m.height,m.tunnels,m.gap,m.side,tostring(m.sideDig==true)},":") end
         if job=="farm" then local f=c.farm return table.concat({f.length,f.width,f.side,f.crop},":") end
-        if job=="tree" then local t=c.tree return table.concat({t.trees,t.spacing,t.side},":") end
+        if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         return ""
     end
@@ -1158,6 +1165,7 @@ function M.state(e,link)
     if s=="Rueckkehr" then return "Heimweg","move" end
     if s=="Warten" then return "Wartet","wait" end
     if s=="Wache" then return "Wacht","wait" end
+    if s=="Tagpause" then return "Tagpause","wait" end
     if s=="Fertig" then return "Fertig","done" end
     if s=="Bereit" or s=="Reset" or s=="" then return "Bereit","idle" end
     return "Problem","warn"
@@ -1193,8 +1201,8 @@ local JOB={
     tree={name="Holz",plural="Holzfarmen",metric="Holz",unit="Staemme",once="1 Runde",
         value=function(d) return num(d.total) end,aux={"Gefaellt",function(d) return num(d.harvested) end," Baeume"},
         rows=function(d) local r={{"Runden",short(d.rounds)},{"Gefaellt",short(d.harvested).." Baeume"},
-            {"Holz",short(d.total).." Staemme"},{"Setzlinge",short(d.saplings)}}
-            if num(d.bonemeal)>0 then r[#r+1]={"Knochenmehl",short(d.bonemeal)} end;wait(r,d);return r end},
+            {"Holz",short(d.total).." Staemme"},{"Setzlinge",short(d.saplings)},{"Freie Slots",short(d.freeSlots)}}
+            wait(r,d);return r end},
     mob={name="Mobs",plural="Mob-Turtles",metric="Drops",unit="Items",once="1x",
         value=function(d) return num(d.total) end,aux={"Treffer",function(d) return num(d.hits) end,""},
         rows=function(d) local r={{"Art",MOB_MODES[d.mobMode] or "-"},{"Treffer",short(d.hits)},{"Drops",short(d.total).." Items"}}
@@ -4045,6 +4053,164 @@ function W.new(o)
         return w.face(0)
     end
 
+    -- ===== Gelaende (fuer Waechter und Holzfaeller) =====
+    -- Bewegung in einem Gebiet vor der Basis (x = 0..width-1, z = 1..length),
+    -- folgt dem Boden, klettert ueber Hindernisse (bis climb) und baut nur ab,
+    -- was opt.canDig erlaubt (z.B. Blaetter). Merkt sich die Spur ab dem
+    -- Basis-Ausgang: Heimweg = Spur rueckwaerts (sicher frei, Fuel bekannt).
+    function w.terrain(opt)
+        local T={}
+        local CLIMB=opt.climb or 8
+        local mopt={attack=opt.attack~=false,dig=opt.canDig~=nil,canDig=opt.canDig}
+        local TRAILMAX=800
+        st.trail=type(st.trail)=="table" and st.trail or nil
+        local idx={}
+        local function key(x,y,z) return x..","..y..","..z end
+        local function rebuild() idx={};for i,k in ipairs(st.trail or {}) do idx[k]=i end end
+        rebuild()
+        local function push()
+            if not st.trail then return end
+            local k=key(st.x,st.y,st.z)
+            local i=idx[k]
+            if i then for j=#st.trail,i+1,-1 do idx[st.trail[j]]=nil;st.trail[j]=nil end
+            elseif #st.trail>=TRAILMAX then st.trail=nil;idx={}
+            else st.trail[#st.trail+1]=k;idx[k]=#st.trail end
+        end
+        function T.mv(kind)
+            local ok,why=w.move(kind,mopt)
+            if ok then push() end
+            return ok,why
+        end
+        function T.fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
+        function T.homeCost()
+            if st.trail then return #st.trail+CLIMB+20+(opt.extraCost or 0) end
+            return (math.abs(st.x)+math.abs(st.z))*3+math.abs(st.y)+CLIMB*3+40+(opt.extraCost or 0)
+        end
+        function T.startTrail() st.trail={};idx={} end
+        function T.dropTrail() st.trail=nil;idx={} end
+        -- Am Boden bleiben: runter, solange darunter Luft (oder Erlaubtes wie Blaetter)
+        function T.hug()
+            local n=0
+            while st.y>-CLIMB and n<CLIMB+16 do
+                if turtle.detectDown() then
+                    local _,b=turtle.inspectDown()
+                    if not (opt.canDig and b and opt.canDig(b.name) and (not opt.hugThrough or opt.hugThrough(b.name))) then break end
+                end
+                if not T.mv("down") then break end
+                n=n+1
+            end
+        end
+        -- Ein Schritt nach vorne; fester Block -> hochklettern (nie abbauen)
+        function T.step()
+            if opt.before then opt.before() end
+            local ok,why=T.mv("forward")
+            if ok then return true end
+            if not tostring(why):find("blockiert",1,true) then return false,why end
+            while turtle.detect() and st.y<CLIMB do
+                if turtle.detectUp() then
+                    local _,b=turtle.inspectUp()
+                    if not (opt.canDig and b and opt.canDig(b.name)) then break end
+                end
+                if not T.mv("up") then break end
+            end
+            if turtle.detect() then return false,"zu hoch" end
+            return T.mv("forward")
+        end
+        local DIRV={[0]={0,1},{1,0},{0,-1},{-1,0}}
+        T.DIRV=DIRV
+        local wall,unreach={},{}
+        local function ckey(x,z) return x..":"..z end
+        T.wall,T.unreach,T.ckey=wall,unreach,ckey
+        local function blocked(why) return why=="zu hoch" or tostring(why):find("blockiert",1,true)~=nil end
+        -- Zu (tx,tz) laufen. ground: dem Boden folgen. watchFuel: bei knappem Fuel abbrechen.
+        -- opt.facing(dir) wird nach jedem Drehen aufgerufen (z.B. Baum vor der Nase faellen).
+        function T.nav(tx,tz,ground,watchFuel)
+            local limit=(math.abs(tx-st.x)+math.abs(tz-st.z))*3+24
+            local steps=0
+            while st.x~=tx or st.z~=tz do
+                if run.mode~="off" and not w.active() then return false,"stopped" end
+                if watchFuel and T.fuel()<T.homeCost() then return false,"lowFuel" end
+                steps=steps+1
+                if steps>limit then return false,"kein Weg" end
+                local dx,dz=tx-st.x,tz-st.z
+                local cands={}
+                local xd=dx>0 and 1 or 3;local zd=dz>0 and 0 or 2
+                if math.abs(dx)>=math.abs(dz) then
+                    if dx~=0 then cands[#cands+1]=xd end;if dz~=0 then cands[#cands+1]=zd end
+                else
+                    if dz~=0 then cands[#cands+1]=zd end;if dx~=0 then cands[#cands+1]=xd end
+                end
+                local side={(cands[1]+1)%4,(cands[1]+3)%4}
+                if math.random(2)==1 then side[1],side[2]=side[2],side[1] end
+                cands[#cands+1]=side[1];cands[#cands+1]=side[2]
+                local moved=false
+                for _,d in ipairs(cands) do
+                    local nx,nz=st.x+DIRV[d][1],st.z+DIRV[d][2]
+                    if (opt.inArea(nx,nz) or (nx==tx and nz==tz)) and not wall[ckey(nx,nz)] then
+                        local ok,why=w.face(d);if not ok then return false,why end
+                        if opt.facing then
+                            local okf,whyf=opt.facing(d);if not okf then return false,whyf end
+                        end
+                        local okm,whym=T.step()
+                        if okm then moved=true;break end
+                        if not blocked(whym) then return false,whym end
+                        if whym=="zu hoch" then wall[ckey(nx,nz)]=true end
+                    end
+                end
+                if not moved then return false,"kein Weg" end
+                if ground then T.hug() end
+            end
+            return true
+        end
+        -- Heim: Spur rueckwaerts, sonst Weg suchen (notfalls in Kletterhoehe),
+        -- dann auf Basishoehe vor der Basis und hinein.
+        function T.home()
+            if w.isHome() then st.trail=nil;idx={};w.save();return w.face(0) end
+            if st.trail and #st.trail>0 and idx[key(st.x,st.y,st.z)] then
+                local i=idx[key(st.x,st.y,st.z)]
+                local okT=true
+                for j=i-1,1,-1 do
+                    local x,y,z=st.trail[j]:match("(-?%d+),(-?%d+),(-?%d+)")
+                    x,y,z=tonumber(x),tonumber(y),tonumber(z)
+                    local ok
+                    if y>st.y then ok=w.move("up",mopt)
+                    elseif y<st.y then ok=w.move("down",mopt)
+                    else
+                        local d=x>st.x and 1 or x<st.x and 3 or z>st.z and 0 or 2
+                        ok=w.face(d);if ok then ok=w.move("forward",mopt) end
+                    end
+                    if not ok then okT=false;break end
+                    st.trail[j+1]=nil
+                end
+                rebuild()
+                if not okT then st.trail=nil;idx={} end
+            end
+            local ok=(st.x==0 and st.z==1 and st.y==0) or T.nav(0,1,true,false)
+            if not ok then
+                while st.y<CLIMB and not turtle.detectUp() do if not w.move("up",mopt) then break end end
+                local ok2,why2=T.nav(0,1,false,false)
+                if not ok2 then return false,why2 end
+            end
+            while st.y>0 do local okd,whyd=w.move("down",mopt);if not okd then return false,"Basis-Eingang: "..tostring(whyd) end end
+            while st.y<0 do local oku,whyu=w.move("up",mopt);if not oku then return false,"Basis-Eingang: "..tostring(whyu) end end
+            local okf,whyf=w.face(2);if not okf then return false,whyf end
+            local okm,whym=w.move("forward",mopt);if not okm then return false,"Basis-Eingang: "..tostring(whym) end
+            st.trail=nil;idx={};w.save()
+            return w.face(0)
+        end
+        -- Basis verlassen (Feld davor muss auf Basishoehe frei sein)
+        function T.leave()
+            local ok,why=w.face(0);if not ok then return false,why end
+            T.startTrail()
+            ok,why=T.step()
+            if not ok then return false,"Basis-Ausgang blockiert: "..tostring(why) end
+            if st.x~=0 or st.z~=1 or st.y~=0 then T.dropTrail() end
+            T.hug()
+            return true
+        end
+        return T
+    end
+
     -- ===== Basis: Abladen (Kiste unten) und Tanken (Kiste oben) =====
     local function container(fn) local ok,b=fn();return ok and CONTAINERS[b.name]==true end
     w.container=container
@@ -4222,77 +4388,93 @@ end
 return W
 ]======]
 FILES["tree_turtle.lua"]=[======[
--- Toast Control: Holzfarm. Die Turtle faehrt eine Fahrspur nach vorne entlang;
--- neben der Spur stehen Baeume (rechts, links oder beidseitig). Gewachsene Baeume
--- werden komplett gefaellt (Stamm), danach wird sofort ein neuer Setzling gesetzt.
+-- Toast Control: Holzfaeller im Gelaende. Die Turtle faehrt ein Gebiet vor der
+-- Basis (Laenge nach vorne x Breite zur Seite) in Bahnen ab, folgt dabei dem
+-- Boden (klettert ueber Huegel, steigt in Senken ab) und sucht links und rechts
+-- nach Baeumen. Gefundene Baeume (egal wo sie stehen) werden komplett gefaellt
+-- (ganzer Stamm), auf Wunsch wird ein Setzling nachgepflanzt.
+-- Baut ausser Holz und Blaettern NIE etwas ab.
 -- Basis: Kiste UNTER der Turtle = Ausgabe, Kiste UEBER der Turtle = Kohle,
--- optional Kiste HINTER der Turtle = Setzlinge (nur noetig, wenn keine mehr da sind).
--- Am besten 1x1-Baeume: Birke oder Fichte. Eiche geht, Aeste bleiben aber haengen.
+-- optional Kiste HINTER der Turtle = Setzlinge.
 local common=dofile("/toast/toast_common.lua")
 local cfg=common.load()
 local C=cfg.tree
 local W=dofile("/toast/toast_worker.lua")
-local function isLog(n) return n:find("_log",1,true)~=nil or n:find("_stem",1,true)~=nil or n:find("_wood",1,true)~=nil end
-local function isLeaves(n) return n:find("leaves",1,true)~=nil or n:find("wart_block",1,true)~=nil or n=="minecraft:vine" end
+local function isLog(n) return n:find("_log",1,true)~=nil or n:find("_stem",1,true)~=nil
+    or (n:find("_wood",1,true)~=nil and n:find("planks",1,true)==nil) end
+local function isLeaves(n) return n:find("leaves",1,true)~=nil or n:find("wart_block",1,true)~=nil
+    or n=="minecraft:vine" or n=="minecraft:shroomlight" end
 local function isSapling(n) return n:find("_sapling",1,true)~=nil or n:find("_propagule",1,true)~=nil
     or n=="minecraft:crimson_fungus" or n=="minecraft:warped_fungus" end
 local function isTool(n) return n:find("_axe",1,true)~=nil or n:find("_pickaxe",1,true)~=nil end
-local BONE="minecraft:bone_meal"
-local function clearable(n) return isLog(n) or isLeaves(n) end
-local SIDES=C.side=="both" and {1,3} or (C.side=="left" and {3} or {1})
-local STEP=C.spacing+1
-local cells=C.trees*#SIDES
-local function slotZ(i) return 1+(i-1)*STEP end
-local laneLen=slotZ(C.trees)
-local w,round,idleHome,idleBase,w_saplings,w_bone,finishColumn
-w=W.new({job="tree",cfg=cfg,section=C,stateFile="/toast_tree_state",args={...},cells=cells,
-    layout=C.trees..":"..C.spacing..":"..C.side,tools=isTool,noTool="Keine Axt: Diamant-Axt in die Turtle legen",
-    interval=C.interval,readyText="START: Dauerbetrieb | 1 RUNDE: einmal alle Baeume",
-    extra=function() return {trees=cells,saplings=0+w_saplings(),bonemeal=w_bone(),felled=w and w.st.harvested or 0} end,
+local CLIMB=C.climb or 8
+-- Bahnen alle 3 Bloecke: jede Bahn prueft links und rechts mit (Drehen kostet kein Fuel)
+local POINTS={}
+do
+    local lanes={}
+    if C.width<=2 then lanes={math.min(1,C.width-1)}
+    else local x=1;while x<C.width do lanes[#lanes+1]=x;x=x+3 end
+        if lanes[#lanes]<C.width-2 then lanes[#lanes+1]=C.width-1 end end
+    for i,x in ipairs(lanes) do
+        if i%2==1 then for z=1,C.length do POINTS[#POINTS+1]={x,z} end
+        else for z=C.length,1,-1 do POINTS[#POINTS+1]={x,z} end end
+    end
+end
+local w,round,idleHome,idleBase
+w=W.new({job="tree",cfg=cfg,section=C,stateFile="/toast_tree_state",args={...},cells=#POINTS,
+    layout="forest:"..C.length..":"..C.width..":"..C.side,mirror=C.side=="left",
+    tools=isTool,noTool="Keine Axt: Diamant-Axt in die Turtle legen",
+    interval=C.interval,readyText="START: Dauerbetrieb | 1 RUNDE: Gebiet einmal absuchen",
+    extra=function() return {saplings=w and w.count(isSapling) or 0,felled=w and w.st.harvested or 0} end,
     round=function() return round() end,
     idleHome=function() return idleHome() end,
     idleBase=function() return idleBase() end})
 local st,run=w.st,w.run
-w_saplings=function() return w.count(isSapling) end
-w_bone=function() return w.count(function(n) return n==BONE end) end
-local skipped=0
 local function logs() return w.count(isLog) end
 local function keep(name)
     if isSapling(name) then return C.keepSaplings end
-    if name==BONE or W.FUELS[name] or isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
+    if W.FUELS[name] or isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
     return 0
 end
+local function inArea(x,z) return x>=0 and x<C.width and z>=1 and z<=C.length end
+local fell
+local T
+-- Vor jedem Schritt: steht ein Stamm vor der Nase -> faellen
+local function checkFront()
+    local e,b=turtle.inspect()
+    if e and isLog(b.name) then return fell(st.dir) end
+    return true
+end
+T=w.terrain({climb=CLIMB,inArea=inArea,attack=true,canDig=isLeaves,hugThrough=isLeaves,
+    extraCost=C.maxHeight*2+10,before=function() pcall(turtle.suck);checkFront() end,
+    facing=function() return checkFront() end})
 -- ===== Basis =====
 local function refillSaplings()
-    if w_saplings()>0 then return end
-    local ok=w.face(2);if not ok then return end
+    if not C.replant or w.count(isSapling)>0 then return end
+    if not w.face(2) then return end
     if w.container(turtle.inspect) then
         for i=1,16 do
             if turtle.getItemCount(i)==0 then
                 turtle.select(i)
                 if turtle.suck(math.min(64,C.keepSaplings)) then
                     local it=turtle.getItemDetail(i)
-                    if it and not isSapling(it.name) and it.name~=BONE then turtle.drop() end
+                    if it and not isSapling(it.name) then turtle.drop() end
                 end
                 break
             end
-        end
-        -- Knochenmehl ebenfalls aus der hinteren Kiste, wenn eingeschaltet
-        if C.bonemeal and w_bone()==0 then
-            for i=1,16 do if turtle.getItemCount(i)==0 then turtle.select(i);turtle.suck(64)
-                local it=turtle.getItemDetail(i);if it and it.name~=BONE and not isSapling(it.name) then turtle.drop() end;break end end
         end
         turtle.select(1)
     end
     w.face(0)
 end
 local function base()
+    local before=logs()
     local ok,title,detail=w.unload(keep)
     if not ok then return false,title,detail end
     ok,title,detail=w.refuel(C.fuelTarget)
     if not ok then
         -- Notfall: eigenes Holz verbrennen (15 Fuel pro Stamm), damit sie nicht stehen bleibt
-        local need=laneLen*2+C.maxHeight*2+40
+        local need=(C.length+C.width)*3+C.maxHeight*2+CLIMB*4+60
         if turtle.getFuelLevel()<need then
             ok=w.refuel(need,isLog)
             if not ok then return false,title,detail end
@@ -4301,142 +4483,149 @@ local function base()
     refillSaplings()
     return true
 end
-idleHome=function()
-    if w.isHome() and st.dir==0 then return true end
-    local okc,whyc=finishColumn();if not okc then return false,whyc end
-    w.status("Rueckkehr","Fahre zur Basis.")
-    return w.home({dig=true,canDig=clearable})
-end
-idleBase=function() return base() end
 -- ===== Baum faellen =====
-local function plant()
+local function plantBelow()
+    if not C.replant then return false end
     local slot=w.find(isSapling)
     if not slot then return false end
     turtle.select(slot)
-    local ok=turtle.place()
+    local ok=turtle.placeDown()
     turtle.select(1)
-    if not ok then skipped=skipped+1 end
     return ok
 end
-local function fell(dir)
-    w.status("Faellt Baum","Baum "..math.ceil((run.scanned+1)/#SIDES).." / "..C.trees)
-    local before=logs()
-    local ok,why=w.move("forward",{dig=true,canDig=clearable});if not ok then return false,why end
-    local h=0
-    while h<C.maxHeight do
-        local up,b=turtle.inspectUp()
-        if not up or not isLog(b.name) then break end
-        ok,why=w.move("up",{dig=true,canDig=clearable});if not ok then return false,why end
-        h=h+1
+local function dig(fn)
+    local ok,why=fn()
+    if not ok and tostring(why):find("No tool",1,true) then
+        if w.equipTool(isTool) then ok,why=fn() end
     end
-    while st.y>0 do ok,why=w.move("down",{dig=true,canDig=clearable});if not ok then return false,why end end
-    -- zurueck auf die Fahrspur, dann wieder zum Baumplatz schauen
+    return ok,why
+end
+-- Turtle steht vor dem Stamm (Blick dir). Stamm ganz faellen (hoch und runter),
+-- unten nachpflanzen, dann zurueck auf das Feld davor und wieder zum Stamm schauen.
+fell=function(dir)
+    w.status("Faellt Baum","Baum gefunden, wird gefaellt.")
+    local before=logs()
+    local y0=st.y
+    local ok,why=dig(turtle.dig);if not ok then return false,"Baum nicht abbaubar: "..tostring(why) end
+    st.felling=true;w.save()
+    ok,why=T.mv("forward");if not ok then st.felling=nil;return false,why end
+    -- hoch
+    while st.y-y0<C.maxHeight do
+        local e,b=turtle.inspectUp()
+        if not e or not isLog(b.name) then break end
+        if not dig(turtle.digUp) then break end
+        if not T.mv("up") then break end
+    end
+    -- zurueck auf Starthoehe, dann Stamm nach unten (Baum steht tiefer)
+    while st.y>y0 do if not T.mv("down") then break end end
+    while true do
+        local e,b=turtle.inspectDown()
+        if not e or not isLog(b.name) then break end
+        if not dig(turtle.digDown) then break end
+        if not T.mv("down") then break end
+    end
+    local planted=false
+    -- nachpflanzen: einen hoch, Setzling nach unten (auf den Boden unter dem Stamm)
+    if C.replant and w.find(isSapling) then
+        local e=turtle.detectDown()
+        if e and T.mv("up") then planted=plantBelow() end
+    end
+    -- zurueck auf das Feld davor (auf Starthoehe oder knapp darueber)
+    while st.y<y0 do if not T.mv("up") then break end end
     ok,why=w.face((dir+2)%4);if not ok then return false,why end
-    ok,why=w.move("forward",{dig=true,canDig=clearable});if not ok then return false,why end
-    ok,why=w.face(dir);if not ok then return false,why end
+    ok,why=T.mv("forward")
+    if not ok then
+        -- Feld davor auf dieser Hoehe belegt: eine Stufe hoeher versuchen
+        if T.mv("up") then ok,why=T.mv("forward") end
+        if not ok then return false,"Rueckweg vom Baum: "..tostring(why) end
+    end
+    T.hug()
+    st.felling=nil
     st.harvested=(st.harvested or 0)+1
     st.total=(st.total or 0)+math.max(0,logs()-before)
+    if planted then st.planted=(st.planted or 0)+1 end
     w.save()
-    return true
+    pcall(turtle.suck)
+    return w.face(dir)
 end
--- Knochenmehl direkt nach dem Pflanzen: waechst der Baum, wird er sofort gefaellt
-local function boost(dir)
-    if not C.bonemeal then return true end
-    for _=1,8 do
-        local slot=w.find(function(n) return n==BONE end)
-        if not slot then return true end
-        local e,b=turtle.inspect()
-        if not e or not isSapling(b.name) then return true end
-        turtle.select(slot);turtle.place();turtle.select(1)
-        local e2,b2=turtle.inspect()
-        if e2 and isLog(b2.name) then
-            local ok,why=fell(dir);if not ok then return false,why end
-            plant();return true
-        end
-    end
-    return true
-end
--- Nach Absturz mitten im Stamm: Stamm fertig faellen, dann zurueck auf die Spur
-finishColumn=function()
-    if st.x==0 then return true end
+-- Nach Absturz mitten im Stamm: Rest des Stamms ueber der Turtle noch faellen
+local function finishColumn()
+    if not st.felling then return true end
     w.status("Faellt Baum","Stamm nach Neustart fertig faellen.")
-    while st.y<C.maxHeight do
-        local up,b=turtle.inspectUp()
-        if not up or not isLog(b.name) then break end
-        local ok,why=w.move("up",{dig=true,canDig=clearable});if not ok then return false,why end
+    local y0=st.y
+    while st.y-y0<C.maxHeight do
+        local e,b=turtle.inspectUp()
+        if not e or not isLog(b.name) then break end
+        if not dig(turtle.digUp) or not T.mv("up") then break end
     end
-    st.harvested=(st.harvested or 0)+1;w.save()
+    while st.y>y0 do if not T.mv("down") then break end end
+    st.felling=nil;st.harvested=(st.harvested or 0)+1;w.save()
     return true
 end
-local function visit(dir)
-    local ok,why=w.face(dir);if not ok then return false,why end
-    local exists,b=turtle.inspect()
-    if exists and isLog(b.name) then
-        ok,why=fell(dir);if not ok then return false,why end
-        pcall(turtle.suck)
-        if plant() then return boost(dir) end
-    elseif exists and isSapling(b.name) then
-        return boost(dir)
-    elseif exists and isLeaves(b.name) then
-        turtle.dig();if plant() then return boost(dir) end
-    elseif not exists then
-        w.status("Pflanzen","Setzling wird gesetzt.")
-        if plant() then return boost(dir) end
-    else
-        skipped=skipped+1
-    end
-    return true
+idleHome=function()
+    if w.isHome() and st.dir==0 then return true end
+    finishColumn()
+    w.status("Rueckkehr","Faehrt zur Basis.")
+    return T.home()
 end
--- Fuel fuer: zurueck zur Basis + ein Baum
-local function fuelOk()
-    local f=turtle.getFuelLevel()
-    if f=="unlimited" then return true end
-    return f>=st.z+math.abs(st.x)+st.y+C.maxHeight*2+12
+-- Ohne Auftrag / nach Fehler: nur abladen. Nicht tanken/Setzlinge holen, sonst
+-- dreht sie sich alle halbe Sekunde zur hinteren Kiste und zurueck.
+idleBase=function() return w.unload(keep) end
+local function resupply()
+    w.status("Rueckkehr","Nachschub / Abladen an der Basis.")
+    local ok,why=T.home();if not ok then return false,"Rueckweg: "..tostring(why) end
+    local ok2,title=base();if not ok2 then return false,title end
+    return T.leave()
 end
-local function goSlot(z)
-    if st.z~=z then
-        local ok,why=w.face(st.z<z and 0 or 2);if not ok then return false,why end
-        while st.z~=z do
-            if not w.active() then return false,"stopped" end
-            pcall(turtle.suck)        -- liegende Setzlinge/Aepfel einsammeln
-            ok,why=w.move("forward",{dig=true,canDig=clearable});if not ok then return false,why end
+-- Links und rechts nach Baeumen sehen
+local function lookAround()
+    -- Bahnen laufen in z-Richtung: Baeume stehen links/rechts (x-Richtung)
+    for _,d in ipairs({1,3}) do
+        local ok=w.face(d);if not ok then return false end
+        local e,b=turtle.inspect()
+        if e and isLog(b.name) then
+            local okf,why=fell(d);if not okf then return false,why end
         end
     end
-    return true
-end
-local function resupply()
-    local ok,why=idleHome();if not ok then return false,why end
-    local ok2,title=base()
-    if not ok2 then return false,title end
     return true
 end
 round=function()
-    run.scanned,skipped=0,0
     if not w.isHome() then local ok,why=idleHome();if not ok then w.fail(why);return false end end
     local ok,title,detail=base()
     if not ok then w.status(title,detail);w.fail(title);return false end
-    for i=1,C.trees do
-        for _,dir in ipairs(SIDES) do
-            if not w.active() then return false end
-            if not fuelOk() or w.freeSlots()<3 then
+    st.sweep=st.sweep or 1
+    if st.sweep>#POINTS then st.sweep=1 end
+    local okl,whyl=T.leave();if not okl then w.fail(whyl);return false end
+    while st.sweep<=#POINTS do
+        if not w.active() then return false end
+        if T.fuel()<T.homeCost()+20 or w.freeSlots()<3 then
+            local r,why=resupply();if not r then w.fail(why);return false end
+        end
+        local p=POINTS[st.sweep]
+        run.scanned=st.sweep-1
+        w.status("Sucht Baeume","Bahn "..math.ceil(st.sweep/C.length).." , Feld "..st.sweep.." / "..#POINTS)
+        local okn,whyn=T.nav(p[1],p[2],true,true)
+        if not okn then
+            if whyn=="stopped" then return false end
+            if whyn=="lowFuel" then
                 local r,why=resupply();if not r then w.fail(why);return false end
-            end
-            w.status("Baeume pruefen","Baum "..i.." / "..C.trees)
-            local okm,why=goSlot(slotZ(i))
-            if not okm then if why~="stopped" then w.fail(why) end;return false end
-            okm,why=visit(dir)
-            if not okm then w.fail(why);return false end
-            run.scanned=run.scanned+1
+            elseif whyn~="kein Weg" then w.fail(whyn);return false end
+            -- unerreichbar: Punkt auslassen
+            if whyn=="kein Weg" then st.sweep=st.sweep+1 end
+        else
+            local oka,whya=lookAround();if not oka and whya then w.fail(whya);return false end
+            st.sweep=st.sweep+1;w.saveSoon()
         end
     end
-    w.status("Rueckkehr","Runde fertig, fahre zur Basis.")
-    local okh,why=idleHome();if not okh then w.fail("Rueckweg blockiert: "..tostring(why));return false end
+    st.sweep=1;run.scanned=#POINTS
+    local okh,whyh=idleHome();if not okh then w.fail("Rueckweg: "..tostring(whyh));return false end
     ok,title,detail=base()
     if not ok then w.status(title,detail) end
     return true
 end
+math.randomseed(os.epoch and os.epoch("utc") or math.floor(os.clock()*1000))
 pcall(w.equipTool,isTool)
-w.start("TOAST HOLZ",C.trees.." Baeume, "..(C.side=="both" and "beidseitig" or C.side=="left" and "links" or "rechts"))
+w.start("TOAST HOLZ","Gebiet "..C.length.."x"..C.width..(C.side=="left" and " links" or " rechts"))
 ]======]
 FILES["mob_turtle.lua"]=[======[
 -- Toast Control: Mob-Turtle mit Schwert. Drei Arten (mob.mode):
@@ -4509,6 +4698,13 @@ local function stash(force)
     end
     return true
 end
+-- mob.nightOnly: nur nachts aktiv (Spielzeit 18:30 - 5:30, dann spawnen Mobs)
+local function isDay()
+    if not C.nightOnly or not os.time then return false end
+    local ok,t=pcall(os.time)
+    if not ok or type(t)~="number" then return false end
+    return t>=5.5 and t<18.5
+end
 -- ===== Mobfarm / Wache (steht still, braucht kein Fuel) =====
 local function stand()
     local quiet=os.clock()
@@ -4526,6 +4722,9 @@ local function stand()
         local ok,title,detail=stash(false)
         if not ok then w.status(title,detail);w.fail(title);return false end
         if run.mode=="once" and os.clock()-quiet>=8 then stash(true);return true end
+        while w.active() and isDay() do
+            w.status("Tagpause","Nur nachts aktiv - wartet bis ca. 18:30 Spielzeit.");stash(true);sleep(5)
+        end
     end
     w.save()
     return false
@@ -4534,111 +4733,15 @@ end
 -- Gebiet: x = 0 .. width-1 (zur Seite), z = 1 .. length (nach vorne), y = Hoehe
 -- relativ zur Basis (+-climb). Basis selbst: x=0, z=0, y=0.
 local function inArea(x,z) return x>=0 and x<C.width and z>=1 and z<=C.length end
--- Spur: alle Felder vom Basis-Ausgang bis hierher, Schleifen werden gekuerzt.
--- Der Heimweg laeuft die Spur rueckwaerts (sicher frei) und ist genau so lang
--- wie die Spur -> der Waechter weiss immer, wie viel Fuel er fuer den Heimweg braucht.
-local TRAILMAX=800
-st.trail=type(st.trail)=="table" and st.trail or nil
-local trailIdx={}
-local function key(x,y,z) return x..","..y..","..z end
-local function rebuild()
-    trailIdx={}
-    for i,k in ipairs(st.trail or {}) do trailIdx[k]=i end
-end
-rebuild()
-local function push()
-    if not st.trail then return end
-    local k=key(st.x,st.y,st.z)
-    local i=trailIdx[k]
-    if i then
-        for j=#st.trail,i+1,-1 do trailIdx[st.trail[j]]=nil;st.trail[j]=nil end
-    elseif #st.trail>=TRAILMAX then
-        st.trail=nil;trailIdx={}          -- zu lang: Heimweg dann per Navigation
-    else
-        st.trail[#st.trail+1]=k;trailIdx[k]=#st.trail
-    end
-end
-local function mv(kind)
-    local ok,why=w.move(kind,{attack=true})
-    if ok then push() end
-    return ok,why
-end
-local function fuelLeft()
-    local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f
-end
--- Fuel fuer den Heimweg mit Reserve (Umwege, Klettern)
-local function homeCost()
-    if st.trail then return #st.trail+CLIMB+20 end
-    return (math.abs(st.x)+math.abs(st.z))*3+math.abs(st.y)+CLIMB*3+40
-end
 local function fight()
     if strike() then lastHit=os.clock();w.status("Kampf","Mob abgewehrt.");collect();w.saveSoon();return true end
     collect();return false
 end
--- Am Boden bleiben: runter, solange darunter Luft ist (Senken, Abhaenge)
-local function hug()
-    local n=0
-    while not turtle.detectDown() and st.y>-CLIMB and n<CLIMB do
-        if not mv("down") then break end
-        n=n+1
-    end
-end
--- Ein Schritt nach vorne; Block im Weg -> hochklettern (nie abbauen)
-local function stepForward()
-    fight()
-    local ok,why=mv("forward")
-    if ok then return true end
-    if not tostring(why):find("blockiert",1,true) then return false,why end
-    while turtle.detect() and st.y<CLIMB do
-        if turtle.detectUp() then break end
-        if not mv("up") then break end
-    end
-    if turtle.detect() then return false,"zu hoch" end
-    return mv("forward")
-end
-local DIRV={[0]={0,1},{1,0},{0,-1},{-1,0}}
--- Gedaechtnis: zu hohe Hindernisse (Spalten) und unerreichbare Ziele merken,
--- damit er nicht immer wieder dagegen faehrt (spart Fuel).
-local wall,unreach={},{}
-local function ckey(x,z) return x..":"..z end
-local function blocked(why) return why=="zu hoch" or tostring(why):find("blockiert",1,true)~=nil end
--- Zu (tx,tz) laufen. ground=true: dem Boden folgen, sonst Hoehe halten.
--- Weicht Hindernissen seitlich aus. watchFuel: abbrechen, wenn Fuel knapp wird.
-local function nav(tx,tz,ground,watchFuel)
-    local limit=(math.abs(tx-st.x)+math.abs(tz-st.z))*3+24
-    local steps=0
-    while st.x~=tx or st.z~=tz do
-        if run.mode~="off" and not w.active() then return false,"stopped" end
-        if watchFuel and fuelLeft()<homeCost() then return false,"lowFuel" end
-        steps=steps+1
-        if steps>limit then return false,"kein Weg" end
-        local dx,dz=tx-st.x,tz-st.z
-        local cands={}
-        local xd=dx>0 and 1 or 3;local zd=dz>0 and 0 or 2
-        if math.abs(dx)>=math.abs(dz) then
-            if dx~=0 then cands[#cands+1]=xd end;if dz~=0 then cands[#cands+1]=zd end
-        else
-            if dz~=0 then cands[#cands+1]=zd end;if dx~=0 then cands[#cands+1]=xd end
-        end
-        local side={(cands[1]+1)%4,(cands[1]+3)%4}
-        if math.random(2)==1 then side[1],side[2]=side[2],side[1] end
-        cands[#cands+1]=side[1];cands[#cands+1]=side[2]
-        local moved=false
-        for _,d in ipairs(cands) do
-            local nx,nz=st.x+DIRV[d][1],st.z+DIRV[d][2]
-            if (inArea(nx,nz) or (nx==tx and nz==tz)) and not wall[ckey(nx,nz)] then
-                local ok,why=w.face(d);if not ok then return false,why end
-                local okm,whym=stepForward()
-                if okm then moved=true;break end
-                if not blocked(whym) then return false,whym end
-                if whym=="zu hoch" then wall[ckey(nx,nz)]=true end
-            end
-        end
-        if not moved then return false,"kein Weg" end
-        if ground then hug() end
-    end
-    return true
-end
+-- Gelaende-Bewegung mit Spur (gemeinsam mit dem Holzfaeller, siehe toast_worker.lua)
+local T=w.terrain({climb=CLIMB,inArea=inArea,attack=true,before=fight})
+local fuelLeft,homeCost=T.fuel,T.homeCost
+local wall,unreach,ckey=T.wall,T.unreach,T.ckey
+local nav=T.nav
 local function atBase()
     local before=w.items()
     local ok,title,detail=w.unload(keep)
@@ -4649,45 +4752,10 @@ local function atBase()
     if not ok and fuelLeft()<need then return false,title,detail end
     return true
 end
--- Zurueck zur Basis: am Boden zum Feld vor der Basis; klappt das nicht, hoch
--- auf Kletterhoehe und darueber hinweg. Dann auf Basishoehe und hinein.
 idleHome=function()
     if not PATROL or (w.isHome() and st.dir==0) then return true end
     w.status("Rueckkehr","Faehrt zur Basis.")
-    if not w.isHome() then
-        -- 1. Spur rueckwaerts (sicher frei)
-        if st.trail and #st.trail>0 and trailIdx[key(st.x,st.y,st.z)] then
-            local i=trailIdx[key(st.x,st.y,st.z)]
-            local okT=true
-            for j=i-1,1,-1 do
-                local x,y,z=st.trail[j]:match("(-?%d+),(-?%d+),(-?%d+)")
-                x,y,z=tonumber(x),tonumber(y),tonumber(z)
-                local ok,why
-                if y>st.y then ok,why=w.move("up",{attack=true})
-                elseif y<st.y then ok,why=w.move("down",{attack=true})
-                else
-                    local d=x>st.x and 1 or x<st.x and 3 or z>st.z and 0 or 2
-                    ok,why=w.face(d);if ok then ok,why=w.move("forward",{attack=true}) end
-                end
-                if not ok then okT=false;break end
-                st.trail[j+1]=nil;trailIdx={};
-            end
-            rebuild()
-            if not okT then st.trail=nil;trailIdx={} end
-        end
-        local ok=st.x==0 and st.z==1 and st.y==0 or nav(0,1,true,false)
-        if not ok then
-            while st.y<CLIMB and not turtle.detectUp() do if not w.move("up",{attack=true}) then break end end
-            local ok2,why2=nav(0,1,false,false)
-            if not ok2 then return false,why2 end
-        end
-        while st.y>0 do local okd,whyd=w.move("down",{attack=true});if not okd then return false,"Basis-Eingang: "..tostring(whyd) end end
-        while st.y<0 do local oku,whyu=w.move("up",{attack=true});if not oku then return false,"Basis-Eingang: "..tostring(whyu) end end
-        local okf,whyf=w.face(2);if not okf then return false,whyf end
-        local okm,whym=w.move("forward",{attack=true});if not okm then return false,"Basis-Eingang: "..tostring(whym) end
-    end
-    st.trail=nil;trailIdx={};w.save()
-    return w.face(0)
+    return T.home()
 end
 -- Eine Tankfuellung lang zufaellig im Gebiet umherfahren, dann heim.
 local function patrol()
@@ -4695,12 +4763,8 @@ local function patrol()
     local ok,title,detail=atBase()
     if not ok then w.status(title,detail);w.fail(title);return false end
     tankStart=fuelLeft()
-    ok=w.face(0)
-    st.trail={};trailIdx={}
-    local okm,why=stepForward()
-    if not okm then w.fail("Basis-Ausgang blockiert: "..tostring(why));return false end
-    if st.x~=0 or st.z~=1 or st.y~=0 then st.trail=nil end   -- Ausgang muss frei auf Basishoehe sein
-    hug()
+    local okl,whyl=T.leave()
+    if not okl then w.fail(whyl);return false end
     local misses,count=0,0
     while w.active() do
         -- Fortschritt = verbrauchter Tank bis zur Rueckkehr
@@ -4709,6 +4773,7 @@ local function patrol()
             run.scanned=math.max(0,math.min(100,math.floor((tankStart-fuelLeft())/usable*100)))
         end
         if fuelLeft()<homeCost() then break end
+        if isDay() then break end
         local tx,tz
         for _=1,20 do
             tx,tz=math.random(0,C.width-1),math.random(1,C.length)
@@ -4746,6 +4811,14 @@ idleBase=function()
     return true
 end
 round=function()
+    -- Tagsueber an der Basis warten (Waechter) bzw. an der Stelle (Wache/Mobfarm)
+    if isDay() then
+        if PATROL and not w.isHome() then local ok,why=idleHome();if not ok then w.fail(why);return false end;w.unload(keep) end
+        while w.active() and isDay() do
+            w.status("Tagpause","Nur nachts aktiv - wartet bis ca. 18:30 Spielzeit.");sleep(5)
+        end
+        if not w.active() then return false end
+    end
     if PATROL then
         if not w.isHome() then local ok,why=idleHome();if not ok then w.fail(why);return false end end
         return patrol()

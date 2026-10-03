@@ -1,5 +1,32 @@
 # Toast Control 3.0
 
+## Update 3.0.4: Mob-Turtles nur nachts, Holzfäller dreht sich nicht mehr im Kreis
+
+- **Nur nachts** (`mob.nightOnly`, Menü „Mobs“ → „Nur nachts?“): Tagsüber
+  (Spielzeit 5:30 bis 18:30) macht die Mob-Turtle Pause („Tagpause“). Der
+  Wächter fährt dafür zur Basis und lädt ab, Wache und Mobfarm bleiben an
+  ihrer Stelle. Sobald es dunkel wird, geht es von selbst weiter.
+- **Holzfäller nach Fehler**: drehte sich an der Basis ständig zur hinteren
+  Kiste und zurück (Setzlinge nachsehen). Im Leerlauf wird jetzt nur noch
+  abgeladen; Tanken und Setzlinge holen passiert erst beim nächsten START.
+
+## Update 3.0.3: Holzfäller im Gelände, Bäume stehen beliebig
+
+Die Holzfarm mit fester Baumreihe ist durch den **Holzfäller** ersetzt:
+- Gebiet vor der Basis (Länge x Breite, rechts/links). Die Turtle fährt es in
+  Bahnen ab (alle 3 Blöcke) und schaut an jedem Feld links und rechts nach
+  Bäumen – die Bäume dürfen **irgendwo** stehen.
+- **Gelände** wie beim Wächter: klettert über Hügel (bis „max. Höhe“),
+  steigt in Senken, gräbt sich durch Blätterdächer nach unten, baut sonst
+  **nur Holz und Blätter** ab (Mauern, Häuser usw. bleiben stehen).
+- Bäume werden komplett gefällt – auch wenn der Stamm tiefer oder höher
+  anfängt als die Turtle steht. Danach pflanzt sie (wenn eingeschaltet) einen
+  Setzling auf den Boden unter dem Stamm.
+- Inventar voll oder Fuel knapp: über die eigene Spur zur Basis, abladen,
+  tanken, zurück und an derselben Stelle weitermachen.
+- Absturz mitten im Stamm: nach Neustart wird der Rest gefällt.
+- Wächter und Holzfäller nutzen jetzt dieselbe Gelände-Steuerung.
+
 ## Update 3.0.2: Mining holt Kisten und Fackeln aus der oberen Kiste
 
 Die **obere Kiste** an der Basis ist jetzt die Nachschubkiste für alles:
@@ -34,9 +61,8 @@ Im Installer gibt es jetzt vier Aufgaben: **1 Farm, 2 Mining, 3 Holz, 4 Mobs**.
 Alle erscheinen in Zentrale, Pocket und Infoscreens (eigener Reiter, eigene
 Kachel, eigene Detailwerte) und hören auf START / STOP / 1x / RESET.
 
-### Holzfarm (Axt)
-Die Turtle fährt eine Fahrspur nach vorne, die Bäume stehen daneben
-(rechts, links oder beidseitig) mit wählbarem Abstand.
+### Holzfarm (Axt) – ab 3.0.3 als Holzfäller im Gelände (siehe oben)
+Erste Version: Fahrspur nach vorne, Bäume daneben.
 - Gewachsene Bäume werden komplett gefällt (Stamm bis „max. Höhe“), sofort
   wird ein neuer Setzling gesetzt. Leere Plätze werden bepflanzt.
 - Optional Knochenmehl: direkt nach dem Pflanzen, wächst der Baum, wird er

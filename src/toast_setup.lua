@@ -60,13 +60,13 @@ function S.new(common)
     end
     local function bothName(s) return s=="both" and "beidseitig" or sideName(s) end
     local function treeText(t)
-        return t.trees.." Baeume, Abst."..t.spacing.." "..bothName(t.side)..(t.bonemeal and " +Knochenm." or "")
+        return "Gebiet "..t.length.."x"..t.width.." "..sideName(t.side)..(t.replant and " +pflanzen" or "")
     end
     local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Waechter"}
     local function mobText(m)
         local s=MOB_MODES[m.mode] or m.mode
         if m.mode=="patrol" then s=s.." "..m.length.."x"..m.width.." "..sideName(m.side) end
-        return s..(m.attack=="all" and " +oben/unten" or "")
+        return s..(m.attack=="all" and " +oben/unten" or "")..(m.nightOnly and " nachts" or "")
     end
     local function chunkText(cl)
         if not cl.enabled then return "aus" end
@@ -124,18 +124,18 @@ function S.new(common)
     end
     local function editTree(c)
         local t=c.tree
-        header("Holzfarm (von der Basis aus nach vorne)")
-        hint("Fahrspur nach vorne, Baeume daneben.")
+        header("Holzfaeller (Gebiet vor der Basis)")
+        hint("Sucht im Gebiet nach Baeumen (egal wo),")
+        hint("folgt dem Gelaende, faellt ganze Staemme.")
         hint("Unten Kiste=Holz, oben=Kohle, hinten=")
-        hint("Setzlinge. Birke/Fichte am besten.")
-        t.trees=ask("Baeume hintereinander (1-32)",t.trees,1,32)
-        t.spacing=ask("Abstand zwischen Baeumen (1-6)",t.spacing,1,6)
-        hint("1 rechts  2 links  3 beidseitig")
-        local cur=t.side=="left" and 2 or t.side=="both" and 3 or 1
-        t.side=({"right","left","both"})[ask("Baeume",cur,1,3)]
-        t.interval=ask("Pause zwischen Runden (s)",t.interval,1,86400)
-        t.bonemeal=yesno("Knochenmehl benutzen?",t.bonemeal==true)
+        hint("Setzlinge (optional).")
+        t.length=ask("Gebiet nach vorne (1-128)",t.length,1,128)
+        t.width=ask("Gebiet zur Seite (1-128)",t.width,1,128)
+        if t.width>1 then t.side=askSide("Gebiet nach",t.side=="left" and "left" or "right") end
+        t.climb=ask("Max. Hoehe hoch/runter (1-32)",t.climb or 8,1,32)
         t.maxHeight=ask("Max. Baumhoehe (4-64)",t.maxHeight,4,64)
+        t.replant=yesno("Setzlinge nachpflanzen?",t.replant~=false)
+        t.interval=ask("Pause zwischen Runden (s)",t.interval,0,86400)
     end
     local function editMob(c)
         local m=c.mob
@@ -147,6 +147,9 @@ function S.new(common)
         local cur=m.mode=="guard" and 2 or m.mode=="patrol" and 3 or 1
         m.mode=({"farm","guard","patrol"})[ask("Art",cur,1,3)]
         m.attack=yesno("Auch oben/unten angreifen?",m.attack=="all") and "all" or "front"
+        hint("Tagsueber Pause, nur nachts aktiv")
+        hint("(Spielzeit 18:30 bis 5:30)?")
+        m.nightOnly=yesno("Nur nachts?",m.nightOnly==true)
         if m.mode=="patrol" then
             hint("Gebiet ab der Basis: nach vorne Laenge,")
             hint("zur Seite Breite. Faehrt zufaellig umher,")
@@ -330,7 +333,7 @@ function S.new(common)
         if job=="mining" then local m=c.mine
             return table.concat({m.length,m.height,m.tunnels,m.gap,m.side,tostring(m.sideDig==true)},":") end
         if job=="farm" then local f=c.farm return table.concat({f.length,f.width,f.side,f.crop},":") end
-        if job=="tree" then local t=c.tree return table.concat({t.trees,t.spacing,t.side},":") end
+        if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         return ""
     end

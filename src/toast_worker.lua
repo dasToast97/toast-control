@@ -204,6 +204,164 @@ function W.new(o)
         return w.face(0)
     end
 
+    -- ===== Gelaende (fuer Waechter und Holzfaeller) =====
+    -- Bewegung in einem Gebiet vor der Basis (x = 0..width-1, z = 1..length),
+    -- folgt dem Boden, klettert ueber Hindernisse (bis climb) und baut nur ab,
+    -- was opt.canDig erlaubt (z.B. Blaetter). Merkt sich die Spur ab dem
+    -- Basis-Ausgang: Heimweg = Spur rueckwaerts (sicher frei, Fuel bekannt).
+    function w.terrain(opt)
+        local T={}
+        local CLIMB=opt.climb or 8
+        local mopt={attack=opt.attack~=false,dig=opt.canDig~=nil,canDig=opt.canDig}
+        local TRAILMAX=800
+        st.trail=type(st.trail)=="table" and st.trail or nil
+        local idx={}
+        local function key(x,y,z) return x..","..y..","..z end
+        local function rebuild() idx={};for i,k in ipairs(st.trail or {}) do idx[k]=i end end
+        rebuild()
+        local function push()
+            if not st.trail then return end
+            local k=key(st.x,st.y,st.z)
+            local i=idx[k]
+            if i then for j=#st.trail,i+1,-1 do idx[st.trail[j]]=nil;st.trail[j]=nil end
+            elseif #st.trail>=TRAILMAX then st.trail=nil;idx={}
+            else st.trail[#st.trail+1]=k;idx[k]=#st.trail end
+        end
+        function T.mv(kind)
+            local ok,why=w.move(kind,mopt)
+            if ok then push() end
+            return ok,why
+        end
+        function T.fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
+        function T.homeCost()
+            if st.trail then return #st.trail+CLIMB+20+(opt.extraCost or 0) end
+            return (math.abs(st.x)+math.abs(st.z))*3+math.abs(st.y)+CLIMB*3+40+(opt.extraCost or 0)
+        end
+        function T.startTrail() st.trail={};idx={} end
+        function T.dropTrail() st.trail=nil;idx={} end
+        -- Am Boden bleiben: runter, solange darunter Luft (oder Erlaubtes wie Blaetter)
+        function T.hug()
+            local n=0
+            while st.y>-CLIMB and n<CLIMB+16 do
+                if turtle.detectDown() then
+                    local _,b=turtle.inspectDown()
+                    if not (opt.canDig and b and opt.canDig(b.name) and (not opt.hugThrough or opt.hugThrough(b.name))) then break end
+                end
+                if not T.mv("down") then break end
+                n=n+1
+            end
+        end
+        -- Ein Schritt nach vorne; fester Block -> hochklettern (nie abbauen)
+        function T.step()
+            if opt.before then opt.before() end
+            local ok,why=T.mv("forward")
+            if ok then return true end
+            if not tostring(why):find("blockiert",1,true) then return false,why end
+            while turtle.detect() and st.y<CLIMB do
+                if turtle.detectUp() then
+                    local _,b=turtle.inspectUp()
+                    if not (opt.canDig and b and opt.canDig(b.name)) then break end
+                end
+                if not T.mv("up") then break end
+            end
+            if turtle.detect() then return false,"zu hoch" end
+            return T.mv("forward")
+        end
+        local DIRV={[0]={0,1},{1,0},{0,-1},{-1,0}}
+        T.DIRV=DIRV
+        local wall,unreach={},{}
+        local function ckey(x,z) return x..":"..z end
+        T.wall,T.unreach,T.ckey=wall,unreach,ckey
+        local function blocked(why) return why=="zu hoch" or tostring(why):find("blockiert",1,true)~=nil end
+        -- Zu (tx,tz) laufen. ground: dem Boden folgen. watchFuel: bei knappem Fuel abbrechen.
+        -- opt.facing(dir) wird nach jedem Drehen aufgerufen (z.B. Baum vor der Nase faellen).
+        function T.nav(tx,tz,ground,watchFuel)
+            local limit=(math.abs(tx-st.x)+math.abs(tz-st.z))*3+24
+            local steps=0
+            while st.x~=tx or st.z~=tz do
+                if run.mode~="off" and not w.active() then return false,"stopped" end
+                if watchFuel and T.fuel()<T.homeCost() then return false,"lowFuel" end
+                steps=steps+1
+                if steps>limit then return false,"kein Weg" end
+                local dx,dz=tx-st.x,tz-st.z
+                local cands={}
+                local xd=dx>0 and 1 or 3;local zd=dz>0 and 0 or 2
+                if math.abs(dx)>=math.abs(dz) then
+                    if dx~=0 then cands[#cands+1]=xd end;if dz~=0 then cands[#cands+1]=zd end
+                else
+                    if dz~=0 then cands[#cands+1]=zd end;if dx~=0 then cands[#cands+1]=xd end
+                end
+                local side={(cands[1]+1)%4,(cands[1]+3)%4}
+                if math.random(2)==1 then side[1],side[2]=side[2],side[1] end
+                cands[#cands+1]=side[1];cands[#cands+1]=side[2]
+                local moved=false
+                for _,d in ipairs(cands) do
+                    local nx,nz=st.x+DIRV[d][1],st.z+DIRV[d][2]
+                    if (opt.inArea(nx,nz) or (nx==tx and nz==tz)) and not wall[ckey(nx,nz)] then
+                        local ok,why=w.face(d);if not ok then return false,why end
+                        if opt.facing then
+                            local okf,whyf=opt.facing(d);if not okf then return false,whyf end
+                        end
+                        local okm,whym=T.step()
+                        if okm then moved=true;break end
+                        if not blocked(whym) then return false,whym end
+                        if whym=="zu hoch" then wall[ckey(nx,nz)]=true end
+                    end
+                end
+                if not moved then return false,"kein Weg" end
+                if ground then T.hug() end
+            end
+            return true
+        end
+        -- Heim: Spur rueckwaerts, sonst Weg suchen (notfalls in Kletterhoehe),
+        -- dann auf Basishoehe vor der Basis und hinein.
+        function T.home()
+            if w.isHome() then st.trail=nil;idx={};w.save();return w.face(0) end
+            if st.trail and #st.trail>0 and idx[key(st.x,st.y,st.z)] then
+                local i=idx[key(st.x,st.y,st.z)]
+                local okT=true
+                for j=i-1,1,-1 do
+                    local x,y,z=st.trail[j]:match("(-?%d+),(-?%d+),(-?%d+)")
+                    x,y,z=tonumber(x),tonumber(y),tonumber(z)
+                    local ok
+                    if y>st.y then ok=w.move("up",mopt)
+                    elseif y<st.y then ok=w.move("down",mopt)
+                    else
+                        local d=x>st.x and 1 or x<st.x and 3 or z>st.z and 0 or 2
+                        ok=w.face(d);if ok then ok=w.move("forward",mopt) end
+                    end
+                    if not ok then okT=false;break end
+                    st.trail[j+1]=nil
+                end
+                rebuild()
+                if not okT then st.trail=nil;idx={} end
+            end
+            local ok=(st.x==0 and st.z==1 and st.y==0) or T.nav(0,1,true,false)
+            if not ok then
+                while st.y<CLIMB and not turtle.detectUp() do if not w.move("up",mopt) then break end end
+                local ok2,why2=T.nav(0,1,false,false)
+                if not ok2 then return false,why2 end
+            end
+            while st.y>0 do local okd,whyd=w.move("down",mopt);if not okd then return false,"Basis-Eingang: "..tostring(whyd) end end
+            while st.y<0 do local oku,whyu=w.move("up",mopt);if not oku then return false,"Basis-Eingang: "..tostring(whyu) end end
+            local okf,whyf=w.face(2);if not okf then return false,whyf end
+            local okm,whym=w.move("forward",mopt);if not okm then return false,"Basis-Eingang: "..tostring(whym) end
+            st.trail=nil;idx={};w.save()
+            return w.face(0)
+        end
+        -- Basis verlassen (Feld davor muss auf Basishoehe frei sein)
+        function T.leave()
+            local ok,why=w.face(0);if not ok then return false,why end
+            T.startTrail()
+            ok,why=T.step()
+            if not ok then return false,"Basis-Ausgang blockiert: "..tostring(why) end
+            if st.x~=0 or st.z~=1 or st.y~=0 then T.dropTrail() end
+            T.hug()
+            return true
+        end
+        return T
+    end
+
     -- ===== Basis: Abladen (Kiste unten) und Tanken (Kiste oben) =====
     local function container(fn) local ok,b=fn();return ok and CONTAINERS[b.name]==true end
     w.container=container

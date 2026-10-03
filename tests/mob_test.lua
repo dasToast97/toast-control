@@ -109,4 +109,19 @@ check("im Graben unten",S.minY<=-2,S.minY)
 check("auf dem Huegel",S.maxY>=2,S.maxY)
 check("zu Hause",S.p.x==0 and S.p.y==0 and S.p.z==0)
 check("nichts abgebaut",(S.digs or 0)==0,S.digs)
+
+print("M7 Waechter nur nachts: tagsueber an der Basis, nachts unterwegs")
+S=Sim.new({config=cfg([[{mode="patrol",attack="front",nightOnly=true,length=8,width=6,side="right",climb=4,interval=5,fuelTarget=3000,radioTimeout=0}]]),
+    default=false,fuel=3000,world=function(S) for x=-10,10 do for z=-1,12 do for y=1,3 do S.world[S.key(x,y,z)]="minecraft:dirt" end end end;S.world[S.key(0,1,0)]="minecraft:chest" end,
+    actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},
+      {t=280,fn=function(S) S.dayPos={S.p.x,S.p.y,S.p.z};S.dayStatus=S.last and S.last.status;S.dayTargets=state(S).targets end},
+      {t=380,fn=function(S) S.lateTargets=state(S).targets end}}})
+S.protocol="toast.mob.v1"
+S.gameTime=function(T) if T<100 then return 22 elseif T<300 then return 12 else return 1 end end
+S.coal=10000000   -- im Sim kosten Bewegungen keine Zeit: viel Kohle
+Sim.run(S,400)
+check("nachts unterwegs gewesen",(S.dayTargets or 0)>=1,S.dayTargets)
+check("tagsueber an der Basis",S.dayPos and S.dayPos[1]==0 and S.dayPos[2]==0 and S.dayPos[3]==0,S.dayPos and table.concat(S.dayPos,","))
+check("Status Tagpause",S.dayStatus=="Tagpause",S.dayStatus)
+check("naechste Nacht wieder los",(S.lateTargets or 0)>(S.dayTargets or 0),tostring(S.lateTargets).." vs "..tostring(S.dayTargets))
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

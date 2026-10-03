@@ -68,6 +68,13 @@ local function stash(force)
     end
     return true
 end
+-- mob.nightOnly: nur nachts aktiv (Spielzeit 18:30 - 5:30, dann spawnen Mobs)
+local function isDay()
+    if not C.nightOnly or not os.time then return false end
+    local ok,t=pcall(os.time)
+    if not ok or type(t)~="number" then return false end
+    return t>=5.5 and t<18.5
+end
 -- ===== Mobfarm / Wache (steht still, braucht kein Fuel) =====
 local function stand()
     local quiet=os.clock()
@@ -85,6 +92,9 @@ local function stand()
         local ok,title,detail=stash(false)
         if not ok then w.status(title,detail);w.fail(title);return false end
         if run.mode=="once" and os.clock()-quiet>=8 then stash(true);return true end
+        while w.active() and isDay() do
+            w.status("Tagpause","Nur nachts aktiv - wartet bis ca. 18:30 Spielzeit.");stash(true);sleep(5)
+        end
     end
     w.save()
     return false
@@ -93,111 +103,15 @@ end
 -- Gebiet: x = 0 .. width-1 (zur Seite), z = 1 .. length (nach vorne), y = Hoehe
 -- relativ zur Basis (+-climb). Basis selbst: x=0, z=0, y=0.
 local function inArea(x,z) return x>=0 and x<C.width and z>=1 and z<=C.length end
--- Spur: alle Felder vom Basis-Ausgang bis hierher, Schleifen werden gekuerzt.
--- Der Heimweg laeuft die Spur rueckwaerts (sicher frei) und ist genau so lang
--- wie die Spur -> der Waechter weiss immer, wie viel Fuel er fuer den Heimweg braucht.
-local TRAILMAX=800
-st.trail=type(st.trail)=="table" and st.trail or nil
-local trailIdx={}
-local function key(x,y,z) return x..","..y..","..z end
-local function rebuild()
-    trailIdx={}
-    for i,k in ipairs(st.trail or {}) do trailIdx[k]=i end
-end
-rebuild()
-local function push()
-    if not st.trail then return end
-    local k=key(st.x,st.y,st.z)
-    local i=trailIdx[k]
-    if i then
-        for j=#st.trail,i+1,-1 do trailIdx[st.trail[j]]=nil;st.trail[j]=nil end
-    elseif #st.trail>=TRAILMAX then
-        st.trail=nil;trailIdx={}          -- zu lang: Heimweg dann per Navigation
-    else
-        st.trail[#st.trail+1]=k;trailIdx[k]=#st.trail
-    end
-end
-local function mv(kind)
-    local ok,why=w.move(kind,{attack=true})
-    if ok then push() end
-    return ok,why
-end
-local function fuelLeft()
-    local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f
-end
--- Fuel fuer den Heimweg mit Reserve (Umwege, Klettern)
-local function homeCost()
-    if st.trail then return #st.trail+CLIMB+20 end
-    return (math.abs(st.x)+math.abs(st.z))*3+math.abs(st.y)+CLIMB*3+40
-end
 local function fight()
     if strike() then lastHit=os.clock();w.status("Kampf","Mob abgewehrt.");collect();w.saveSoon();return true end
     collect();return false
 end
--- Am Boden bleiben: runter, solange darunter Luft ist (Senken, Abhaenge)
-local function hug()
-    local n=0
-    while not turtle.detectDown() and st.y>-CLIMB and n<CLIMB do
-        if not mv("down") then break end
-        n=n+1
-    end
-end
--- Ein Schritt nach vorne; Block im Weg -> hochklettern (nie abbauen)
-local function stepForward()
-    fight()
-    local ok,why=mv("forward")
-    if ok then return true end
-    if not tostring(why):find("blockiert",1,true) then return false,why end
-    while turtle.detect() and st.y<CLIMB do
-        if turtle.detectUp() then break end
-        if not mv("up") then break end
-    end
-    if turtle.detect() then return false,"zu hoch" end
-    return mv("forward")
-end
-local DIRV={[0]={0,1},{1,0},{0,-1},{-1,0}}
--- Gedaechtnis: zu hohe Hindernisse (Spalten) und unerreichbare Ziele merken,
--- damit er nicht immer wieder dagegen faehrt (spart Fuel).
-local wall,unreach={},{}
-local function ckey(x,z) return x..":"..z end
-local function blocked(why) return why=="zu hoch" or tostring(why):find("blockiert",1,true)~=nil end
--- Zu (tx,tz) laufen. ground=true: dem Boden folgen, sonst Hoehe halten.
--- Weicht Hindernissen seitlich aus. watchFuel: abbrechen, wenn Fuel knapp wird.
-local function nav(tx,tz,ground,watchFuel)
-    local limit=(math.abs(tx-st.x)+math.abs(tz-st.z))*3+24
-    local steps=0
-    while st.x~=tx or st.z~=tz do
-        if run.mode~="off" and not w.active() then return false,"stopped" end
-        if watchFuel and fuelLeft()<homeCost() then return false,"lowFuel" end
-        steps=steps+1
-        if steps>limit then return false,"kein Weg" end
-        local dx,dz=tx-st.x,tz-st.z
-        local cands={}
-        local xd=dx>0 and 1 or 3;local zd=dz>0 and 0 or 2
-        if math.abs(dx)>=math.abs(dz) then
-            if dx~=0 then cands[#cands+1]=xd end;if dz~=0 then cands[#cands+1]=zd end
-        else
-            if dz~=0 then cands[#cands+1]=zd end;if dx~=0 then cands[#cands+1]=xd end
-        end
-        local side={(cands[1]+1)%4,(cands[1]+3)%4}
-        if math.random(2)==1 then side[1],side[2]=side[2],side[1] end
-        cands[#cands+1]=side[1];cands[#cands+1]=side[2]
-        local moved=false
-        for _,d in ipairs(cands) do
-            local nx,nz=st.x+DIRV[d][1],st.z+DIRV[d][2]
-            if (inArea(nx,nz) or (nx==tx and nz==tz)) and not wall[ckey(nx,nz)] then
-                local ok,why=w.face(d);if not ok then return false,why end
-                local okm,whym=stepForward()
-                if okm then moved=true;break end
-                if not blocked(whym) then return false,whym end
-                if whym=="zu hoch" then wall[ckey(nx,nz)]=true end
-            end
-        end
-        if not moved then return false,"kein Weg" end
-        if ground then hug() end
-    end
-    return true
-end
+-- Gelaende-Bewegung mit Spur (gemeinsam mit dem Holzfaeller, siehe toast_worker.lua)
+local T=w.terrain({climb=CLIMB,inArea=inArea,attack=true,before=fight})
+local fuelLeft,homeCost=T.fuel,T.homeCost
+local wall,unreach,ckey=T.wall,T.unreach,T.ckey
+local nav=T.nav
 local function atBase()
     local before=w.items()
     local ok,title,detail=w.unload(keep)
@@ -208,45 +122,10 @@ local function atBase()
     if not ok and fuelLeft()<need then return false,title,detail end
     return true
 end
--- Zurueck zur Basis: am Boden zum Feld vor der Basis; klappt das nicht, hoch
--- auf Kletterhoehe und darueber hinweg. Dann auf Basishoehe und hinein.
 idleHome=function()
     if not PATROL or (w.isHome() and st.dir==0) then return true end
     w.status("Rueckkehr","Faehrt zur Basis.")
-    if not w.isHome() then
-        -- 1. Spur rueckwaerts (sicher frei)
-        if st.trail and #st.trail>0 and trailIdx[key(st.x,st.y,st.z)] then
-            local i=trailIdx[key(st.x,st.y,st.z)]
-            local okT=true
-            for j=i-1,1,-1 do
-                local x,y,z=st.trail[j]:match("(-?%d+),(-?%d+),(-?%d+)")
-                x,y,z=tonumber(x),tonumber(y),tonumber(z)
-                local ok,why
-                if y>st.y then ok,why=w.move("up",{attack=true})
-                elseif y<st.y then ok,why=w.move("down",{attack=true})
-                else
-                    local d=x>st.x and 1 or x<st.x and 3 or z>st.z and 0 or 2
-                    ok,why=w.face(d);if ok then ok,why=w.move("forward",{attack=true}) end
-                end
-                if not ok then okT=false;break end
-                st.trail[j+1]=nil;trailIdx={};
-            end
-            rebuild()
-            if not okT then st.trail=nil;trailIdx={} end
-        end
-        local ok=st.x==0 and st.z==1 and st.y==0 or nav(0,1,true,false)
-        if not ok then
-            while st.y<CLIMB and not turtle.detectUp() do if not w.move("up",{attack=true}) then break end end
-            local ok2,why2=nav(0,1,false,false)
-            if not ok2 then return false,why2 end
-        end
-        while st.y>0 do local okd,whyd=w.move("down",{attack=true});if not okd then return false,"Basis-Eingang: "..tostring(whyd) end end
-        while st.y<0 do local oku,whyu=w.move("up",{attack=true});if not oku then return false,"Basis-Eingang: "..tostring(whyu) end end
-        local okf,whyf=w.face(2);if not okf then return false,whyf end
-        local okm,whym=w.move("forward",{attack=true});if not okm then return false,"Basis-Eingang: "..tostring(whym) end
-    end
-    st.trail=nil;trailIdx={};w.save()
-    return w.face(0)
+    return T.home()
 end
 -- Eine Tankfuellung lang zufaellig im Gebiet umherfahren, dann heim.
 local function patrol()
@@ -254,12 +133,8 @@ local function patrol()
     local ok,title,detail=atBase()
     if not ok then w.status(title,detail);w.fail(title);return false end
     tankStart=fuelLeft()
-    ok=w.face(0)
-    st.trail={};trailIdx={}
-    local okm,why=stepForward()
-    if not okm then w.fail("Basis-Ausgang blockiert: "..tostring(why));return false end
-    if st.x~=0 or st.z~=1 or st.y~=0 then st.trail=nil end   -- Ausgang muss frei auf Basishoehe sein
-    hug()
+    local okl,whyl=T.leave()
+    if not okl then w.fail(whyl);return false end
     local misses,count=0,0
     while w.active() do
         -- Fortschritt = verbrauchter Tank bis zur Rueckkehr
@@ -268,6 +143,7 @@ local function patrol()
             run.scanned=math.max(0,math.min(100,math.floor((tankStart-fuelLeft())/usable*100)))
         end
         if fuelLeft()<homeCost() then break end
+        if isDay() then break end
         local tx,tz
         for _=1,20 do
             tx,tz=math.random(0,C.width-1),math.random(1,C.length)
@@ -305,6 +181,14 @@ idleBase=function()
     return true
 end
 round=function()
+    -- Tagsueber an der Basis warten (Waechter) bzw. an der Stelle (Wache/Mobfarm)
+    if isDay() then
+        if PATROL and not w.isHome() then local ok,why=idleHome();if not ok then w.fail(why);return false end;w.unload(keep) end
+        while w.active() and isDay() do
+            w.status("Tagpause","Nur nachts aktiv - wartet bis ca. 18:30 Spielzeit.");sleep(5)
+        end
+        if not w.active() then return false end
+    end
     if PATROL then
         if not w.isHome() then local ok,why=idleHome();if not ok then w.fail(why);return false end end
         return patrol()

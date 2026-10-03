@@ -46,9 +46,9 @@ M.DEFAULTS={
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
-    tree={trees=8,spacing=2,side="right",interval=120,bonemeal=false,maxHeight=32,keepSaplings=32,
-        fuelTarget=1000,radioTimeout=60},
-    mob={mode="farm",attack="front",length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
+    tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
+        fuelTarget=2000,radioTimeout=60},
+    mob={mode="farm",attack="front",nightOnly=false,length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
@@ -123,16 +123,18 @@ function M.configText(c)
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
     elseif role=="turtle" and job=="tree" then
-        section("tree","Holzfarm: Fahrspur nach vorne, Baeume neben der Spur",{
-            {"trees","Baeume hintereinander (1-32)"},{"spacing","freie Bloecke zwischen Baeumen (1-6)"},
-            {"side","Baeume \"right\", \"left\" oder \"both\""},{"interval","Pause zwischen Runden in s"},
-            {"bonemeal","true = Knochenmehl auf Setzlinge"},{"maxHeight","hoechstens so hoch faellen"},
+        section("tree","Holzfaeller: Gebiet vor der Basis, Baeume stehen beliebig",{
+            {"length","Gebiet nach vorne (1-128)"},{"width","Gebiet zur Seite (1-128)"},
+            {"side","Gebiet \"right\" oder \"left\""},{"climb","max. Hoehe hoch/runter im Gelaende"},
+            {"maxHeight","Baeume hoechstens so hoch faellen"},{"replant","true = Setzling nachpflanzen"},
+            {"interval","Pause zwischen Runden in s"},
             {"keepSaplings","so viele Setzlinge behalten"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.tree)
     elseif role=="turtle" and job=="mob" then
         section("mob","Mobs: Schwert-Turtle",{
             {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Waechter"},
             {"attack","\"front\" oder \"all\" (auch oben/unten)"},
+            {"nightOnly","true = nur nachts aktiv (18:30-5:30)"},
             {"length","Waechter: Gebiet nach vorne"},{"width","Waechter: Gebiet zur Seite"},
             {"side","Waechter: Gebiet \"right\" oder \"left\""},{"climb","Waechter: max. Hoehe hoch/runter"},
             {"interval","Waechter: Pause an der Basis in s"},
@@ -236,11 +238,12 @@ function M.load(c)
 end
 function M.checkTree(t)
     assert(type(t)=="table","tree fehlt.")
-    assert(M.integer(t.trees,1,32),"tree.trees: 1 bis 32.")
-    assert(M.integer(t.spacing,1,6),"tree.spacing: 1 bis 6.")
-    assert(t.side=="right" or t.side=="left" or t.side=="both","tree.side: right, left oder both.")
-    assert(M.integer(t.interval,1,86400),"tree.interval: 1 bis 86400 s.")
-    assert(type(t.bonemeal)=="boolean","tree.bonemeal: true oder false.")
+    assert(M.integer(t.length,1,128) and M.integer(t.width,1,128),"tree.length/width: 1 bis 128.")
+    if t.side=="both" then t.side="right" end
+    assert(t.side=="right" or t.side=="left","tree.side: right oder left.")
+    assert(M.integer(t.climb,1,32),"tree.climb: 1 bis 32.")
+    assert(type(t.replant)=="boolean","tree.replant: true oder false.")
+    assert(M.integer(t.interval,0,86400),"tree.interval: 0 bis 86400 s.")
     assert(M.integer(t.maxHeight,4,64),"tree.maxHeight: 4 bis 64.")
     assert(M.integer(t.keepSaplings,1,256),"tree.keepSaplings: 1 bis 256.")
     assert(M.integer(t.fuelTarget,100,100000),"tree.fuelTarget: 100 bis 100000.")
@@ -253,6 +256,7 @@ function M.checkMob(m)
     assert(m.attack=="front" or m.attack=="all","mob.attack: front oder all.")
     assert(M.integer(m.length,2,64) and M.integer(m.width,1,64),"mob.length 2-64, mob.width 1-64.")
     assert(M.integer(m.climb,1,32),"mob.climb: 1 bis 32.")
+    assert(type(m.nightOnly)=="boolean","mob.nightOnly: true oder false.")
     assert(m.side=="right" or m.side=="left","mob.side: right oder left.")
     assert(M.integer(m.interval,0,86400),"mob.interval: 0 bis 86400 s.")
     assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")
