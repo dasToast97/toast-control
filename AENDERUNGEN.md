@@ -1,3 +1,10 @@
+# Toast Control 3.6.5
+
+- Normale Arbeit wie „Graebt“ oder „Sucht Baeume“ wird nicht mehr orange als
+  **Problem** angezeigt. Orange nur noch bei echten Problemen (Kiste voll,
+  Treibstoff fehlt, kein Füllmaterial, Weg blockiert …).
+- Pocket: Reiter mit Kurznamen und Anzahl (`F1 M3 H1 A1`), damit sie lesbar bleiben.
+
 # Toast Control 3.6.4
 
 - Updates laden die Datei jetzt über die **Commit-Kennung** (fester Link) statt

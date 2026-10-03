@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.6.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.6.4",
+    version="3.6.5",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1824,7 +1824,10 @@ local M={}
 -- Zustand -> Kurztext + Farbe
 local WORK={["Abbau"]="Baut ab",["Ernte"]="Erntet",["Pflanzen"]="Pflanzt",["Feld pruefen"]="Prueft",
     ["Fortsetzen"]="Startet",["Neuer Versuch"]="Startet",["Faellt Baum"]="Faellt",["Baeume pruefen"]="Prueft",
-    ["Kampf"]="Kaempft",["Patrouille"]="Laeuft"}
+    ["Kampf"]="Kaempft",["Patrouille"]="Laeuft",["Sucht Baeume"]="Sucht",["Graebt"]="Graebt",
+    ["Update"]="Update",["Kiste setzen"]="Kiste"}
+-- Nur echte Probleme orange; alles andere ist normale Arbeit
+local WARN={"fehlt","voll","blockiert","fehlgeschlagen","unklar","Kein","beendet","Gelaende","Problem","nicht"}
 function M.state(e,link)
     local d=e and e.data
     if not link or not e or not e.online or not d then return "Offline","off" end
@@ -1838,7 +1841,8 @@ function M.state(e,link)
     if s=="Tagpause" then return "Tagpause","wait" end
     if s=="Fertig" then return "Fertig","done" end
     if s=="Bereit" or s=="Reset" or s=="" then return "Bereit","idle" end
-    return "Problem","warn"
+    for _,k in ipairs(WARN) do if s:find(k,1,true) then return "Problem","warn" end end
+    return (s:match("^(%S+)") or s):sub(1,8),"work"
 end
 local COLOR={work=colors.lime,move=colors.lightBlue,wait=colors.cyan,done=colors.green,
     idle=colors.lightGray,warn=colors.orange,fault=colors.red,off=colors.gray}
@@ -2375,7 +2379,12 @@ function M.new(screen,cfg)
             local active=ui.filter==t[3]
             local width=i==#tabs and w-(#tabs-1)*tw or tw
             local lab=t[1].." "..t[2]
-            if #lab>width-2 then lab=t[1] end
+            if #lab>width-2 then
+                -- schmaler Bildschirm (Pocket): Kurzname + Anzahl, z.B. "M3"
+                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",Netz="N"}
+                local sh=SH[t[1]] or t[1]:sub(1,1)
+                lab=(#t[1]<=width-1) and t[1] or ((#(sh..t[2])<=width-1) and (sh..t[2]) or sh)
+            end
             local x=1+(i-1)*tw
             if active then pill(x,2,width,lab,"filter:"..t[3],colors.lightBlue,true,colors.black)
             else
@@ -6208,7 +6217,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.6.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
