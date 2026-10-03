@@ -1,5 +1,6 @@
--- Toast Control: Infoscreen. Nur Anzeige (keine Knoepfe): holt sich die Daten
--- von der Zentrale und zeigt sie auf allen angeschlossenen Farbmonitoren.
+-- Toast Control: Infoscreen - eigene Station mit Monitor(en), irgendwo aufgebaut.
+-- Nur Anzeige (keine Steuerung): zeigt die gewaehlte Kategorie (alle/farm/mining)
+-- oder eine bestimmte Turtle. Daten kommen per Funk von der Zentrale.
 local common=dofile("/toast/toast_common.lua")
 local cfg=common.load();assert(cfg.role=="info","Infoscreen erforderlich.")
 common.modem()
@@ -31,7 +32,7 @@ local function poll()
 end
 local function draw()
     for _,s in ipairs(screens) do
-        local ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st)
+        local ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st,cfg.show)
         if not ok then common.log("Infoscreen: "..tostring(why)) end
     end
 end

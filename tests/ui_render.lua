@@ -45,3 +45,11 @@ if mode=="sizes" then
     sc.dump(c[1])
   end
 end
+if mode=="info2" then
+  local f=fleet();f.entries[12].data.tunnels=5
+  local sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},12);sc.dump("INFOSCREEN 3x4 - Turtle #12 (Mine)")
+  sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},5);sc.dump("INFOSCREEN 3x4 - Turtle #5 (Farm)")
+  sc=screen(82,26,true);UI.drawInfo(sc,f,true,{},13);sc.dump("INFOSCREEN 4x8 - Turtle #13 (Fehler)")
+  sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},"farm");sc.dump("INFOSCREEN 3x4 - nur Farmen")
+  sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},99);sc.dump("INFOSCREEN - unbekannte Turtle")
+end

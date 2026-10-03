@@ -11,16 +11,17 @@ Fortschrittsbalken – nur die passenden Werte: Farm = Runden, Geerntet
 (Pflanzen), Ertrag (Items), Saatgut; Mine = Gänge, Abgebaut (Blöcke),
 Abgeladen (Items), freie Slots. „Beute“ gibt es nicht mehr.
 
-**Infoscreens** (nur Anzeige, keine Knöpfe): Übersicht mit Kacheln für Farm
-und Mine, „pro Stunde“-Werten, Problemliste und allen Turtles mit
-Fortschrittsbalken (blättert selbst).
-- Jeder weitere Monitor an der Zentrale wird automatisch Infoscreen.
-- Oder eigener Computer mit Monitor: im Installer „3 Infoscreen“.
+**Infoscreens** – eigene Station (Computer + Monitor(e)), irgendwo aufgebaut,
+nur Anzeige, keine Steuerung. Im Installer „3 Infoscreen“, unter „Anzeige“
+wählen, was er zeigt (`show` in der Config):
+- `"all"` / `"farm"` / `"mining"`: Übersicht der Kategorie mit Kacheln,
+  „pro Stunde“-Werten, Problemliste und allen Turtles (blättert selbst).
+- Turtle-ID, z. B. `12`: große Detailseite dieser einen Turtle (Zustand,
+  Fortschritt, alle Werte, pro Stunde).
 
 **Monitorgröße in Blöcken:** `display.size = "3x4"` (Höhe x Breite, Standard
 3x4, max 6x8, oder `"auto"`). Die Schrift wird so gewählt, dass alles passt –
-z. B. 3x4 → 39 x 19 Zeichen, 4x8 → 82 x 26. Weitere Monitore an der Zentrale
-werden automatisch ausgemessen. Einstellbar im Menü unter „Monitor“.
+z. B. 3x4 → 39 x 19 Zeichen, 4x8 → 82 x 26. Einstellbar im Menü unter „Monitor“.
 
 ## Neu in 2.7
 

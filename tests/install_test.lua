@@ -143,20 +143,28 @@ ok,err=install(S,false,30)
 kc=ok and cfgOf(S)
 check("Infoscreen mit Name + Zentrale",kc and kc.role=="info" and kc.name=="Info Halle" and kc.controllerId==4
   and S.files["/toast/toast_info.lua"] and S.files["/toast/toast_ui.lua"] and not S.files["/toast/toast_control.lua"] and kc.display and not kc.mine,err)
+print("O2 Infoscreen zeigt bestimmte Turtle")
+S=Sim.new({config=MINECFG,input={"1","3","4","4","4","12","","n","n"}});S.files={}
+ok,err=install(S,false,31)
+kc=ok and cfgOf(S)
+check("show = 12",kc and kc.role=="info" and kc.show==12,err)
+S=Sim.new({config=MINECFG,input={"1","3","4","4","3","","n","n"}});S.files={}
+ok,err=install(S,false,32)
+check("show = mining",ok and cfgOf(S).show=="mining",err)
 print("P Infoscreen-Update bleibt Infoscreen")
 S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files={["/toast.config.lua"]='return {role="info",name="I1",controllerId=4}'}
 ok,err=install(S,false,30)
 check("bleibt Infoscreen",ok and cfgOf(S).role=="info",err)
 
 print("Q Zentrale: Monitorgroesse 4x8 eingeben")
-S=Sim.new({config=MINECFG,input={"1","1","2","","4x8","j","","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","1","2","","4x8","","n","n"}});S.files={}
 ok,err=install(S,false,4)
 kc=ok and cfgOf(S)
-check("display.size gespeichert",kc and kc.display.size=="4x8" and kc.display.info==true,err)
+check("display.size gespeichert",kc and kc.display.size=="4x8",err)
 local hint=false;for _,l in ipairs(S.log)do if l:find("82 x 26",1,true) then hint=true end end
 check("zeigt berechnete Zeichen (82 x 26)",hint)
 print("R Falsche Groesse wird abgefangen")
-S=Sim.new({config=MINECFG,input={"1","1","2","","9x9","4 x 3","n","","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","1","2","","9x9","4 x 3","","n","n"}});S.files={}
 ok,err=install(S,false,4)
 check("4x3 trotz Falscheingabe",ok and cfgOf(S).display.size=="4x3",err)
 

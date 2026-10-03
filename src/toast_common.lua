@@ -33,7 +33,8 @@ end
 M.DEFAULTS={
     role="auto",job="auto",name="",controllerId=0,
     autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},
-    display={monitor="auto",size="3x4",textScale=0.5,pageSize=0,info=true},
+    display={monitor="auto",size="3x4",textScale=0.5,pageSize=0},
+    show="all",
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
@@ -101,6 +102,7 @@ function M.configText(c)
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\" oder Turtle-ID") end
     if role=="turtle" and job=="mining" then
         section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
             {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
@@ -125,8 +127,7 @@ function M.configText(c)
     if role=="controller" then
         section("display","Bildschirm",{
             {"monitor","\"auto\", \"terminal\" oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
-            {"textScale","nur ohne size: Schrift 0.5 bis 5"},{"pageSize","Zeilen pro Seite (0 = auto)"},
-            {"info","weitere Monitore = Infoscreen"}},c.display)
+            {"textScale","nur ohne size: Schrift 0.5 bis 5"},{"pageSize","Zeilen pro Seite (0 = auto)"}},c.display)
     elseif role=="info" then
         section("display","Bildschirm",{
             {"monitor","\"auto\" = alle Monitore, oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
@@ -169,7 +170,10 @@ function M.load(c)
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
-    if c.role=="info" then assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.") end
+    if c.role=="info" then
+        assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.")
+        assert(c.show=="all" or c.show=="farm" or c.show=="mining" or M.id(c.show),"show: \"all\", \"farm\", \"mining\" oder Turtle-ID (Zahl).")
+    end
     assert(type(c.autoDiscover)=="boolean" and type(c.autoPairPockets)=="boolean","autoDiscover/autoPairPockets: true oder false.")
     assert(type(c.devices)=="table" and type(c.pocketIds)=="table","devices/pocketIds fehlen.")
     local used={[c.controllerId]=true};local count=0

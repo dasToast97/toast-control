@@ -20,7 +20,7 @@ do
 end
 -- 2) Infoscreen-Programm auf eigenem Computer mit Monitor
 do
-  local CFG='return {role="info",name="Info Halle",controllerId=4}'
+  local CFG='return {role="info",name="Info Halle",controllerId=4,show=12}'
   local S=Sim.new({config=CFG})
   for _,n in ipairs({"toast_ui.lua","toast_info.lua"})do S.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a")end
   S.protocol="toast.control.remote.v1";S.polling=false
@@ -45,7 +45,7 @@ do
   Sim.env=orig
   local screen=table.concat(rows,"\n")
   check("meldet sich bei der Zentrale",hellos>=3,hellos)
-  check("zeigt Uebersicht auf dem Monitor",screen:find("TOAST",1,true) and screen:find("Mine Nord",1,true) and screen:find("MINE",1,true),screen)
+  check("zeigt die gewaehlte Turtle (#12) gross an",screen:find("Mine Nord",1,true) and screen:find("Abgebaut",1,true) and screen:find("Fortschritt",1,true),screen)
   check("laeuft weiter (kein Absturz)",S.result=="timeout",S.result.." "..table.concat(S.log," | "):sub(-200))
 end
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))

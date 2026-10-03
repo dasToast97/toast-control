@@ -127,7 +127,8 @@ end
 M.DEFAULTS={
     role="auto",job="auto",name="",controllerId=0,
     autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},
-    display={monitor="auto",size="3x4",textScale=0.5,pageSize=0,info=true},
+    display={monitor="auto",size="3x4",textScale=0.5,pageSize=0},
+    show="all",
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
@@ -195,6 +196,7 @@ function M.configText(c)
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    if role=="info" then line(4,"show",q(c.show),"\"all\", \"farm\", \"mining\" oder Turtle-ID") end
     if role=="turtle" and job=="mining" then
         section("mine","Mine: Turtle steht an der Basis und schaut in die Mine",{
             {"length","Ganglaenge nach vorne (1-1024)"},{"height","Ganghoehe 1-64 (3, 6, 9 ... sparsam)"},
@@ -219,8 +221,7 @@ function M.configText(c)
     if role=="controller" then
         section("display","Bildschirm",{
             {"monitor","\"auto\", \"terminal\" oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
-            {"textScale","nur ohne size: Schrift 0.5 bis 5"},{"pageSize","Zeilen pro Seite (0 = auto)"},
-            {"info","weitere Monitore = Infoscreen"}},c.display)
+            {"textScale","nur ohne size: Schrift 0.5 bis 5"},{"pageSize","Zeilen pro Seite (0 = auto)"}},c.display)
     elseif role=="info" then
         section("display","Bildschirm",{
             {"monitor","\"auto\" = alle Monitore, oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
@@ -263,7 +264,10 @@ function M.load(c)
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
-    if c.role=="info" then assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.") end
+    if c.role=="info" then
+        assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.")
+        assert(c.show=="all" or c.show=="farm" or c.show=="mining" or M.id(c.show),"show: \"all\", \"farm\", \"mining\" oder Turtle-ID (Zahl).")
+    end
     assert(type(c.autoDiscover)=="boolean" and type(c.autoPairPockets)=="boolean","autoDiscover/autoPairPockets: true oder false.")
     assert(type(c.devices)=="table" and type(c.pocketIds)=="table","devices/pocketIds fehlen.")
     local used={[c.controllerId]=true};local count=0
@@ -524,6 +528,7 @@ function S.new(common)
         end
     end
     local function sideName(s) return s=="left" and "links" or "rechts" end
+    local showText,editShow
     -- ---- Zusammenfassungen ----
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
@@ -631,11 +636,27 @@ function S.new(common)
             local s,w,h=common.scaleFor(d.size,kind)
             hint("-> Schrift "..s..", "..w.." x "..h.." Zeichen")
         end
-        if role=="controller" then
-            hint("Weitere Monitore an der Zentrale zeigen")
-            hint("die Info-Uebersicht (Groesse automatisch).")
-            d.info=yesno("Weitere Monitore als Infoscreen?",d.info~=false)
-        else sleep(1.5) end
+        sleep(1.5)
+    end
+    function showText(v)
+        if type(v)=="number" then return "Turtle #"..v end
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen"})[v] or tostring(v)
+    end
+    function editShow(c)
+        header("Was soll der Infoscreen zeigen?")
+        print("")
+        hint("1 Alle Turtles")
+        hint("2 Alle Farmen")
+        hint("3 Alle Minen")
+        hint("4 Eine bestimmte Turtle")
+        local cur=c.show=="farm" and 2 or c.show=="mining" and 3 or type(c.show)=="number" and 4 or 1
+        local n=ask("Auswahl",cur,1,4)
+        if n==1 then c.show="all" elseif n==2 then c.show="farm" elseif n==3 then c.show="mining"
+        else
+            hint("ID steht an der Zentrale hinter dem Namen")
+            hint("(z.B. Mine Nord #12 -> 12)")
+            c.show=ask("Turtle-ID",type(c.show)=="number" and c.show or 1,0,65500)
+        end
     end
     local function editDevices(c)
         header("Geraete")
@@ -672,8 +693,11 @@ function S.new(common)
         if role=="controller" or role=="info" then
             list[#list+1]={"Monitor",function() return (c.display.monitor=="auto" and "" or (c.display.monitor.." "))
                 ..(c.display.size=="auto" and "Groesse auto" or (tostring(c.display.size).." Bloecke"))
-                ..(role=="controller" and c.display.info~=false and " +Info" or "") end,
+                end,
                 function() editMonitor(c,role) end}
+        end
+        if role=="info" then
+            list[#list+1]={"Anzeige",function() return showText(c.show) end,function() editShow(c) end}
         end
         if role=="controller" then
             list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "
@@ -757,22 +781,7 @@ local function bindScreen()
         screen,name=term,nil
     end
 end
--- Weitere Farbmonitore an der Zentrale zeigen die Info-Uebersicht (nur Anzeige).
-local infoScreens,infoState={},{}
-local function bindInfo()
-    infoScreens={}
-    if cfg.display.info==false then return end
-    for _,n in ipairs(peripheral.getNames()) do
-        if n~=name and peripheral.getType(n)=="monitor" then
-            local m=peripheral.wrap(n)
-            if m and m.isColor and m.isColor() then
-                common.applyScale(m,cfg.display,"extra")    -- jeder weitere Monitor wird selbst ausgemessen
-                infoScreens[n]=m;infoState[n]=infoState[n] or {}
-            end
-        end
-    end
-end
-bindScreen();bindInfo()
+bindScreen()
 local UI=dofile("/toast/toast_ui.lua")
 local ui=UI.new(screen,cfg)
 local model=dofile("/toast/toast_model.lua").new(cfg)
@@ -786,10 +795,6 @@ local function draw()
         common.log("Anzeigefehler: "..tostring(why))
         bindScreen();ui.setScreen(screen)
         pcall(ui.draw,fleet,true,model.notice)
-    end
-    for n,m in pairs(infoScreens) do
-        local okI,whyI=pcall(UI.drawInfo,m,fleet,true,infoState[n])
-        if not okI then common.log("Infoscreen "..n..": "..tostring(whyI));infoScreens[n]=nil end
     end
     dirty=false
 end
@@ -812,7 +817,7 @@ local function loop()
             frame=os.startTimer(0.25)
         elseif e=="peripheral" or e=="peripheral_detach" then
             common.refreshModems()
-            local before=screen;bindScreen();bindInfo()
+            local before=screen;bindScreen()
             if screen~=before then
                 if before~=term then pcall(term.clear) end
                 ui.setScreen(screen);draw()
@@ -835,7 +840,6 @@ if deliberate then
 end
 pcall(rednet.unhost,common.protocol)
 if screen~=term then pcall(screen.clear) end
-for _,m in pairs(infoScreens) do pcall(function() m.setBackgroundColor(colors.black);m.clear() end) end
 term.clear();term.setCursorPos(1,1)
 if deliberate then
     print("Zentrale beendet. Stopp/Heimfahrt fuer alle Turtles angefordert.")
@@ -1047,10 +1051,80 @@ local function painter(screen)
 end
 -- ===== Infoscreen: nur Anzeige, keine Knoepfe =====
 -- st = Zustandstabelle des Infoscreens (Seite, Verlauf fuer "pro Stunde")
-function M.drawInfo(screen,fleet,link,st)
+-- Infoscreen fuer genau eine Turtle: grosse Detailseite
+local function drawTurtleInfo(screen,fleet,link,st,id)
+    local P=painter(screen);local w,h=P.w,P.h
+    screen.setBackgroundColor(colors.black);screen.clear()
+    local e=(fleet.entries or {})[id]
+    local d=e and e.data or {}
+    local label,kind=M.state(e,link)
+    local name=e and e.label~="" and e.label or ("Turtle #"..id)
+    P.fill(1,colors.blue)
+    P.text(2,1,name,colors.white,colors.blue)
+    P.right(1,(e and (e.job=="farm" and "Farm" or "Mine") or "").." #"..id.." ",colors.white,colors.blue)
+    if not e then
+        P.text(1,3,"Turtle #"..id.." ist der Zentrale",colors.orange)
+        P.text(1,4,"(noch) nicht bekannt.",colors.orange)
+        P.text(1,6,"ID in toast.lua config pruefen.",colors.lightGray)
+        return
+    end
+    -- Zustand als grosses Band
+    P.fill(3,COLOR[kind]);P.fill(4,COLOR[kind])
+    P.text(2,3,label,colors.black,COLOR[kind])
+    local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
+    if why then P.text(2,4,tostring(why),colors.black,COLOR[kind]) end
+    local det=kind=="off" and "Keine Daten - offline oder Chunk entladen" or tostring(d.detail or "")
+    local y=6
+    while #det>0 and y<=7 do P.text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
+    -- Fortschritt
+    y=9
+    local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
+    P.text(1,y,"Fortschritt",colors.lightGray);P.right(y,math.floor(pc*100+0.5).."%",colors.white)
+    y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind])
+    if h>=20 then y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind]) end
+    y=y+2
+    -- pro Stunde fuer diese Turtle
+    st.hist=st.hist or {}
+    local now=os.clock();local key=e.job=="farm" and num(d.total) or num(d.harvested)
+    local last=st.hist[#st.hist]
+    if not last or now-last.t>=30 then st.hist[#st.hist+1]={t=now,v=key};while #st.hist>31 do table.remove(st.hist,1) end end
+    local first=st.hist[1]
+    local perH=(first and now-first.t>=60) and short(math.max(0,(key-first.v)/(now-first.t)*3600)) or "-"
+    local rows
+    if e.job=="farm" then
+        rows={{"Runden",short(d.rounds)},{"Diese Runde",short(d.roundYield).." Items"},{"Geerntet",short(d.harvested).." Pflanzen"},
+            {"Ertrag",short(d.total).." Items"},{"Ertrag / Stunde",perH},{"Saatgut",short(d.seeds)}}
+        if num(d.wait)>0 then rows[#rows+1]={"Naechste Runde","in "..num(d.wait).." s"} end
+    else
+        rows={{"Gaenge fertig",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "")},{"Abgebaut",short(d.harvested).." Bloecke"},
+            {"Abgebaut / Stunde",perH},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
+    end
+    rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
+    if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks.."  (-"..short(d.chunkFuel).." Fuel/h)") or "aus"} end
+    -- zweispaltig, wenn breit genug
+    local cols=w>=56 and 2 or 1
+    local cw=math.floor(w/cols)
+    local per=math.ceil(#rows/cols)
+    for i,r in ipairs(rows) do
+        local c=math.floor((i-1)/per);local yy=y+(i-1)%per
+        if yy<=h then
+            local x=1+c*cw
+            P.text(x,yy,r[1],colors.lightGray)
+            P.text(x+cw-1-#r[2]-(cols>1 and c==0 and 2 or 0),yy,r[2],colors.white)
+        end
+    end
+end
+-- show: "all", "farm", "mining" oder Turtle-ID (Zahl)
+function M.drawInfo(screen,fleet,link,st,show)
+    if type(show)=="number" then return drawTurtleInfo(screen,fleet,link,st,show) end
     local P=painter(screen);local w,h=P.w,P.h
     screen.setBackgroundColor(colors.black);screen.clear()
     local entries=fleet.entries or {}
+    if show=="farm" or show=="mining" then
+        local ids={}
+        for _,id in ipairs(fleet.ids or {}) do if (entries[id] or {}).job==show then ids[#ids+1]=id end end
+        fleet={ids=ids,entries=entries}
+    end
     local count,act={farm=0,mining=0},{farm=0,mining=0}
     local farmTotal,farmHarv,mineHarv,mineTotal,fuel,chunk,progSum,progN=0,0,0,0,0,0,0,0
     local problems,list={},{}
@@ -1091,7 +1165,8 @@ function M.drawInfo(screen,fleet,link,st)
         local ok,t=pcall(function() return textutils.formatTime(os.time(),true) end);if ok then clock=t end
     end
     local rt=link and (online.."/"..#list.." online"..(clock~="" and ("  "..clock) or "").." ") or "keine Verbindung "
-    P.text(2,1,(#rt+20<=w) and "TOAST  Uebersicht" or "TOAST",colors.white,colors.blue)
+    local title=show=="farm" and "Farmen" or show=="mining" and "Minen" or "Uebersicht"
+    P.text(2,1,(#rt+10+#title<=w) and ("TOAST  "..title) or "TOAST",colors.white,colors.blue)
     P.right(1,rt,link and colors.white or colors.orange,colors.blue)
     -- Gruppen-Kacheln (nebeneinander, wenn Platz)
     local y=3
@@ -1477,8 +1552,9 @@ if not ok and why~="Terminated" then error(why,0) end
 print("Pocket geschlossen. Farmen und Minen laufen weiter.")
 ]======]
 FILES["toast_info.lua"]=[======[
--- Toast Control: Infoscreen. Nur Anzeige (keine Knoepfe): holt sich die Daten
--- von der Zentrale und zeigt sie auf allen angeschlossenen Farbmonitoren.
+-- Toast Control: Infoscreen - eigene Station mit Monitor(en), irgendwo aufgebaut.
+-- Nur Anzeige (keine Steuerung): zeigt die gewaehlte Kategorie (alle/farm/mining)
+-- oder eine bestimmte Turtle. Daten kommen per Funk von der Zentrale.
 local common=dofile("/toast/toast_common.lua")
 local cfg=common.load();assert(cfg.role=="info","Infoscreen erforderlich.")
 common.modem()
@@ -1510,7 +1586,7 @@ local function poll()
 end
 local function draw()
     for _,s in ipairs(screens) do
-        local ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st)
+        local ok,why=pcall(UI.drawInfo,s.dev,fleet,connected(),s.st,cfg.show)
         if not ok then common.log("Infoscreen: "..tostring(why)) end
     end
 end

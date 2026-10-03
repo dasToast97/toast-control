@@ -48,6 +48,7 @@ function S.new(common)
         end
     end
     local function sideName(s) return s=="left" and "links" or "rechts" end
+    local showText,editShow
     -- ---- Zusammenfassungen ----
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
@@ -155,11 +156,27 @@ function S.new(common)
             local s,w,h=common.scaleFor(d.size,kind)
             hint("-> Schrift "..s..", "..w.." x "..h.." Zeichen")
         end
-        if role=="controller" then
-            hint("Weitere Monitore an der Zentrale zeigen")
-            hint("die Info-Uebersicht (Groesse automatisch).")
-            d.info=yesno("Weitere Monitore als Infoscreen?",d.info~=false)
-        else sleep(1.5) end
+        sleep(1.5)
+    end
+    function showText(v)
+        if type(v)=="number" then return "Turtle #"..v end
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen"})[v] or tostring(v)
+    end
+    function editShow(c)
+        header("Was soll der Infoscreen zeigen?")
+        print("")
+        hint("1 Alle Turtles")
+        hint("2 Alle Farmen")
+        hint("3 Alle Minen")
+        hint("4 Eine bestimmte Turtle")
+        local cur=c.show=="farm" and 2 or c.show=="mining" and 3 or type(c.show)=="number" and 4 or 1
+        local n=ask("Auswahl",cur,1,4)
+        if n==1 then c.show="all" elseif n==2 then c.show="farm" elseif n==3 then c.show="mining"
+        else
+            hint("ID steht an der Zentrale hinter dem Namen")
+            hint("(z.B. Mine Nord #12 -> 12)")
+            c.show=ask("Turtle-ID",type(c.show)=="number" and c.show or 1,0,65500)
+        end
     end
     local function editDevices(c)
         header("Geraete")
@@ -196,8 +213,11 @@ function S.new(common)
         if role=="controller" or role=="info" then
             list[#list+1]={"Monitor",function() return (c.display.monitor=="auto" and "" or (c.display.monitor.." "))
                 ..(c.display.size=="auto" and "Groesse auto" or (tostring(c.display.size).." Bloecke"))
-                ..(role=="controller" and c.display.info~=false and " +Info" or "") end,
+                end,
                 function() editMonitor(c,role) end}
+        end
+        if role=="info" then
+            list[#list+1]={"Anzeige",function() return showText(c.show) end,function() editShow(c) end}
         end
         if role=="controller" then
             list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "

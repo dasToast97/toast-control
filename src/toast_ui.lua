@@ -56,10 +56,80 @@ local function painter(screen)
 end
 -- ===== Infoscreen: nur Anzeige, keine Knoepfe =====
 -- st = Zustandstabelle des Infoscreens (Seite, Verlauf fuer "pro Stunde")
-function M.drawInfo(screen,fleet,link,st)
+-- Infoscreen fuer genau eine Turtle: grosse Detailseite
+local function drawTurtleInfo(screen,fleet,link,st,id)
+    local P=painter(screen);local w,h=P.w,P.h
+    screen.setBackgroundColor(colors.black);screen.clear()
+    local e=(fleet.entries or {})[id]
+    local d=e and e.data or {}
+    local label,kind=M.state(e,link)
+    local name=e and e.label~="" and e.label or ("Turtle #"..id)
+    P.fill(1,colors.blue)
+    P.text(2,1,name,colors.white,colors.blue)
+    P.right(1,(e and (e.job=="farm" and "Farm" or "Mine") or "").." #"..id.." ",colors.white,colors.blue)
+    if not e then
+        P.text(1,3,"Turtle #"..id.." ist der Zentrale",colors.orange)
+        P.text(1,4,"(noch) nicht bekannt.",colors.orange)
+        P.text(1,6,"ID in toast.lua config pruefen.",colors.lightGray)
+        return
+    end
+    -- Zustand als grosses Band
+    P.fill(3,COLOR[kind]);P.fill(4,COLOR[kind])
+    P.text(2,3,label,colors.black,COLOR[kind])
+    local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
+    if why then P.text(2,4,tostring(why),colors.black,COLOR[kind]) end
+    local det=kind=="off" and "Keine Daten - offline oder Chunk entladen" or tostring(d.detail or "")
+    local y=6
+    while #det>0 and y<=7 do P.text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
+    -- Fortschritt
+    y=9
+    local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
+    P.text(1,y,"Fortschritt",colors.lightGray);P.right(y,math.floor(pc*100+0.5).."%",colors.white)
+    y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind])
+    if h>=20 then y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind]) end
+    y=y+2
+    -- pro Stunde fuer diese Turtle
+    st.hist=st.hist or {}
+    local now=os.clock();local key=e.job=="farm" and num(d.total) or num(d.harvested)
+    local last=st.hist[#st.hist]
+    if not last or now-last.t>=30 then st.hist[#st.hist+1]={t=now,v=key};while #st.hist>31 do table.remove(st.hist,1) end end
+    local first=st.hist[1]
+    local perH=(first and now-first.t>=60) and short(math.max(0,(key-first.v)/(now-first.t)*3600)) or "-"
+    local rows
+    if e.job=="farm" then
+        rows={{"Runden",short(d.rounds)},{"Diese Runde",short(d.roundYield).." Items"},{"Geerntet",short(d.harvested).." Pflanzen"},
+            {"Ertrag",short(d.total).." Items"},{"Ertrag / Stunde",perH},{"Saatgut",short(d.seeds)}}
+        if num(d.wait)>0 then rows[#rows+1]={"Naechste Runde","in "..num(d.wait).." s"} end
+    else
+        rows={{"Gaenge fertig",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "")},{"Abgebaut",short(d.harvested).." Bloecke"},
+            {"Abgebaut / Stunde",perH},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
+    end
+    rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
+    if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks.."  (-"..short(d.chunkFuel).." Fuel/h)") or "aus"} end
+    -- zweispaltig, wenn breit genug
+    local cols=w>=56 and 2 or 1
+    local cw=math.floor(w/cols)
+    local per=math.ceil(#rows/cols)
+    for i,r in ipairs(rows) do
+        local c=math.floor((i-1)/per);local yy=y+(i-1)%per
+        if yy<=h then
+            local x=1+c*cw
+            P.text(x,yy,r[1],colors.lightGray)
+            P.text(x+cw-1-#r[2]-(cols>1 and c==0 and 2 or 0),yy,r[2],colors.white)
+        end
+    end
+end
+-- show: "all", "farm", "mining" oder Turtle-ID (Zahl)
+function M.drawInfo(screen,fleet,link,st,show)
+    if type(show)=="number" then return drawTurtleInfo(screen,fleet,link,st,show) end
     local P=painter(screen);local w,h=P.w,P.h
     screen.setBackgroundColor(colors.black);screen.clear()
     local entries=fleet.entries or {}
+    if show=="farm" or show=="mining" then
+        local ids={}
+        for _,id in ipairs(fleet.ids or {}) do if (entries[id] or {}).job==show then ids[#ids+1]=id end end
+        fleet={ids=ids,entries=entries}
+    end
     local count,act={farm=0,mining=0},{farm=0,mining=0}
     local farmTotal,farmHarv,mineHarv,mineTotal,fuel,chunk,progSum,progN=0,0,0,0,0,0,0,0
     local problems,list={},{}
@@ -100,7 +170,8 @@ function M.drawInfo(screen,fleet,link,st)
         local ok,t=pcall(function() return textutils.formatTime(os.time(),true) end);if ok then clock=t end
     end
     local rt=link and (online.."/"..#list.." online"..(clock~="" and ("  "..clock) or "").." ") or "keine Verbindung "
-    P.text(2,1,(#rt+20<=w) and "TOAST  Uebersicht" or "TOAST",colors.white,colors.blue)
+    local title=show=="farm" and "Farmen" or show=="mining" and "Minen" or "Uebersicht"
+    P.text(2,1,(#rt+10+#title<=w) and ("TOAST  "..title) or "TOAST",colors.white,colors.blue)
     P.right(1,rt,link and colors.white or colors.orange,colors.blue)
     -- Gruppen-Kacheln (nebeneinander, wenn Platz)
     local y=3
