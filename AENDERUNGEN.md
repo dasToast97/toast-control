@@ -1,3 +1,10 @@
+# Toast Control 3.6.3
+
+- **Fehler behoben:** Farm-Turtles mit 3.6.1/3.6.2 stürzten beim Update-Befehl ab
+  (`farm_turtle.lua:580: attempt to index global 'b'`). Betroffene Farmen einmal
+  von Hand aktualisieren: `wget run https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua auto`
+- Neuer Test: Update-Befehl an jede Turtle-Art (Farm, Mine, Holz, Mobs, Aushub).
+
 # Toast Control 3.6.2
 
 - Zentrale/Infoscreen/Repeater ohne GPS-Position: klarer Hinweis am Computer,

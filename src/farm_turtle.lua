@@ -577,7 +577,7 @@ local function listener()
                 if message.serial > (st.commandSerial or 0) then
                     st.commandSerial = message.serial
                     if message.action == "update" then
-                        run.updateReq = type(b.target) == "string" and b.target or true; run.status, run.detail = "Update", "Wird gleich installiert ..."
+                        run.updateReq = type(message.target) == "string" and message.target or true; run.status, run.detail = "Update", "Wird gleich installiert ..."
                     elseif message.action == "stop" then
                         finish(); run.fault, run.retries, run.retryAt = nil, 0, nil
                     elseif message.action == "reset" then reset()

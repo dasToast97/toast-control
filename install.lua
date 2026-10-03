@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.6.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.6.2",
+    version="3.6.3",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -3423,7 +3423,7 @@ local function listener()
                 if message.serial > (st.commandSerial or 0) then
                     st.commandSerial = message.serial
                     if message.action == "update" then
-                        run.updateReq = type(b.target) == "string" and b.target or true; run.status, run.detail = "Update", "Wird gleich installiert ..."
+                        run.updateReq = type(message.target) == "string" and message.target or true; run.status, run.detail = "Update", "Wird gleich installiert ..."
                     elseif message.action == "stop" then
                         finish(); run.fault, run.retries, run.retryAt = nil, 0, nil
                     elseif message.action == "reset" then reset()
@@ -6194,7 +6194,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.6.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.6.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

@@ -33,6 +33,28 @@ check("Mine nach Update fertig",st.next and st.next>24 and S.last and S.last.sta
 check("Position stimmt",S.p.x==st.x and S.p.y==st.y and S.p.z==st.z and S.p.x==0 and S.p.z==0,S.p.x..","..S.p.z)
 check("hat schon vor dem Update gearbeitet",(S.stepsBefore or 0)>0,S.stepsBefore)
 
+print("U1b Update-Befehl (mit Zielversion) an jede Turtle-Art: kein Absturz, installiert")
+local VER=SRC:match("^%-%- TOAST CONTROL ([%d%.]+)")
+local JOBCFG={
+  {"farm","toast.farm.v2",'farm={width=3,length=3,crop="wheat",interval=5,seedReserve=16,radioTimeout=10,water={}}'},
+  {"mining","toast.mine.v1",'mine={length=6,height=3,tunnels=1,gap=1,side="right",fuelTarget=200,radioTimeout=10,freeSlots=2,digRetries=16,protectedBlocks={}}'},
+  {"tree","toast.tree.v1",'tree={length=4,width=3,side="right",climb=4,maxHeight=16,replant=true,keepSaplings=8,interval=30,fuelTarget=300,radioTimeout=0}'},
+  {"mob","toast.mob.v1",'mob={mode="guard",attack="front",nightOnly=false,length=4,width=4,side="right",climb=4,interval=10,fuelTarget=300,radioTimeout=0}'},
+  {"dig","toast.dig.v1",'dig={shape="room",direction="down",width=2,length=2,height=2,side="right",seal="off",drain=false,keepOres="",useCoal=true,fuelTarget=300,freeSlots=2,radioTimeout=0,protectedBlocks={}}'},
+}
+for _,j in ipairs(JOBCFG) do
+  local S=Sim.new({config='return {role="turtle",job="'..j[1]..'",controllerId=4,name="U '..j[1]..'",network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},'..j[3]..'}',
+    actions={{t=3,fn=function(S)table.insert(S.queue,table.pack("rednet_message",4,{kind="command",action="update",serial=11,target=VER},S.protocol)) end}}})
+  S.protocol=j[2];S.files["/startup.lua"]='shell.run("/toast.lua")\n'
+  local orig=Sim.env
+  Sim.env=function(S2) local G=orig(S2);G.http={get=function(url) S2.got=(S2.got or 0)+1;return {readAll=function()return SRC end,close=function()end} end}
+    G.term.isColor=function()return true end;return G end
+  Sim.run(S,120)
+  Sim.env=orig
+  local log=table.concat(S.log," | ")
+  check(j[1]..": Update installiert ohne Fehler",log:find("Update fertig",1,true)~=nil and not log:find("attempt to",1,true) and (S.got or 0)>=1,tail(S))
+end
+
 print("U2 Zentrale: Update-Befehl an Turtles + Pockets, Zentrale danach selbst")
 S=Sim.new({config=""});local G=Sim.env(S)
 for _,n in ipairs({"toast_common.lua","toast_model.lua","toast_ui.lua"})do S.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a")end
