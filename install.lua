@@ -1,7 +1,7 @@
--- TOAST CONTROL 2.9 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
--- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining und Repeater.
+-- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
 -- Neu: Waechter startet das Programm nach einem Absturz automatisch neu.
 local common=dofile("/toast/toast_common.lua")
 local args={...}
@@ -11,6 +11,20 @@ local function runOnce()
     -- Name auch im Spiel setzen (steht dann an Turtle/Computer und in der Item-Info).
     if cfg.label~="" and os.setComputerLabel and os.getComputerLabel()~=cfg.label then
         pcall(os.setComputerLabel,cfg.label)
+    end
+    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob") then
+        -- Holzfarm / Mobs: eigenes Grundgeruest (toast_worker.lua), liest die Config selbst.
+        local nativeRednet=rednet
+        local radio={}
+        for k,v in pairs(nativeRednet) do radio[k]=v end
+        radio.send=function(id,msg,protocol)
+            if type(msg)=="table" and msg.kind=="status" then
+                msg.label=cfg.label;msg.job=cfg.job;msg.controllerId=cfg.controllerId;msg.toast=common.version
+            end
+            return nativeRednet.send(id,msg,protocol)
+        end
+        local env=setmetatable({rednet=radio},{__index=_ENV})
+        return assert(loadfile("/toast/"..cfg.job.."_turtle.lua","t",env))(table.unpack(args))
     end
     if cfg.role=="turtle" then
         local name=cfg.job=="farm" and "farm" or "mine"
@@ -93,9 +107,9 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="2.9",
+    version="3.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
-    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
+    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true},
 }
@@ -108,7 +122,12 @@ function M.id(n) return M.integer(n,0,65500) end
 function M.serial(n) return M.integer(n,1,9007199254740991) end
 function M.number(n) return type(n)=="number" and n==n and n>-math.huge and n<math.huge and n or 0 end
 function M.contains(list,id) for _,v in ipairs(list or {}) do if v==id then return true end end;return false end
-function M.job(j) return j=="farm" or j=="mining" end
+-- Aufgaben einer Turtle. JOBS: Reihenfolge in Menues und Anzeigen.
+M.JOBS={"farm","mining","tree","mob"}
+M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs"}
+-- Config-Abschnitt und Programmdatei je Aufgabe
+M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob"}
+function M.job(j) return M.JOB_NAMES[j]~=nil end
 function M.label(v)
     return type(v)=="string" and v:gsub("[%c]"," "):sub(1,48) or ""
 end
@@ -133,15 +152,18 @@ M.DEFAULTS={
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
-    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,radioTimeout=60,
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
+    tree={trees=8,spacing=2,side="right",interval=120,bonemeal=false,maxHeight=32,keepSaplings=32,
+        fuelTarget=1000,radioTimeout=60},
+    mob={mode="farm",attack="front",length=12,width=12,side="right",interval=30,fuelTarget=500,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -185,14 +207,14 @@ function M.configText(c)
         out[#out+1]="    },"
     end
     local role,job=c.role,c.job
-    local what=role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining")) or
+    local what=role=="turtle" and ("Turtle / "..(M.JOB_NAMES[job] or tostring(job))) or
         ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role] or tostring(role)
     out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
     out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
     out[#out+1]="return {"
     line(4,"role",q(role))
-    if role=="turtle" then line(4,"job",q(job),"farm oder mining") end
+    if role=="turtle" then line(4,"job",q(job),"farm, mining, tree oder mob") end
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
@@ -203,9 +225,25 @@ function M.configText(c)
             {"tunnels","Anzahl Gaenge (1-64)"},{"gap","Bloecke zwischen den Gaengen (0-16)"},
             {"side","Gaenge nach \"right\" oder \"left\""},{"sideDig","nur gap = 0: seitlich mitabbauen"},
             {"useCoal","true = gefundene Kohle direkt als Fuel"},
+            {"placeChests","true = Kisten mitnehmen, unterwegs abladen"},
+            {"torches","Fackel alle x Bloecke (0 = aus, ab Hoehe 3)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
+    elseif role=="turtle" and job=="tree" then
+        section("tree","Holzfarm: Fahrspur nach vorne, Baeume neben der Spur",{
+            {"trees","Baeume hintereinander (1-32)"},{"spacing","freie Bloecke zwischen Baeumen (1-6)"},
+            {"side","Baeume \"right\", \"left\" oder \"both\""},{"interval","Pause zwischen Runden in s"},
+            {"bonemeal","true = Knochenmehl auf Setzlinge"},{"maxHeight","hoechstens so hoch faellen"},
+            {"keepSaplings","so viele Setzlinge behalten"},{"fuelTarget","an der Basis bis hierhin tanken"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.tree)
+    elseif role=="turtle" and job=="mob" then
+        section("mob","Mobs: Schwert-Turtle",{
+            {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Runde"},
+            {"attack","\"front\" oder \"all\" (auch oben/unten)"},
+            {"length","Patrouille: Laenge nach vorne"},{"width","Patrouille: Breite"},
+            {"side","Patrouille nach \"right\" oder \"left\""},{"interval","Patrouille: Pause in s"},
+            {"fuelTarget","Patrouille: bis hierhin tanken"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
     elseif role=="turtle" then
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
@@ -213,7 +251,7 @@ function M.configText(c)
             {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
     end
-    if role=="turtle" then
+    if role=="turtle" and (job=="farm" or job=="mining") then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
             {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
             {"idle","true = auch an der Basis wach"},{"wakeOnWorldLoad","nach Serverneustart weiter"},
@@ -261,13 +299,14 @@ function M.load(c)
     assert(M.id(c.controllerId),"controllerId: ganze ID 0 bis 65500.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
-        assert(turtle and M.job(c.job),"Turtle: job=farm oder mining einstellen.")
+        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree oder mob einstellen.")
+        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) end
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
     if c.role=="info" then
         assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.")
-        assert(c.show=="all" or c.show=="farm" or c.show=="mining" or M.id(c.show),"show: \"all\", \"farm\", \"mining\" oder Turtle-ID (Zahl).")
+        assert(c.show=="all" or M.job(c.show) or M.id(c.show),"show: \"all\", \"farm\", \"mining\", \"tree\", \"mob\" oder Turtle-ID (Zahl).")
     end
     assert(type(c.autoDiscover)=="boolean" and type(c.autoPairPockets)=="boolean","autoDiscover/autoPairPockets: true oder false.")
     assert(type(c.devices)=="table" and type(c.pocketIds)=="table","devices/pocketIds fehlen.")
@@ -301,6 +340,30 @@ function M.load(c)
     end
     c.label=M.label(c.label);c.name=c.label
     return c
+end
+function M.checkTree(t)
+    assert(type(t)=="table","tree fehlt.")
+    assert(M.integer(t.trees,1,32),"tree.trees: 1 bis 32.")
+    assert(M.integer(t.spacing,1,6),"tree.spacing: 1 bis 6.")
+    assert(t.side=="right" or t.side=="left" or t.side=="both","tree.side: right, left oder both.")
+    assert(M.integer(t.interval,1,86400),"tree.interval: 1 bis 86400 s.")
+    assert(type(t.bonemeal)=="boolean","tree.bonemeal: true oder false.")
+    assert(M.integer(t.maxHeight,4,64),"tree.maxHeight: 4 bis 64.")
+    assert(M.integer(t.keepSaplings,1,256),"tree.keepSaplings: 1 bis 256.")
+    assert(M.integer(t.fuelTarget,100,100000),"tree.fuelTarget: 100 bis 100000.")
+    assert(t.radioTimeout==0 or M.integer(t.radioTimeout,10,300),"tree.radioTimeout: 0 oder 10 bis 300.")
+    return t
+end
+function M.checkMob(m)
+    assert(type(m)=="table","mob fehlt.")
+    assert(m.mode=="farm" or m.mode=="guard" or m.mode=="patrol","mob.mode: farm, guard oder patrol.")
+    assert(m.attack=="front" or m.attack=="all","mob.attack: front oder all.")
+    assert(M.integer(m.length,2,64) and M.integer(m.width,1,64),"mob.length 2-64, mob.width 1-64.")
+    assert(m.side=="right" or m.side=="left","mob.side: right oder left.")
+    assert(M.integer(m.interval,0,86400),"mob.interval: 0 bis 86400 s.")
+    assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")
+    assert(m.radioTimeout==0 or M.integer(m.radioTimeout,10,300),"mob.radioTimeout: 0 oder 10 bis 300.")
+    return m
 end
 function M.workerConfig(c)
     return {role="turtle",controllerId=c.controllerId,turtleIds={os.getComputerID()},pocketIds={},
@@ -534,9 +597,20 @@ function S.new(common)
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
             ..(m.sideDig and m.gap==0 and " +seitl" or "")..(m.useCoal~=false and " +Kohle" or "")
+            ..(m.placeChests and " +Kisten" or "")..((m.torches or 0)>0 and (" +Fackel/"..m.torches) or "")
     end
     local function farmText(f)
         return f.length.."x"..f.width.." "..sideName(f.side).." "..(common.CROP_NAMES[f.crop] or f.crop)
+    end
+    local function bothName(s) return s=="both" and "beidseitig" or sideName(s) end
+    local function treeText(t)
+        return t.trees.." Baeume, Abst."..t.spacing.." "..bothName(t.side)..(t.bonemeal and " +Knochenm." or "")
+    end
+    local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Patrouille"}
+    local function mobText(m)
+        local s=MOB_MODES[m.mode] or m.mode
+        if m.mode=="patrol" then s=s.." "..m.length.."x"..m.width.." "..sideName(m.side) end
+        return s..(m.attack=="all" and " +oben/unten" or "")
     end
     local function chunkText(cl)
         if not cl.enabled then return "aus" end
@@ -563,6 +637,17 @@ function S.new(common)
         hint("Kohle aus der Mine: direkt verbrennen")
         hint("(spart Fahrten) oder abliefern.")
         m.useCoal=yesno("Gefundene Kohle als Fuel nutzen?",m.useCoal~=false)
+        hint("Kisten ins Turtle-Inventar legen: bei")
+        hint("vollem Inventar setzt sie eine in den")
+        hint("Boden und laedt ab (kein Heimweg).")
+        m.placeChests=yesno("Kisten unterwegs setzen?",m.placeChests==true)
+        if m.height>=3 then
+            hint("Fackeln ins Inventar: auf den Boden")
+            hint("der untersten Reihe. 0 = aus")
+            m.torches=ask("Fackel alle x Bloecke (0-64)",m.torches or 0,0,64)
+        else
+            hint("Fackeln: erst ab Ganghoehe 3.");m.torches=0
+        end
     end
     local function editFarm(c)
         local f=c.farm
@@ -580,6 +665,45 @@ function S.new(common)
         hint("0 = automatisch passend zum Feld")
         f.seedReserve=ask("Saatgut behalten (0-256)",f.seedReserve or 0,0,256)
         f.water={}
+    end
+    local function editTree(c)
+        local t=c.tree
+        header("Holzfarm (von der Basis aus nach vorne)")
+        hint("Fahrspur nach vorne, Baeume daneben.")
+        hint("Unten Kiste=Holz, oben=Kohle, hinten=")
+        hint("Setzlinge. Birke/Fichte am besten.")
+        t.trees=ask("Baeume hintereinander (1-32)",t.trees,1,32)
+        t.spacing=ask("Abstand zwischen Baeumen (1-6)",t.spacing,1,6)
+        hint("1 rechts  2 links  3 beidseitig")
+        local cur=t.side=="left" and 2 or t.side=="both" and 3 or 1
+        t.side=({"right","left","both"})[ask("Baeume",cur,1,3)]
+        t.interval=ask("Pause zwischen Runden (s)",t.interval,1,86400)
+        t.bonemeal=yesno("Knochenmehl benutzen?",t.bonemeal==true)
+        t.maxHeight=ask("Max. Baumhoehe (4-64)",t.maxHeight,4,64)
+    end
+    local function editMob(c)
+        local m=c.mob
+        header("Mobs (Schwert-Turtle)")
+        hint("1 Mobfarm: steht an der Toetungsstelle,")
+        hint("  Drops in die Kiste unter ihr")
+        hint("2 Wache: steht an einer Stelle")
+        hint("3 Patrouille: laeuft ein Rechteck ab")
+        local cur=m.mode=="guard" and 2 or m.mode=="patrol" and 3 or 1
+        m.mode=({"farm","guard","patrol"})[ask("Art",cur,1,3)]
+        m.attack=yesno("Auch oben/unten angreifen?",m.attack=="all") and "all" or "front"
+        if m.mode=="patrol" then
+            hint("Rechteck ab der Basis: nach vorne")
+            hint("Laenge, zur Seite Breite. Weg muss frei")
+            hint("sein (baut nichts ab).")
+            m.length=ask("Laenge (2-64)",m.length,2,64)
+            m.width=ask("Breite (1-64)",m.width,1,64)
+            if m.width>1 then m.side=askSide("Rechteck nach",m.side) end
+            m.interval=ask("Pause zwischen Runden (s)",m.interval,0,86400)
+        end
+        fg(colors.orange)
+        print(cut("Achtung: greift alles direkt vor"))
+        print(cut("sich an, auch Spieler."))
+        fg(colors.white);sleep(1.5)
     end
     local function editChunks(c,job)
         local cl=c.chunkload
@@ -608,7 +732,7 @@ function S.new(common)
         end
     end
     local function editRadio(c,job)
-        local sec=job=="farm" and c.farm or c.mine
+        local sec=c[common.JOB_SECTION[job] or "mine"]
         header("Funk")
         hint("Keine Verbindung zur Zentrale:")
         hint("nach x Sekunden stoppen + heimfahren.")
@@ -646,18 +770,18 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
         print("")
-        hint("1 Alle Turtles")
-        hint("2 Alle Farmen")
-        hint("3 Alle Minen")
-        hint("4 Eine bestimmte Turtle")
-        local cur=c.show=="farm" and 2 or c.show=="mining" and 3 or type(c.show)=="number" and 4 or 1
-        local n=ask("Auswahl",cur,1,4)
-        if n==1 then c.show="all" elseif n==2 then c.show="farm" elseif n==3 then c.show="mining"
+        local opts={"all","farm","mining","tree","mob"}
+        for i,v in ipairs(opts) do hint(i.." "..showText(v)) end
+        hint("6 Eine bestimmte Turtle")
+        local cur=type(c.show)=="number" and 6 or 1
+        for i,v in ipairs(opts) do if c.show==v then cur=i end end
+        local n=ask("Auswahl",cur,1,6)
+        if n<=5 then c.show=opts[n]
         else
             hint("ID steht an der Zentrale hinter dem Namen")
             hint("(z.B. Mine Nord #12 -> 12)")
@@ -688,12 +812,18 @@ function S.new(common)
         end
         if role=="turtle" and job=="mining" then
             list[#list+1]={"Mine",function() return mineText(c.mine) end,function() editMine(c) end}
+        elseif role=="turtle" and job=="tree" then
+            list[#list+1]={"Baeume",function() return treeText(c.tree) end,function() editTree(c) end}
+        elseif role=="turtle" and job=="mob" then
+            list[#list+1]={"Mobs",function() return mobText(c.mob) end,function() editMob(c) end}
         elseif role=="turtle" then
             list[#list+1]={"Feld",function() return farmText(c.farm) end,function() editFarm(c) end}
         end
-        if role=="turtle" then
+        if role=="turtle" and (job=="farm" or job=="mining") then
             list[#list+1]={"Chunks",function() return chunkText(c.chunkload) end,function() editChunks(c,job) end}
-            list[#list+1]={"Funk",function() return radioText((job=="farm" and c.farm or c.mine).radioTimeout) end,
+        end
+        if role=="turtle" then
+            list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
         end
         if role=="controller" or role=="info" then
@@ -713,7 +843,7 @@ function S.new(common)
     end
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
-        local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(info.job=="farm" and "Farm" or "Mining"))
+        local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
             or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
@@ -740,16 +870,18 @@ function S.new(common)
         if job=="mining" then local m=c.mine
             return table.concat({m.length,m.height,m.tunnels,m.gap,m.side,tostring(m.sideDig==true)},":") end
         if job=="farm" then local f=c.farm return table.concat({f.length,f.width,f.side,f.crop},":") end
+        if job=="tree" then local t=c.tree return table.concat({t.trees,t.spacing,t.side},":") end
+        if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         return ""
     end
     function M.confirmReset(job)
-        if job~="mining" then return end
-        local file="/toast_mining_state"
+        if job~="mining" and job~="tree" and job~="mob" then return end
+        local file="/toast_"..job.."_state"
         if not (fs.exists(file) or fs.exists(file..".tmp")) then return end
-        header("Neue Minenmasse")
+        header(job=="mining" and "Neue Minenmasse" or "Neue Masse")
         print("Neue Masse = neuer Auftrag.")
         print("Die Turtle muss an ihrer Basis stehen")
-        print("(Blick in die Mine).")
+        print(job=="mining" and "(Blick in die Mine)." or "(Blick nach vorne).")
         if yesno("Steht sie an der Basis?",true) then
             for _,p in ipairs({file,file..".tmp"}) do if fs.exists(p) then fs.delete(p) end end
             return true
@@ -935,7 +1067,7 @@ function M.new(cfg)
     end
     function m.command(action,target)
         if not common.actions[action] then return false end
-        if target~="all" and target~="farm" and target~="mining" and not (common.id(target) and devices[target]) then return false end
+        if target~="all" and not common.job(target) and not (common.id(target) and devices[target]) then return false end
         local changed={}
         local always=action=="stop" or action=="reset"
         for id,d in pairs(devices) do
@@ -1008,7 +1140,8 @@ local common=dofile("/toast/toast_common.lua")
 local M={}
 -- Zustand -> Kurztext + Farbe
 local WORK={["Abbau"]="Baut ab",["Ernte"]="Erntet",["Pflanzen"]="Pflanzt",["Feld pruefen"]="Prueft",
-    ["Fortsetzen"]="Startet",["Neuer Versuch"]="Startet"}
+    ["Fortsetzen"]="Startet",["Neuer Versuch"]="Startet",["Faellt Baum"]="Faellt",["Baeume pruefen"]="Prueft",
+    ["Kampf"]="Kaempft",["Patrouille"]="Laeuft"}
 function M.state(e,link)
     local d=e and e.data
     if not link or not e or not e.online or not d then return "Offline","off" end
@@ -1018,6 +1151,7 @@ function M.state(e,link)
     if WORK[s] then return WORK[s],"work" end
     if s=="Rueckkehr" then return "Heimweg","move" end
     if s=="Warten" then return "Wartet","wait" end
+    if s=="Wache" then return "Wacht","wait" end
     if s=="Fertig" then return "Fertig","done" end
     if s=="Bereit" or s=="Reset" or s=="" then return "Bereit","idle" end
     return "Problem","warn"
@@ -1031,6 +1165,46 @@ local function short(n)
     if math.abs(n)>=1000000 then return string.format("%.1fM",n/1000000) end
     if math.abs(n)>=10000 then return string.format("%.1fk",n/1000) end
     return tostring(math.floor(n))
+end
+-- ===== Aufgaben: Name, Hauptwert und Detailzeilen je Job =====
+local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Patrouille"}
+local function wait(rows,d) if num(d.wait)>0 then rows[#rows+1]={"Naechste",num(d.wait).." s"} end end
+local JOB={
+    farm={name="Farm",plural="Farmen",metric="Ertrag",unit="Items",once="1 Runde",
+        value=function(d) return num(d.total) end,aux={"Geerntet",function(d) return num(d.harvested) end," Pfl."},
+        rows=function(d) local r={{"Runden",short(d.rounds)}}
+            if num(d.roundYield)>0 then r[#r+1]={"Diese Runde",short(d.roundYield).." Items"} end
+            r[#r+1]={"Geerntet",short(d.harvested).." Pflanzen"};r[#r+1]={"Ertrag",short(d.total).." Items"}
+            r[#r+1]={"Saatgut",short(d.seeds)};wait(r,d);return r end},
+    mining={name="Mine",plural="Minen",metric="Abgebaut",unit="Bl.",once="1 Gang",
+        value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
+        rows=function(d) local r={{"Gaenge",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "").." fertig"},
+            {"Abgebaut",short(d.harvested).." Bloecke"},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
+            if d.useCoal then r[#r+1]={"Kohle",short(d.coal).." verbrannt"} end
+            if d.placeChests then r[#r+1]={"Kisten",short(d.chestsPlaced).." gesetzt, "..short(d.chestsLeft).." dabei"} end
+            if num(d.torches)>0 then r[#r+1]={"Fackeln",short(d.torchesPlaced).." gesetzt, "..short(d.torchesLeft).." dabei"} end
+            return r end},
+    tree={name="Holz",plural="Holzfarmen",metric="Holz",unit="Staemme",once="1 Runde",
+        value=function(d) return num(d.total) end,aux={"Gefaellt",function(d) return num(d.harvested) end," Baeume"},
+        rows=function(d) local r={{"Runden",short(d.rounds)},{"Gefaellt",short(d.harvested).." Baeume"},
+            {"Holz",short(d.total).." Staemme"},{"Setzlinge",short(d.saplings)}}
+            if num(d.bonemeal)>0 then r[#r+1]={"Knochenmehl",short(d.bonemeal)} end;wait(r,d);return r end},
+    mob={name="Mobs",plural="Mob-Turtles",metric="Drops",unit="Items",once="1x",
+        value=function(d) return num(d.total) end,aux={"Treffer",function(d) return num(d.hits) end,""},
+        rows=function(d) local r={{"Art",MOB_MODES[d.mobMode] or "-"},{"Treffer",short(d.hits)},{"Drops",short(d.total).." Items"}}
+            if d.lastHit and num(d.hits)>0 then r[#r+1]={"Letzter Mob","vor "..short(d.lastHit).." s"} end
+            if d.mobMode=="patrol" then r[#r+1]={"Runden",short(d.rounds)};wait(r,d) end
+            r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
+}
+local ORDER={"farm","mining","tree","mob"}
+M.JOB=JOB
+local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
+local function hasProgress(d) return num(d.cells)>0 end
+local function progress(d) return math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells)))) end
+local function common_rows(rows,d)
+    rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
+    if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).." Fuel/h") or "aus"} end
+    return rows
 end
 -- Dunkler Balken-Hintergrund: "braun" wird umdefiniert (sonst nirgends benutzt),
 -- weil CC kein dunkleres Grau als colors.gray kennt.
@@ -1094,7 +1268,7 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     local name=e and e.label~="" and e.label or ("Turtle #"..id)
     P.fill(1,colors.blue)
     P.text(2,1,name,colors.white,colors.blue)
-    P.right(1,(e and (e.job=="farm" and "Farm" or "Mine") or "").." #"..id.." ",colors.white,colors.blue)
+    P.right(1,(e and JOB[jobOf(e)].name or "").." #"..id.." ",colors.white,colors.blue)
     if not e then
         P.text(1,3,"Turtle #"..id.." ist der Zentrale",colors.orange)
         P.text(1,4,"(noch) nicht bekannt.",colors.orange)
@@ -1109,32 +1283,29 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     local det=kind=="off" and "Keine Daten - offline oder Chunk entladen" or tostring(d.detail or "")
     local y=6
     while #det>0 and y<=7 do P.text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
-    -- Fortschritt
+    -- Fortschritt (nicht bei Mobfarm/Wache: dort gibt es keine Runde)
     y=9
-    local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
-    P.text(1,y,"Fortschritt",colors.lightGray);P.right(y,math.floor(pc*100+0.5).."%",colors.white)
-    y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind])
-    if h>=20 then y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind]) end
-    y=y+2
+    if hasProgress(d) then
+        local pc=progress(d)
+        P.text(1,y,"Fortschritt",colors.lightGray);P.right(y,math.floor(pc*100+0.5).."%",colors.white)
+        y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind])
+        if h>=20 then y=y+1;P.bar(1,y,w,pc,kind=="off" and colors.gray or COLOR[kind]) end
+        y=y+2
+    end
     -- pro Stunde fuer diese Turtle
+    local spec=JOB[jobOf(e)]
     st.hist=st.hist or {}
-    local now=os.clock();local key=e.job=="farm" and num(d.total) or num(d.harvested)
+    local now=os.clock();local key=spec.value(d)
     local last=st.hist[#st.hist]
     if not last or now-last.t>=30 then st.hist[#st.hist+1]={t=now,v=key};while #st.hist>31 do table.remove(st.hist,1) end end
     local first=st.hist[1]
     local perH=(first and now-first.t>=60) and short(math.max(0,(key-first.v)/(now-first.t)*3600)) or "-"
-    local rows
-    if e.job=="farm" then
-        rows={{"Runden",short(d.rounds)},{"Diese Runde",short(d.roundYield).." Items"},{"Geerntet",short(d.harvested).." Pflanzen"},
-            {"Ertrag",short(d.total).." Items"},{"Ertrag / Stunde",perH},{"Saatgut",short(d.seeds)}}
-        if num(d.wait)>0 then rows[#rows+1]={"Naechste Runde","in "..num(d.wait).." s"} end
-    else
-        rows={{"Gaenge fertig",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "")},{"Abgebaut",short(d.harvested).." Bloecke"},
-            {"Abgebaut / Stunde",perH},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
-        if d.useCoal then rows[#rows+1]={"Kohle verbrannt",short(d.coal).."  (+"..short(num(d.coal)*80).." Fuel)"} end
-    end
-    rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
-    if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks.."  (-"..short(d.chunkFuel).." Fuel/h)") or "aus"} end
+    local rows=spec.rows(d)
+    -- "pro Stunde" direkt hinter dem Hauptwert
+    local at=#rows+1
+    for i,r in ipairs(rows) do if r[1]==spec.metric then at=i+1 end end
+    table.insert(rows,math.min(at,#rows+1),{spec.metric.." / Stunde",perH})
+    common_rows(rows,d)
     -- zweispaltig, wenn breit genug
     local cols=w>=56 and 2 or 1
     local cw=math.floor(w/cols)
@@ -1154,23 +1325,24 @@ function M.drawInfo(screen,fleet,link,st,show)
     local P=painter(screen);local w,h=P.w,P.h
     screen.setBackgroundColor(colors.black);screen.clear()
     local entries=fleet.entries or {}
-    if show=="farm" or show=="mining" then
+    if common.job(show) then
         local ids={}
         for _,id in ipairs(fleet.ids or {}) do if (entries[id] or {}).job==show then ids[#ids+1]=id end end
         fleet={ids=ids,entries=entries}
     end
-    local count,act={farm=0,mining=0},{farm=0,mining=0}
-    local farmTotal,farmHarv,mineHarv,mineTotal,fuel,chunk,progSum,progN=0,0,0,0,0,0,0,0
+    -- Summen je Aufgabe
+    local G={}
+    for _,j in ipairs(ORDER) do G[j]={n=0,act=0,value=0,aux=0,progSum=0,progN=0} end
+    local fuel,chunk=0,0
     local problems,list={},{}
     for _,id in ipairs(fleet.ids or {}) do
         local e=entries[id] or {};local d=e.data or {}
-        local job=e.job=="farm" and "farm" or "mining"
+        local job=jobOf(e);local g=G[job];local spec=JOB[job]
         local label,kind=M.state(e,link)
-        count[job]=count[job]+1
-        if kind=="work" or kind=="move" or kind=="wait" then act[job]=act[job]+1 end
-        if job=="farm" then farmTotal=farmTotal+num(d.total);farmHarv=farmHarv+num(d.harvested)
-        else mineHarv=mineHarv+num(d.harvested);mineTotal=mineTotal+num(d.total)
-            if num(d.cells)>0 then progSum=progSum+num(d.scanned)/num(d.cells);progN=progN+1 end end
+        g.n=g.n+1
+        if kind=="work" or kind=="move" or kind=="wait" then g.act=g.act+1 end
+        g.value=g.value+spec.value(d);g.aux=g.aux+spec.aux[2](d)
+        if hasProgress(d) then g.progSum=g.progSum+progress(d);g.progN=g.progN+1 end
         if kind~="off" then
             if d.fuel~="unlimited" then fuel=fuel+num(d.fuel) end
             if num(d.chunks)>0 then chunk=chunk+num(d.chunkFuel) end
@@ -1183,12 +1355,13 @@ function M.drawInfo(screen,fleet,link,st,show)
     local now=os.clock()
     local last=st.hist[#st.hist]
     if not last or now-last.t>=30 then
-        st.hist[#st.hist+1]={t=now,farm=farmTotal,mine=mineHarv}
+        local p={t=now};for _,j in ipairs(ORDER) do p[j]=G[j].value end
+        st.hist[#st.hist+1]=p
         while #st.hist>31 do table.remove(st.hist,1) end
     end
     local function rate(key,cur)
         local first=st.hist[1]
-        if not first or now-first.t<60 then return "-" end
+        if not first or not first[key] or now-first.t<60 then return "-" end
         return short(math.max(0,(cur-first[key])/(now-first.t)*3600))
     end
     -- Kopf
@@ -1199,13 +1372,12 @@ function M.drawInfo(screen,fleet,link,st,show)
         local ok,t=pcall(function() return textutils.formatTime(os.time(),true) end);if ok then clock=t end
     end
     local rt=link and (online.."/"..#list.." online"..(clock~="" and ("  "..clock) or "").." ") or "keine Verbindung "
-    local title=show=="farm" and "Farmen" or show=="mining" and "Minen" or "Uebersicht"
+    local title=JOB[show] and JOB[show].plural or "Uebersicht"
     P.text(2,1,(#rt+10+#title<=w) and ("TOAST  "..title) or "TOAST",colors.white,colors.blue)
     P.right(1,rt,link and colors.white or colors.orange,colors.blue)
-    -- Gruppen-Kacheln (nebeneinander, wenn Platz)
+    -- Kacheln je Aufgabe (zwei nebeneinander, wenn Platz)
     local y=3
     local function panel(x,y0,pw,title,a,n,rows)
-        if n==0 then return y0 end
         P.text(x,y0,title,colors.white)
         local s=a.."/"..n.." aktiv"
         P.text(x+pw-#s,y0,s,a>0 and colors.lime or colors.lightGray)
@@ -1222,30 +1394,36 @@ function M.drawInfo(screen,fleet,link,st,show)
         end
         return yy
     end
-    local side=w>=50 and count.farm>0 and count.mining>0
+    local present={};for _,j in ipairs(ORDER) do if G[j].n>0 then present[#present+1]=j end end
+    local side=w>=50 and #present>1
     -- Kleiner Bildschirm: nur die wichtigsten Zeilen, damit die Liste Platz hat
-    local compact=not side and h<26 and count.farm>0 and count.mining>0
-    local prog=(progN>0 and math.floor(progSum/progN*100+0.5) or 0).."%"
-    local farmRows,mineRows
-    if compact then
-        farmRows={{"Ertrag",short(farmTotal).."  ("..rate("farm",farmTotal).."/h)"}}
-        mineRows={{"Abgebaut",short(mineHarv).."  ("..rate("mine",mineHarv).."/h)"},{"Fortschritt",prog,bar=progN>0 and progSum/progN or 0}}
-    else
-        farmRows={{"Ertrag",short(farmTotal).." Items"},{"pro Stunde",rate("farm",farmTotal)},{"Geerntet",short(farmHarv).." Pfl."}}
-        mineRows={{"Abgebaut",short(mineHarv).." Bl."},{"pro Stunde",rate("mine",mineHarv)},
-            {"Abgeladen",short(mineTotal).." Items"},{"Fortschritt",prog,bar=progN>0 and progSum/progN or 0}}
+    local compact=(not side and h<26 and #present>1) or (h<26 and #present>2)
+    local function rowsFor(j)
+        local g,spec=G[j],JOB[j]
+        local rows
+        if compact then rows={{spec.metric,short(g.value).."  ("..rate(j,g.value).."/h)"}}
+        else rows={{spec.metric,short(g.value).." "..spec.unit},{"pro Stunde",rate(j,g.value)},
+            {spec.aux[1],short(g.aux)..spec.aux[3]}} end
+        if g.progN>0 and (j=="mining" or not compact) then
+            local pc=g.progSum/g.progN
+            rows[#rows+1]={"Fortschritt",math.floor(pc*100+0.5).."%",bar=pc}
+        end
+        return rows
     end
     if side then
         local pw=math.floor((w-3)/2)
-        local y1=panel(1,y,pw,"FARM",act.farm,count.farm,farmRows)
-        local y2=panel(pw+4,y,w-pw-3,"MINE",act.mining,count.mining,mineRows)
-        y=math.max(y1,y2)+1
+        for i=1,#present,2 do
+            local a,b=present[i],present[i+1]
+            local y1=panel(1,y,pw,JOB[a].name:upper(),G[a].act,G[a].n,rowsFor(a))
+            local y2=b and panel(pw+4,y,w-pw-3,JOB[b].name:upper(),G[b].act,G[b].n,rowsFor(b)) or y1
+            y=math.max(y1,y2)+(compact and 0 or 1)
+        end
+        if compact then y=y+1 end
     else
-        local gap=compact and 0 or 1
-        local y1=panel(1,y,w,"FARM",act.farm,count.farm,farmRows)
-        if count.farm>0 then y=y1+gap end
-        local y2=panel(1,y,w,"MINE",act.mining,count.mining,mineRows)
-        if count.mining>0 then y=y2+1 end
+        for i,j in ipairs(present) do
+            y=panel(1,y,w,JOB[j].name:upper(),G[j].act,G[j].n,rowsFor(j))
+            if not compact or i==#present then y=y+1 end
+        end
     end
     if #list==0 then
         P.text(1,y,"Noch keine Turtles gemeldet.",colors.lightGray)
@@ -1281,18 +1459,18 @@ function M.drawInfo(screen,fleet,link,st,show)
         for i=1,avail do
             local l=list[(st.page-1)*avail+i];if not l then break end
             local d=l.e.data or {}
-            local name=l.e.label~="" and l.e.label or ((l.job=="farm" and "Farm" or "Mine").." #"..l.id)
+            local name=l.e.label~="" and l.e.label or (JOB[l.job].name.." #"..l.id)
             P.text(1,y,"\7",COLOR[l.kind])
             local stx=w-8
             local val=""
-            if l.kind~="off" then val=l.job=="farm" and short(d.total) or short(d.harvested) end
+            if l.kind~="off" then val=short(JOB[l.job].value(d)) end
             if barW>0 then
                 -- [Zustand] [gruener Balken] [Prozent] [Wert]
                 local valW=w>=40 and 6 or 0
                 local bx=w-valW-5-barW+1
                 stx=bx-9
-                if l.kind~="off" then
-                    local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
+                if l.kind~="off" and hasProgress(d) then
+                    local pc=progress(d)
                     P.thin(bx,y,barW,pc,colors.lime)
                     P.text(bx+barW,y,string.format("%4d%%",math.floor(pc*100+0.5)),colors.lightGray)
                 end
@@ -1349,7 +1527,7 @@ function M.new(screen,cfg)
         if ui.help then
             fill(1,colors.blue);text(2,1,"TOAST - Tasten",colors.white,colors.blue)
             local L={{"\24 \25","Turtle waehlen"},{"Enter","Details oeffnen"},{"\27 Back","zurueck"},
-                {"\27 \26 Tab","Reiter wechseln"},{"S","Start"},{"X","Stop"},{"E","1 Runde / 1 Gang"},
+                {"\27 \26 Tab","Reiter wechseln"},{"S","Start"},{"X","Stop"},{"E","einmal (1 Runde)"},
                 {"R",w>=30 and "Reset (2x druecken)" or "Reset (2x)"},{"Bild\24\25","Seite blaettern"},{"H / ?","diese Hilfe"},{"Q","beenden"}}
             local kw=w>=34 and 11 or 9
             for i,l in ipairs(L) do
@@ -1367,19 +1545,20 @@ function M.new(screen,cfg)
         end
         local entries=fleet.entries or {}
         -- Zaehlen + Gruppenwerte
-        local ids,count={},{farm=0,mining=0}
-        local g={farm={on=0,act=0,total=0,harv=0},mining={on=0,act=0,total=0,harv=0}}
+        local ids,count={},{}
+        local g={}
+        for _,j in ipairs(ORDER) do count[j]=0;g[j]={on=0,act=0,value=0} end
         local online,faults,chunkFuel=0,0,0
         for _,id in ipairs(fleet.ids or {}) do
             local e=entries[id] or {};local d=e.data or {}
-            local job=e.job=="farm" and "farm" or "mining"
+            local job=jobOf(e)
             count[job]=count[job]+1
             local _,kind=M.state(e,link)
             local gg=g[job]
-            gg.total=gg.total+num(d.total);gg.harv=gg.harv+num(d.harvested)
+            gg.value=gg.value+JOB[job].value(d)
             if kind~="off" then gg.on=gg.on+1 end
             if kind=="work" or kind=="move" or kind=="wait" then gg.act=gg.act+1 end
-            if ui.filter=="all" or e.job==ui.filter then
+            if ui.filter=="all" or job==ui.filter then
                 ids[#ids+1]=id
                 if kind~="off" then online=online+1 end
                 if kind=="fault" or kind=="warn" then faults=faults+1 end
@@ -1400,17 +1579,27 @@ function M.new(screen,cfg)
         if link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
         else right(1,"keine Verbindung ",colors.orange,colors.blue) end
         -- Reiter
-        local tabs={{"Alle "..(count.farm+count.mining),"all"},{"Farm "..count.farm,"farm"},{"Mine "..count.mining,"mining"}}
-        local third=math.floor(w/3)
-        for i,t in ipairs(tabs) do
-            local active=ui.filter==t[2]
-            button(1+(i-1)*third,2,i==3 and w-2*third or third,t[1],"filter:"..t[2],active and colors.lightBlue or colors.gray,true)
+        -- Reiter: Alle + jede Aufgabe, die es gibt (Farm und Mine immer)
+        local total=0;for _,j in ipairs(ORDER) do total=total+count[j] end
+        local tabs={{"Alle",total,"all"}}
+        for _,j in ipairs(ORDER) do
+            if count[j]>0 or j=="farm" or j=="mining" or ui.filter==j then tabs[#tabs+1]={JOB[j].name,count[j],j} end
         end
+        ui.tabs={};for i,t in ipairs(tabs) do ui.tabs[i]=t[3] end
+        local tw=math.floor(w/#tabs)
+        for i,t in ipairs(tabs) do
+            local active=ui.filter==t[3]
+            local width=i==#tabs and w-(#tabs-1)*tw or tw
+            local lab=t[1].." "..t[2]
+            if #lab>width-1 then lab=t[1] end
+            button(1+(i-1)*tw,2,width,lab,"filter:"..t[3],active and colors.lightBlue or colors.gray,true)
+        end
+        local third=math.floor(w/3)
         -- Fusszeile: Hinweis + 2 Tastenreihen
         local foot=h-2
         local sel=ui.selected and entries[ui.selected]
-        local job=sel and sel.job or (ui.filter~="all" and ui.filter) or nil
-        local once=job=="farm" and "1 Runde" or job=="mining" and "1 Gang" or "1x"
+        local job=sel and jobOf(sel) or (ui.filter~="all" and ui.filter) or nil
+        local once=JOB[job] and JOB[job].once or "1x"
         local canStart=false
         for _,id in ipairs(ids) do
             local e=entries[id]
@@ -1424,7 +1613,7 @@ function M.new(screen,cfg)
         if sel then
             local d=sel.data or {}
             local label,kind=M.state(sel,link)
-            local name=(sel.label and sel.label~="" and sel.label or (sel.job=="farm" and "Farm" or "Mine")).." #"..ui.selected
+            local name=(sel.label and sel.label~="" and sel.label or JOB[jobOf(sel)].name).." #"..ui.selected
             button(1,3,w,"< "..name,"group",colors.gray,true)
             fill(4,COLOR[kind])
             local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
@@ -1434,26 +1623,17 @@ function M.new(screen,cfg)
             local y=5
             while #det>0 and y<=6 do text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
             y=7
-            -- Fortschrittsbalken
-            local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
-            local barW=math.max(4,w-6)
-            local fillW=math.floor(barW*pc+0.5)
-            text(1,y,string.rep(" ",fillW),colors.white,colors.lime)
-            text(1+fillW,y,string.rep(" ",barW-fillW),colors.white,TRACK)
-            right(y,math.floor(pc*100+0.5).."%",colors.white)
-            y=y+2
-            local rows={}
-            if sel.job=="farm" then
-                rows={{"Runden",short(d.rounds)},{"Geerntet",short(d.harvested).." Pflanzen"},
-                    {"Ertrag",short(d.total).." Items"},{"Saatgut",short(d.seeds)}}
-                if num(d.roundYield)>0 then table.insert(rows,3,{"Diese Runde",short(d.roundYield).." Items"}) end
-            else
-                rows={{"Gaenge",short(d.rounds).." fertig"},{"Abgebaut",short(d.harvested).." Bloecke"},
-                    {"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
-                if d.useCoal then rows[#rows+1]={"Kohle -> Fuel",short(d.coal).." Stueck"} end
+            -- Fortschrittsbalken (nur wenn es eine Runde gibt)
+            if hasProgress(d) then
+                local pc=progress(d)
+                local barW=math.max(4,w-6)
+                local fillW=math.floor(barW*pc+0.5)
+                text(1,y,string.rep(" ",fillW),colors.white,colors.lime)
+                text(1+fillW,y,string.rep(" ",barW-fillW),colors.white,TRACK)
+                right(y,math.floor(pc*100+0.5).."%",colors.white)
+                y=y+2
             end
-            rows[#rows+1]={"Fuel",d.fuel=="unlimited" and "unbegrenzt" or short(d.fuel)}
-            if d.chunks then rows[#rows+1]={"Chunks",d.chunks>0 and (d.chunks..", -"..short(d.chunkFuel).."/h") or "aus"} end
+            local rows=common_rows(JOB[jobOf(sel)].rows(d),d)
             for _,r in ipairs(rows) do
                 if y>=foot-1 then break end
                 text(1,y,r[1],colors.lightGray);text(13,y,r[2],colors.white);y=y+1
@@ -1461,16 +1641,15 @@ function M.new(screen,cfg)
         else
         -- ===== Uebersicht =====
             local y=3
-            local function group(jobName,title,valLabel,val)
-                local gg=g[jobName]
-                if count[jobName]==0 then return end
-                text(1,y,title,colors.white)
-                text(6,y,gg.act.."/"..count[jobName]..(w>=34 and " aktiv" or ""),gg.act>0 and colors.lime or colors.lightGray)
-                right(y,valLabel.." "..short(val),colors.lightGray)
-                y=y+1
+            for _,j in ipairs(ORDER) do
+                local gg=g[j]
+                if count[j]>0 and (ui.filter=="all" or ui.filter==j) then
+                    text(1,y,JOB[j].name,colors.white)
+                    text(6,y,gg.act.."/"..count[j]..(w>=34 and " aktiv" or ""),gg.act>0 and colors.lime or colors.lightGray)
+                    right(y,JOB[j].metric.." "..short(gg.value),colors.lightGray)
+                    y=y+1
+                end
             end
-            if ui.filter~="mining" then group("farm","Farm","Ertrag",g.farm.total) end
-            if ui.filter~="farm" then group("mining","Mine","Abgebaut",g.mining.harv) end
             local pl=faults>0 and ("! "..faults.." Problem"..(faults>1 and "e" or "")) or ""
             local cl=chunkFuel>0 and ("Chunks -"..short(chunkFuel).."/h") or ""
             if #pl+#cl+1>w then
@@ -1501,11 +1680,12 @@ function M.new(screen,cfg)
                 local e=entries[id] or {};local d=e.data or {}
                 local label,kind=M.state(e,link)
                 local yy=top+row-1
-                local name=e.label and e.label~="" and e.label or ((e.job=="farm" and "Farm" or "Mine").." #"..id)
+                local spec=JOB[jobOf(e)]
+                local name=e.label and e.label~="" and e.label or (spec.name.." #"..id)
                 local stW=8
                 -- Rechts: [gruener Balken] [Prozent] [Wert] [Zustand]
                 local barW=w>=70 and 20 or w>=44 and 10 or w>=34 and 6 or 0
-                local value=wide and string.format("  %-8s%6s",e.job=="farm" and "Ertrag" or "Abgebaut",e.job=="farm" and short(d.total) or short(d.harvested)) or ""
+                local value=wide and string.format("  %-8s%6s",spec.metric,short(spec.value(d))) or ""
                 local block=barW>0 and (barW+5+#value) or 0      -- Balken + " 100%" + Wert
                 local nameW=w-2-stW-1-(block>0 and block+1 or 0)
                 local mark=ui.kbd and id==ui.cursor
@@ -1515,10 +1695,12 @@ function M.new(screen,cfg)
                 text(1,yy,mark and "\16" or "\7",mark and colors.white or sc,bg)
                 text(3,yy,name:sub(1,nameW),kind=="off" and (mark and colors.lightGray or colors.gray) or colors.white,bg)
                 if block>0 and kind~="off" then
-                    local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
                     local x0=w-stW-block
-                    thinBar(text,x0,yy,barW,pc,colors.lime,bg)
-                    text(x0+barW,yy,string.format("%4d%%",math.floor(pc*100+0.5)),mark and colors.white or colors.lightGray,bg)
+                    if hasProgress(d) then
+                        local pc=progress(d)
+                        thinBar(text,x0,yy,barW,pc,colors.lime,bg)
+                        text(x0+barW,yy,string.format("%4d%%",math.floor(pc*100+0.5)),mark and colors.white or colors.lightGray,bg)
+                    end
                     if #value>0 then text(x0+barW+5,yy,value,mark and colors.white or colors.lightGray,bg) end
                 end
                 right(yy,string.format("%-8s",label),sc,bg)
@@ -1528,7 +1710,7 @@ function M.new(screen,cfg)
         -- Hinweiszeile + untere Tastenreihe
         local info=tostring(notice or "")
         local infoCol=colors.lightGray
-        local goal=sel and "diese Turtle" or (ui.filter=="all" and "alle" or ui.filter=="farm" and "alle Farmen" or "alle Minen")
+        local goal=sel and "diese Turtle" or (ui.filter=="all" and "alle" or ("alle "..(JOB[ui.filter] and JOB[ui.filter].plural or ui.filter)))
         if confirming() then
             info=#goal+24<=w and ("Reset fuer "..goal.."? Nochmal = ja") or "Reset? Nochmal = ja";infoCol=colors.orange
         elseif info=="" or info:find("bestaetigt",1,true) then
@@ -1554,7 +1736,6 @@ function M.new(screen,cfg)
             button(1,foot+2,w,w>=38 and long or (sure and "SICHER?" or "RESET"),"reset",rbg,link and #ids>0)
         end
     end
-    local TABS={"all","farm","mining"}
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)
         if not a then return end
@@ -1567,6 +1748,7 @@ function M.new(screen,cfg)
         elseif a=="pageprev" then ui.page=math.max(1,ui.page-1)
         elseif a=="pagenext" then ui.page=math.min(ui.pages or 1,ui.page+1)
         elseif a=="tabprev" or a=="tabnext" then
+            local TABS=ui.tabs or {"all","farm","mining"}
             local i=1;for k,t in ipairs(TABS) do if t==ui.filter then i=k end end
             i=(i-1+(a=="tabnext" and 1 or -1))%#TABS+1
             return ui.action("filter:"..TABS[i])
@@ -3182,12 +3364,19 @@ local function home()
 end
 local containers={['minecraft:chest']=true,['minecraft:trapped_chest']=true,['minecraft:barrel']=true}
 local function container(fn)local ok,b=fn();return ok and containers[b.name] end
+-- Mitgenommene Kisten (mine.placeChests) und Fackeln (mine.torches) nie abladen
+local TORCHES={['minecraft:torch']=true}
+local function keepItem(name)
+    return TOOLS[name] or TC.MODEM_ITEMS[name] or (C.placeChests and containers[name]) or ((C.torches or 0)>0 and TORCHES[name])
+end
+local function countItems(set) local n=0;for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then n=n+it.count end end;return n end
+local function findItem(set) for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then return i end end end
 local function unload()
     if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
     burnCoal()      -- uebrige Kohle zuerst in den Tank (falls eingeschaltet)
     for i=1,16 do
         local item=turtle.getItemDetail(i)
-        if item and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
+        if item and not keepItem(item.name) then
             if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
             turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
             local delivered=before-turtle.getItemCount(i)
@@ -3239,6 +3428,62 @@ local function supplies()
     end
     return false,"stopped"
 end
+-- ===== Kiste unterwegs (mine.placeChests) =====
+-- Inventar voll: statt heimzufahren eine mitgebrachte Kiste in den Boden unter
+-- der untersten Reihe setzen (dort wird nie gegraben) und hineinladen.
+-- Nur wenn die Spalte bis zur untersten Reihe schon frei ist.
+local function dugAt(x,y,z) if SIDE then return blockDug(x,y,z) end return cellDug(x,y,z) end
+local function dumpHere()
+    if not C.placeChests or homePosition() or st.z<1 then return false end
+    local slot=findItem(containers);if not slot then return false end
+    for yy=st.y+1,0 do if not dugAt(st.x,yy,st.z) then return false end end
+    burnCoal()
+    local y0=st.y
+    status("Kiste setzen","Inventar voll: Kiste in den Boden, kein Heimweg noetig.")
+    local ok=vertical(0,false);if not ok then return false end
+    local e,b=turtle.inspectDown()
+    if e and (liquid[b.name] or blockReason(b)) then vertical(y0,false);return false end
+    if e then
+        ok=clear(turtle.inspectDown,turtle.digDown,false)
+        if not ok then vertical(y0,false);return false end
+    end
+    slot=findItem(containers)
+    if not slot then vertical(y0,false);return false end
+    turtle.select(slot)
+    if not turtle.placeDown() then turtle.select(1);vertical(y0,false);return false end
+    for i=1,16 do
+        local item=turtle.getItemDetail(i)
+        if item and not keepItem(item.name) then
+            turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
+            st.total=(st.total or 0)+before-turtle.getItemCount(i)
+        end
+    end
+    turtle.select(1)
+    st.chestsPlaced=(st.chestsPlaced or 0)+1
+    st.chestSpots=st.chestSpots or {}
+    if #st.chestSpots<64 then st.chestSpots[#st.chestSpots+1]={x=st.x,z=st.z} end
+    save()
+    ok=vertical(y0,false)
+    return ok
+end
+-- ===== Fackeln (mine.torches = Abstand, 0 = aus) =====
+-- Auf den Boden der untersten Reihe, waehrend die Turtle in Reihe 2 vorbeifaehrt.
+local function placeTorch()
+    local n=C.torches or 0
+    if n<=0 or st.y~=-1 or st.z<1 or st.z%n~=0 then return end
+    st.torchAt=st.torchAt or {}
+    local k=st.x..":"..st.z
+    if st.torchAt[k] then return end
+    local e=turtle.inspectDown();if e then return end
+    local slot=findItem(TORCHES);if not slot then return end
+    turtle.select(slot)
+    if turtle.placeDown() then st.torchAt[k]=true;st.torchesPlaced=(st.torchesPlaced or 0)+1;save() end
+    turtle.select(1)
+end
+local function fuelOk()
+    local fuel=turtle.getFuelLevel()
+    return fuel=="unlimited" or fuel>=reserve()
+end
 local function finish()
     run.mode,run.lastMode="off",nil
     if st.lastMode then st.lastMode=nil;save() end
@@ -3288,7 +3533,9 @@ local function work()
                     local ok,why=true
                     local fuel=turtle.getFuelLevel()
                     if homePosition() or freeSlots()<C.freeSlots or (fuel~="unlimited" and fuel<reserve()) then
-                        ok,why=supplies()
+                        if not (freeSlots()<C.freeSlots and fuelOk() and dumpHere() and freeSlots()>=C.freeSlots) then
+                            ok,why=supplies()
+                        end
                     end
                     if ok and active() then
                         status("Abbau",SIDE and ("Spur "..(math.floor((st.next-1)/L)+1).." / "..#LANES)
@@ -3300,6 +3547,7 @@ local function work()
                         else ok,why=routeTo(x,y,z,true) end
                         if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true) end
                         if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true) end
+                        if ok then placeTorch() end
                         -- Spurmodus: links/rechts durch Drehen mitabbauen (kostet kein Fuel).
                         -- Schon freie Seiten werden uebersprungen (spart Zeit).
                         if SIDE and ok then
@@ -3319,8 +3567,10 @@ local function work()
                         if run.mode=="once" and st.next>run.onceEnd then finish() end
                         if st.next>cells then finish() end
                     elseif not ok and why=="resupply" then
-                        local ready,problem=supplies()
-                        if not ready and problem~="stopped" then fail(problem) end
+                        if not (freeSlots()<C.freeSlots and fuelOk() and dumpHere() and freeSlots()>=C.freeSlots) then
+                            local ready,problem=supplies()
+                            if not ready and problem~="stopped" then fail(problem) end
+                        end
                     elseif not ok and why~="stopped" then fail(why) end
                 end
             end
@@ -3336,6 +3586,8 @@ local function snapshot()
         width=width,length=C.length,height=C.height,tunnels=C.tunnels,gap=C.gap,fuel=turtle.getFuelLevel(),freeSlots=freeSlots(),
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
         x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
+        placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
+        torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
 sendStatus=function()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end
@@ -3423,6 +3675,8 @@ function M.load(c)
     assert(integer(f.fuelTarget,100,20000), "fuelTarget: 100 bis 20000.")
     assert(f.sideDig==nil or type(f.sideDig)=="boolean", "sideDig: true oder false.")
     assert(f.useCoal==nil or type(f.useCoal)=="boolean", "useCoal: true oder false.")
+    assert(f.placeChests==nil or type(f.placeChests)=="boolean", "placeChests: true oder false.")
+    assert(f.torches==nil or integer(f.torches,0,64), "torches: 0 (aus) bis 64.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(integer(f.freeSlots,2,8), "freeSlots: 2 bis 8.")
     assert(integer(f.digRetries,1,64), "digRetries: 1 bis 64.")
@@ -3543,17 +3797,779 @@ local ok,why=pcall(loop);cleanup()
 term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
 if not ok then printError(tostring(why)) else print("Repeater beendet.") end
 ]======]
--- TOAST CONTROL 2.9 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+FILES["toast_worker.lua"]=[======[
+-- Toast Control: gemeinsames Grundgeruest fuer Holzfarm- und Mob-Turtles.
+-- Enthaelt alles, was jede Turtle braucht: Zustand auf der Disk, Bewegung mit
+-- Wiederherstellung nach Absturz (ueber den Fuelstand), Funk mit der Zentrale
+-- (START/STOP/1x/RESET), Statusmeldungen, Abladen/Tanken an der Basis und
+-- automatische neue Versuche nach Fehlern.
+--
+-- Koordinaten: Basis = 0,0,0, Blick nach vorne = dir 0 (+z).
+-- dir 1 = rechts (+x), 2 = zurueck, 3 = links. y = Hoehe (oben positiv).
+-- mirror=true spiegelt rechts/links (Arbeitsbereich liegt links).
+local common=dofile("/toast/toast_common.lua")
+local W={}
+local DX,DZ={[0]=0,1,0,-1},{[0]=1,0,-1,0}
+W.DX,W.DZ=DX,DZ
+local CONTAINERS={["minecraft:chest"]=true,["minecraft:trapped_chest"]=true,["minecraft:barrel"]=true}
+W.FUELS={["minecraft:coal"]=80,["minecraft:charcoal"]=80,["minecraft:coal_block"]=800}
+
+function W.new(o)
+    local cfg=o.cfg
+    local C=o.section
+    local R=common.recovery(cfg.recovery)
+    local PROTOCOL=common.workerProtocols[o.job]
+    local FILE=o.stateFile
+    local MIRROR=o.mirror==true
+    local w={cfg=cfg,C=C,R=R}
+
+    -- ===== Zustand =====
+    local function readTable(path)
+        if not fs.exists(path) then return nil end
+        local f=fs.open(path,"r");if not f then return nil end
+        local ok,s=pcall(textutils.unserialize,f.readAll());f.close()
+        if ok and type(s)=="table" and type(s.x)=="number" and type(s.z)=="number" and type(s.dir)=="number" then return s end
+    end
+    local st=readTable(FILE..".tmp") or readTable(FILE)
+    if not st then
+        if fs.exists(FILE) or fs.exists(FILE..".tmp") then
+            error("Zustand beschaedigt. Turtle an Basis setzen: toast.lua --dock",0)
+        end
+        st={x=0,y=0,z=0,dir=0,total=0,harvested=0,rounds=0}
+    end
+    st.y=st.y or 0
+    w.st=st
+    local lastSave=0
+    function w.save()
+        local f=assert(fs.open(FILE..".tmp","w"),"Zustand nicht schreibbar.")
+        f.write(textutils.serialize(st));f.close()
+        if fs.exists(FILE) then fs.delete(FILE) end
+        fs.move(FILE..".tmp",FILE)
+    end
+    -- Zaehler (Ertrag usw.) nicht bei jedem Schlag schreiben: hoechstens alle 5 s.
+    function w.saveSoon() if os.clock()-lastSave>=5 then lastSave=os.clock();w.save() end end
+    local function clearPending() st.pending,st.after,st.pendingFuel=nil,nil,nil end
+    local function resolvePending()
+        if not st.pending then return true end
+        local fuel=turtle.getFuelLevel()
+        if st.pending~="turn" and type(fuel)=="number" and type(st.pendingFuel)=="number" and type(st.after)=="table" then
+            if fuel==st.pendingFuel then clearPending();w.save();return true end
+            if fuel==st.pendingFuel-1 then
+                st.x,st.y,st.z,st.dir=st.after.x,st.after.y,st.after.z,st.after.dir
+                clearPending();w.save();return true
+            end
+        end
+        if st.pending~="turn" and fuel=="unlimited" then return false end
+        return false
+    end
+    local resolvedAtStart=st.pending~=nil and resolvePending()
+    for _,a in ipairs(o.args or {}) do
+        if a=="--dock" then
+            print("Turtle muss an der Basis stehen und nach vorne schauen.")
+            write("Zum Bestaetigen DOCK eingeben: ")
+            assert(read()=="DOCK","Positionsreset abgebrochen.")
+            st.x,st.y,st.z,st.dir=0,0,0,0;clearPending();st.lastMode=nil
+        else error("Start: toast.lua [--dock]",0) end
+    end
+    st.controller=cfg.controllerId
+    -- Neue Masse nur an der Basis uebernehmen
+    if o.layout then
+        assert(not st.layout or st.layout==o.layout or (st.x==0 and st.y==0 and st.z==0 and not st.pending),
+            "Masse nur an der Basis aendern. Bei versetzter Turtle: toast.lua --dock")
+        st.layout=o.layout
+    end
+    w.save()
+    common.modem()
+
+    -- ===== Laufzustand =====
+    local run={mode="off",status="Bereit",detail="START an der Zentrale druecken.",scanned=0,cells=o.cells or 0,
+        lastContact=os.clock(),fault=nil,recovery=st.pending~=nil,lastMode=nil,retries=0,retryAt=nil,waitUntil=0}
+    w.run=run
+    if run.recovery then run.status,run.detail="Position unklar","An Basis setzen; toast.lua --dock starten."
+    elseif resolvedAtStart then run.detail="Position nach Neustart wiederhergestellt." end
+    if not run.recovery and (st.lastMode=="auto" or st.lastMode=="once") then
+        run.mode,run.lastMode=st.lastMode,st.lastMode
+        run.status,run.detail="Fortsetzen","Auftrag nach Neustart fortgesetzt."
+    end
+    function w.status(t,d) run.status,run.detail=t,d or "" end
+    function w.fail(why) run.mode,run.fault,run.retryAt="off",why,nil end
+    function w.finish()
+        run.mode,run.lastMode="off",nil
+        if st.lastMode then st.lastMode=nil;w.save() end
+    end
+    local radioTimeout=C.radioTimeout or 60
+    function w.active()
+        if run.mode~="off" and radioTimeout>0 and os.clock()-run.lastContact>radioTimeout then w.fail("Funkverbindung verloren") end
+        return run.mode~="off" and not run.recovery
+    end
+    function w.isHome() return st.x==0 and st.y==0 and st.z==0 end
+
+    -- ===== Inventar =====
+    function w.freeSlots() local n=0;for i=1,16 do if turtle.getItemCount(i)==0 then n=n+1 end end;return n end
+    function w.count(match)
+        local n=0
+        for i=1,16 do local it=turtle.getItemDetail(i);if it and match(it.name) then n=n+it.count end end
+        return n
+    end
+    function w.find(match)
+        for i=1,16 do local it=turtle.getItemDetail(i);if it and match(it.name) then return i,it end end
+    end
+    function w.items() local n=0;for i=1,16 do n=n+turtle.getItemCount(i) end;return n end
+    -- Werkzeug aus dem Inventar anlegen (Seite ohne Modem)
+    function w.equipTool(tools)
+        for i=1,16 do
+            local it=turtle.getItemDetail(i)
+            if it and tools(it.name) then
+                turtle.select(i)
+                for _,side in ipairs({"left","right"}) do
+                    if peripheral.getType(side)~="modem" then
+                        local fn=side=="left" and turtle.equipLeft or turtle.equipRight
+                        if fn() then turtle.select(1);return true end
+                    end
+                end
+            end
+        end
+        turtle.select(1)
+        return false
+    end
+
+    -- ===== Bewegung =====
+    local function action(kind,fn,update)
+        local x,y,z,dir=st.x,st.y,st.z,st.dir
+        update();st.after={x=st.x,y=st.y,z=st.z,dir=st.dir}
+        st.x,st.y,st.z,st.dir=x,y,z,dir
+        st.pending,st.pendingFuel=kind,turtle.getFuelLevel();w.save()
+        local ok,why=fn();if ok then update() end
+        clearPending();w.save();return ok,why
+    end
+    function w.face(dir)
+        while st.dir~=dir do
+            local left=(st.dir-dir)%4==1
+            local ok,why=action("turn",(left~=MIRROR) and turtle.turnLeft or turtle.turnRight,
+                function() st.dir=(st.dir+(left and 3 or 1))%4 end)
+            if not ok then return false,"Drehen fehlgeschlagen: "..tostring(why) end
+        end
+        return true
+    end
+    -- opts.dig: Bloecke wegraeumen (nur erlaubte, opts.canDig(name))
+    -- opts.attack: Mob im Weg angreifen; sonst nur warten
+    local MOVES={
+        forward={turtle.forward,turtle.detect,turtle.inspect,turtle.dig,turtle.attack,function() st.x,st.z=st.x+DX[st.dir],st.z+DZ[st.dir] end},
+        up={turtle.up,turtle.detectUp,turtle.inspectUp,turtle.digUp,turtle.attackUp,function() st.y=st.y+1 end},
+        down={turtle.down,turtle.detectDown,turtle.inspectDown,turtle.digDown,turtle.attackDown,function() st.y=st.y-1 end},
+    }
+    function w.move(kind,opts)
+        opts=opts or {}
+        local m=MOVES[kind]
+        local last
+        for attempt=1,math.max(R.moveRetries,opts.dig and 24 or 0) do
+            local ok,why=action("move",m[1],m[6])
+            if ok then return true end
+            last=why
+            if tostring(why):lower():find("fuel",1,true) then return false,"Kein Fuel mehr" end
+            if m[2]() then
+                local _,b=m[3]()
+                local name=b and b.name or "?"
+                if opts.dig and (not opts.canDig or opts.canDig(name)) then
+                    local dug,dwhy=m[4]()
+                    if not dug and tostring(dwhy):find("No tool",1,true) then
+                        if o.tools and w.equipTool(o.tools) then dug=m[4]() end
+                        if not dug then return false,o.noTool or "Kein Werkzeug" end
+                    end
+                    if not dug then sleep(0.3) end
+                else
+                    return false,"Weg blockiert: "..name
+                end
+            else
+                -- Kein Block: Mob/Spieler im Weg
+                if opts.attack and attempt>=2 then pcall(m[5]) end
+                sleep(opts.attack and 0.3 or 0.6)
+            end
+        end
+        return false,"Weg blockiert: "..tostring(last)
+    end
+    -- Zu Position fahren: erst Hoehe 0, dann z, dann x (sichere Fahrspur bei x=0)
+    function w.home(opts)
+        opts=opts or {}
+        while st.y>0 do local ok,why=w.move("down",opts);if not ok then return false,why end end
+        while st.y<0 do local ok,why=w.move("up",opts);if not ok then return false,why end end
+        if st.x~=0 then
+            local ok,why=w.face(st.x>0 and 3 or 1);if not ok then return false,why end
+            while st.x~=0 do ok,why=w.move("forward",opts);if not ok then return false,why end end
+        end
+        if st.z~=0 then
+            local ok,why=w.face(st.z>0 and 2 or 0);if not ok then return false,why end
+            while st.z~=0 do ok,why=w.move("forward",opts);if not ok then return false,why end end
+        end
+        return w.face(0)
+    end
+
+    -- ===== Basis: Abladen (Kiste unten) und Tanken (Kiste oben) =====
+    local function container(fn) local ok,b=fn();return ok and CONTAINERS[b.name]==true end
+    w.container=container
+    -- keep(name,count) -> wie viele davon behalten
+    function w.unload(keep)
+        if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt","Kiste oder Fass UNTER die Basis setzen." end
+        local kept={}
+        for i=1,16 do
+            local it=turtle.getItemDetail(i)
+            if it then
+                local want=keep and keep(it.name) or 0
+                local k=math.min(it.count,math.max(0,want-(kept[it.name] or 0)))
+                kept[it.name]=(kept[it.name] or 0)+k
+                local drop=it.count-k
+                if drop>0 then
+                    turtle.select(i)
+                    turtle.dropDown(drop)
+                    if turtle.getItemCount(i)>k then turtle.select(1);return false,"Lager voll","Ausgabekiste leeren oder vergroessern." end
+                end
+            end
+        end
+        turtle.select(1)
+        return true
+    end
+    -- Bis target tanken; Kohle aus der Kiste oben, sonst extra(name) aus dem Inventar
+    function w.refuel(target,extra)
+        local lvl=turtle.getFuelLevel()
+        if lvl=="unlimited" or lvl>=target then return true end
+        -- zuerst Brennstoff aus dem Inventar
+        for i=1,16 do
+            local it=turtle.getItemDetail(i)
+            if it and (W.FUELS[it.name] or (extra and extra(it.name))) then
+                turtle.select(i)
+                while turtle.getItemCount(i)>0 and turtle.getFuelLevel()<target do if not turtle.refuel(1) then break end end
+            end
+            if turtle.getFuelLevel()>=target then turtle.select(1);return true end
+        end
+        if container(turtle.inspectUp) then
+            local slot;for i=1,16 do if turtle.getItemCount(i)==0 then slot=i;break end end
+            while slot and turtle.getFuelLevel()<target do
+                turtle.select(slot)
+                if not turtle.suckUp(math.max(1,math.min(64,math.ceil((target-turtle.getFuelLevel())/80)))) then break end
+                local it=turtle.getItemDetail(slot)
+                if not it or not W.FUELS[it.name] then turtle.dropUp();break end
+                while turtle.getItemCount(slot)>0 and turtle.getFuelLevel()<target do if not turtle.refuel(1) then break end end
+                if turtle.getItemCount(slot)>0 then turtle.dropUp() end
+            end
+        end
+        turtle.select(1)
+        if turtle.getFuelLevel()>=target then return true end
+        return false,"Treibstoff fehlt","Kohle / Holzkohle in die Kiste UEBER der Basis legen."
+    end
+
+    -- ===== Funk =====
+    local sendStatus
+    local function snapshot()
+        local s={kind="status",version=2,id=os.getComputerID(),status=run.status,detail=run.detail,
+            mode=run.mode,recovery=run.recovery,ack=st.commandSerial or 0,fault=run.fault,retries=run.retries,
+            contactAge=math.max(0,math.floor(os.clock()-run.lastContact)),radioTimeout=radioTimeout,
+            fuel=turtle.getFuelLevel(),freeSlots=w.freeSlots(),x=st.x,y=st.y,z=st.z,
+            total=st.total or 0,harvested=st.harvested or 0,rounds=st.rounds or 0,
+            scanned=run.scanned,cells=run.cells,wait=math.max(0,math.ceil(run.waitUntil-os.clock()))}
+        if o.extra then for k,v in pairs(o.extra()) do s[k]=v end end
+        s.label,s.job,s.controllerId,s.toast=cfg.label,o.job,cfg.controllerId,common.version
+        return s
+    end
+    sendStatus=function() pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
+    w.sendStatus=sendStatus
+    local function reset()
+        run.mode,run.fault,run.lastMode,run.retries,run.retryAt,run.waitUntil="off",nil,nil,0,nil,0
+        st.lastMode=nil
+        if run.recovery and resolvePending() then run.recovery=false end
+        if run.recovery then w.status("Position unklar","RESET reicht nicht: an Basis setzen, toast.lua --dock")
+        else w.status("Reset","Fehler geloescht; Turtle geht zur Basis.") end
+    end
+    local function listener()
+        while true do
+            local e,a,b,c=os.pullEvent()
+            if (e=="char" and (a=="q" or a=="Q")) then w.finish();run.fault=nil
+            elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
+            elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
+                if b.kind=="poll" then run.lastContact=os.clock();sendStatus()
+                elseif b.kind=="command" and common.serial(b.serial) and common.actions[b.action] then
+                    run.lastContact=os.clock()
+                    if b.serial>(st.commandSerial or 0) then
+                        st.commandSerial=b.serial
+                        if b.action=="stop" then w.finish();run.fault,run.retries,run.retryAt=nil,0,nil
+                        elseif b.action=="reset" then reset()
+                        elseif not run.recovery then
+                            run.mode=b.action=="once" and "once" or "auto"
+                            run.lastMode,st.lastMode=run.mode,run.mode
+                            run.fault,run.waitUntil,run.retries,run.retryAt=nil,0,0,nil
+                        end
+                        w.save()
+                    end
+                    sendStatus()
+                end
+            end
+        end
+    end
+    local function heartbeat() while true do common.refreshModems();sendStatus();sleep(2) end end
+
+    -- ===== Ablauf =====
+    -- Warten, solange aktiv (fuer Pausen zwischen Runden)
+    function w.wait(seconds,title,detail)
+        run.waitUntil=os.clock()+seconds
+        while w.active() and run.waitUntil>os.clock() do
+            w.status(title or "Warten",detail or "Naechste Runde startet automatisch.")
+            sleep(0.5)
+        end
+        run.waitUntil=0
+    end
+    local function idle()
+        if o.idleHome then
+            local ok,why=o.idleHome()
+            if not ok then w.status("Rueckweg blockiert",why);return end
+        end
+        if o.idleBase then
+            local ok,title,detail=o.idleBase()
+            if not ok then w.status(title,detail);return end
+        end
+        if run.fault then
+            local now=os.clock()
+            if run.lastMode and common.retryable(run.fault) and run.retries<R.autoRetry then
+                run.retryAt=run.retryAt or now+R.retryDelay
+                local contact=radioTimeout==0 or now-run.lastContact<radioTimeout
+                if now>=run.retryAt and contact then
+                    run.retries,run.retryAt,run.fault,run.mode=run.retries+1,nil,nil,run.lastMode
+                    w.status("Neuer Versuch","Automatisch "..run.retries.."/"..R.autoRetry)
+                else
+                    w.status(run.fault,contact and ("Neuer Versuch in "..math.max(0,math.ceil(run.retryAt-now))
+                        .."s ("..(run.retries+1).."/"..R.autoRetry..") | RESET: abbrechen")
+                        or "Warte auf Funkkontakt fuer neuen Versuch")
+                end
+            else
+                w.status(run.fault,"Problem beheben; RESET loescht Fehler, START startet neu.")
+            end
+        else
+            w.status("Bereit",o.readyText or "START: Dauerbetrieb | 1x: eine Runde.")
+        end
+    end
+    local function worker()
+        while true do
+            if run.recovery then sleep(0.5)
+            elseif w.active() then
+                local complete=o.round()
+                if complete then
+                    st.rounds=(st.rounds or 0)+1;run.retries=0;w.save()
+                    if run.mode=="once" then w.finish() end
+                    if w.active() and (o.interval or 0)>0 then w.wait(o.interval) end
+                end
+            else
+                idle();sleep(0.5)
+            end
+        end
+    end
+    function w.start(title,info)
+        term.clear();term.setCursorPos(1,1)
+        print(title.." - Turtle #"..os.getComputerID())
+        print("Zentrale #"..st.controller..(info and (" | "..info) or ""))
+        print("Q: Stopp + zur Basis. Ctrl+T: Programmabbruch.")
+        if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
+        local ok,why=pcall(function() parallel.waitForAll(worker,listener,heartbeat) end)
+        if not ok then
+            run.mode="off"
+            run.recovery=st.pending~=nil and not resolvePending()
+            w.status(run.recovery and "Position unklar" or "Programm beendet",tostring(why))
+            sendStatus()
+            if why~="Terminated" then error(why,0) end
+            printError("Abgebrochen.")
+        end
+    end
+    return w
+end
+return W
+]======]
+FILES["tree_turtle.lua"]=[======[
+-- Toast Control: Holzfarm. Die Turtle faehrt eine Fahrspur nach vorne entlang;
+-- neben der Spur stehen Baeume (rechts, links oder beidseitig). Gewachsene Baeume
+-- werden komplett gefaellt (Stamm), danach wird sofort ein neuer Setzling gesetzt.
+-- Basis: Kiste UNTER der Turtle = Ausgabe, Kiste UEBER der Turtle = Kohle,
+-- optional Kiste HINTER der Turtle = Setzlinge (nur noetig, wenn keine mehr da sind).
+-- Am besten 1x1-Baeume: Birke oder Fichte. Eiche geht, Aeste bleiben aber haengen.
+local common=dofile("/toast/toast_common.lua")
+local cfg=common.load()
+local C=cfg.tree
+local W=dofile("/toast/toast_worker.lua")
+local function isLog(n) return n:find("_log",1,true)~=nil or n:find("_stem",1,true)~=nil or n:find("_wood",1,true)~=nil end
+local function isLeaves(n) return n:find("leaves",1,true)~=nil or n:find("wart_block",1,true)~=nil or n=="minecraft:vine" end
+local function isSapling(n) return n:find("_sapling",1,true)~=nil or n:find("_propagule",1,true)~=nil
+    or n=="minecraft:crimson_fungus" or n=="minecraft:warped_fungus" end
+local function isTool(n) return n:find("_axe",1,true)~=nil or n:find("_pickaxe",1,true)~=nil end
+local BONE="minecraft:bone_meal"
+local function clearable(n) return isLog(n) or isLeaves(n) end
+local SIDES=C.side=="both" and {1,3} or (C.side=="left" and {3} or {1})
+local STEP=C.spacing+1
+local cells=C.trees*#SIDES
+local function slotZ(i) return 1+(i-1)*STEP end
+local laneLen=slotZ(C.trees)
+local w,round,idleHome,idleBase,w_saplings,w_bone,finishColumn
+w=W.new({job="tree",cfg=cfg,section=C,stateFile="/toast_tree_state",args={...},cells=cells,
+    layout=C.trees..":"..C.spacing..":"..C.side,tools=isTool,noTool="Keine Axt: Diamant-Axt in die Turtle legen",
+    interval=C.interval,readyText="START: Dauerbetrieb | 1 RUNDE: einmal alle Baeume",
+    extra=function() return {trees=cells,saplings=0+w_saplings(),bonemeal=w_bone(),felled=w and w.st.harvested or 0} end,
+    round=function() return round() end,
+    idleHome=function() return idleHome() end,
+    idleBase=function() return idleBase() end})
+local st,run=w.st,w.run
+w_saplings=function() return w.count(isSapling) end
+w_bone=function() return w.count(function(n) return n==BONE end) end
+local skipped=0
+local function logs() return w.count(isLog) end
+local function keep(name)
+    if isSapling(name) then return C.keepSaplings end
+    if name==BONE or W.FUELS[name] or isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
+    return 0
+end
+-- ===== Basis =====
+local function refillSaplings()
+    if w_saplings()>0 then return end
+    local ok=w.face(2);if not ok then return end
+    if w.container(turtle.inspect) then
+        for i=1,16 do
+            if turtle.getItemCount(i)==0 then
+                turtle.select(i)
+                if turtle.suck(math.min(64,C.keepSaplings)) then
+                    local it=turtle.getItemDetail(i)
+                    if it and not isSapling(it.name) and it.name~=BONE then turtle.drop() end
+                end
+                break
+            end
+        end
+        -- Knochenmehl ebenfalls aus der hinteren Kiste, wenn eingeschaltet
+        if C.bonemeal and w_bone()==0 then
+            for i=1,16 do if turtle.getItemCount(i)==0 then turtle.select(i);turtle.suck(64)
+                local it=turtle.getItemDetail(i);if it and it.name~=BONE and not isSapling(it.name) then turtle.drop() end;break end end
+        end
+        turtle.select(1)
+    end
+    w.face(0)
+end
+local function base()
+    local ok,title,detail=w.unload(keep)
+    if not ok then return false,title,detail end
+    ok,title,detail=w.refuel(C.fuelTarget)
+    if not ok then
+        -- Notfall: eigenes Holz verbrennen (15 Fuel pro Stamm), damit sie nicht stehen bleibt
+        local need=laneLen*2+C.maxHeight*2+40
+        if turtle.getFuelLevel()<need then
+            ok=w.refuel(need,isLog)
+            if not ok then return false,title,detail end
+        end
+    end
+    refillSaplings()
+    return true
+end
+idleHome=function()
+    if w.isHome() and st.dir==0 then return true end
+    local okc,whyc=finishColumn();if not okc then return false,whyc end
+    w.status("Rueckkehr","Fahre zur Basis.")
+    return w.home({dig=true,canDig=clearable})
+end
+idleBase=function() return base() end
+-- ===== Baum faellen =====
+local function plant()
+    local slot=w.find(isSapling)
+    if not slot then return false end
+    turtle.select(slot)
+    local ok=turtle.place()
+    turtle.select(1)
+    if not ok then skipped=skipped+1 end
+    return ok
+end
+local function fell(dir)
+    w.status("Faellt Baum","Baum "..math.ceil((run.scanned+1)/#SIDES).." / "..C.trees)
+    local before=logs()
+    local ok,why=w.move("forward",{dig=true,canDig=clearable});if not ok then return false,why end
+    local h=0
+    while h<C.maxHeight do
+        local up,b=turtle.inspectUp()
+        if not up or not isLog(b.name) then break end
+        ok,why=w.move("up",{dig=true,canDig=clearable});if not ok then return false,why end
+        h=h+1
+    end
+    while st.y>0 do ok,why=w.move("down",{dig=true,canDig=clearable});if not ok then return false,why end end
+    -- zurueck auf die Fahrspur, dann wieder zum Baumplatz schauen
+    ok,why=w.face((dir+2)%4);if not ok then return false,why end
+    ok,why=w.move("forward",{dig=true,canDig=clearable});if not ok then return false,why end
+    ok,why=w.face(dir);if not ok then return false,why end
+    st.harvested=(st.harvested or 0)+1
+    st.total=(st.total or 0)+math.max(0,logs()-before)
+    w.save()
+    return true
+end
+-- Knochenmehl direkt nach dem Pflanzen: waechst der Baum, wird er sofort gefaellt
+local function boost(dir)
+    if not C.bonemeal then return true end
+    for _=1,8 do
+        local slot=w.find(function(n) return n==BONE end)
+        if not slot then return true end
+        local e,b=turtle.inspect()
+        if not e or not isSapling(b.name) then return true end
+        turtle.select(slot);turtle.place();turtle.select(1)
+        local e2,b2=turtle.inspect()
+        if e2 and isLog(b2.name) then
+            local ok,why=fell(dir);if not ok then return false,why end
+            plant();return true
+        end
+    end
+    return true
+end
+-- Nach Absturz mitten im Stamm: Stamm fertig faellen, dann zurueck auf die Spur
+finishColumn=function()
+    if st.x==0 then return true end
+    w.status("Faellt Baum","Stamm nach Neustart fertig faellen.")
+    while st.y<C.maxHeight do
+        local up,b=turtle.inspectUp()
+        if not up or not isLog(b.name) then break end
+        local ok,why=w.move("up",{dig=true,canDig=clearable});if not ok then return false,why end
+    end
+    st.harvested=(st.harvested or 0)+1;w.save()
+    return true
+end
+local function visit(dir)
+    local ok,why=w.face(dir);if not ok then return false,why end
+    local exists,b=turtle.inspect()
+    if exists and isLog(b.name) then
+        ok,why=fell(dir);if not ok then return false,why end
+        pcall(turtle.suck)
+        if plant() then return boost(dir) end
+    elseif exists and isSapling(b.name) then
+        return boost(dir)
+    elseif exists and isLeaves(b.name) then
+        turtle.dig();if plant() then return boost(dir) end
+    elseif not exists then
+        w.status("Pflanzen","Setzling wird gesetzt.")
+        if plant() then return boost(dir) end
+    else
+        skipped=skipped+1
+    end
+    return true
+end
+-- Fuel fuer: zurueck zur Basis + ein Baum
+local function fuelOk()
+    local f=turtle.getFuelLevel()
+    if f=="unlimited" then return true end
+    return f>=st.z+math.abs(st.x)+st.y+C.maxHeight*2+12
+end
+local function goSlot(z)
+    if st.z~=z then
+        local ok,why=w.face(st.z<z and 0 or 2);if not ok then return false,why end
+        while st.z~=z do
+            if not w.active() then return false,"stopped" end
+            pcall(turtle.suck)        -- liegende Setzlinge/Aepfel einsammeln
+            ok,why=w.move("forward",{dig=true,canDig=clearable});if not ok then return false,why end
+        end
+    end
+    return true
+end
+local function resupply()
+    local ok,why=idleHome();if not ok then return false,why end
+    local ok2,title=base()
+    if not ok2 then return false,title end
+    return true
+end
+round=function()
+    run.scanned,skipped=0,0
+    if not w.isHome() then local ok,why=idleHome();if not ok then w.fail(why);return false end end
+    local ok,title,detail=base()
+    if not ok then w.status(title,detail);w.fail(title);return false end
+    for i=1,C.trees do
+        for _,dir in ipairs(SIDES) do
+            if not w.active() then return false end
+            if not fuelOk() or w.freeSlots()<3 then
+                local r,why=resupply();if not r then w.fail(why);return false end
+            end
+            w.status("Baeume pruefen","Baum "..i.." / "..C.trees)
+            local okm,why=goSlot(slotZ(i))
+            if not okm then if why~="stopped" then w.fail(why) end;return false end
+            okm,why=visit(dir)
+            if not okm then w.fail(why);return false end
+            run.scanned=run.scanned+1
+        end
+    end
+    w.status("Rueckkehr","Runde fertig, fahre zur Basis.")
+    local okh,why=idleHome();if not okh then w.fail("Rueckweg blockiert: "..tostring(why));return false end
+    ok,title,detail=base()
+    if not ok then w.status(title,detail) end
+    return true
+end
+pcall(w.equipTool,isTool)
+w.start("TOAST HOLZ",C.trees.." Baeume, "..(C.side=="both" and "beidseitig" or C.side=="left" and "links" or "rechts"))
+]======]
+FILES["mob_turtle.lua"]=[======[
+-- Toast Control: Mob-Turtle mit Schwert. Drei Arten (mob.mode):
+--   "farm"   Mobfarm: steht an der Toetungsstelle, schlaegt zu, sammelt Drops und
+--            liefert sie in die Kiste UNTER sich.
+--   "guard"  Wache: steht an einer Stelle (Tor, Gang) und wehrt Mobs ab.
+--   "patrol" Patrouille: laeuft eine Runde (Rechteck) ab und greift Mobs an, die
+--            im Weg stehen. Baut NIE Bloecke ab. Basis: Kiste unten = Drops,
+--            Kiste oben = Kohle.
+-- Achtung: Eine Turtle kann Mobs und Spieler nicht unterscheiden. Sie greift an,
+-- was direkt vor ihr steht (bei Patrouille erst nach kurzem Warten).
+local common=dofile("/toast/toast_common.lua")
+local cfg=common.load()
+local C=cfg.mob
+local W=dofile("/toast/toast_worker.lua")
+local PATROL=C.mode=="patrol"
+local function isTool(n) return n:find("_sword",1,true)~=nil or n:find("_axe",1,true)~=nil end
+local function keep(name)
+    if W.FUELS[name] and PATROL then return 4096 end
+    if isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
+    return 0
+end
+-- Patrouillen-Route: Rechteck length x width, startet nach vorne
+local route={}
+if PATROL then
+    local L,B=C.length-1,C.width-1
+    for _,leg in ipairs({{0,L},{1,B},{2,L},{3,B}}) do if leg[2]>0 then route[#route+1]=leg end end
+end
+local perimeter=PATROL and 2*(C.length-1)+2*(C.width-1) or 0
+local DIRS=C.attack=="all" and {"front","up","down"} or {"front"}
+local ATTACK={front=turtle.attack,up=turtle.attackUp,down=turtle.attackDown}
+local SUCK={front=turtle.suck,up=turtle.suckUp,down=turtle.suckDown}
+local w,round,idleHome,idleBase
+local lastHit=0
+w=W.new({job="mob",cfg=cfg,section=C,stateFile="/toast_mob_state",args={...},cells=perimeter,
+    layout=C.mode..":"..C.length..":"..C.width..":"..C.side,mirror=PATROL and C.side=="left",
+    tools=isTool,noTool="Kein Schwert: Diamant-Schwert in die Turtle legen",
+    interval=PATROL and C.interval or 0,
+    readyText=PATROL and "START: Dauerbetrieb | 1 RUNDE: einmal ablaufen" or "START: Dauerbetrieb | 1x: bis keine Mobs mehr da",
+    extra=function() return {mobMode=C.mode,hits=w and w.st.harvested or 0,lastHit=math.floor(os.clock()-lastHit)} end,
+    round=function() return round() end,
+    idleHome=function() return idleHome() end,
+    idleBase=function() return idleBase() end})
+local st,run=w.st,w.run
+local lastUnload=os.clock()
+-- Einmal in alle Richtungen zuschlagen; true = etwas getroffen
+local function strike()
+    local hit=false
+    for _,d in ipairs(DIRS) do
+        for _=1,20 do
+            local ok=ATTACK[d]()
+            if not ok then break end
+            hit=true;st.harvested=(st.harvested or 0)+1
+        end
+    end
+    return hit
+end
+local function collect()
+    for _,d in ipairs(DIRS) do pcall(SUCK[d]) end
+end
+local function hasChest() return w.container(turtle.inspectDown) end
+local function stash(force)
+    if not hasChest() or w.items()==0 then return true end
+    if force or w.freeSlots()<=2 or os.clock()-lastUnload>=30 then
+        lastUnload=os.clock()
+        local before=w.items()
+        local ok,title,detail=w.unload(keep)
+        st.total=(st.total or 0)+math.max(0,before-w.items());w.save()
+        if not ok then return false,title,detail end
+    end
+    return true
+end
+-- ===== Mobfarm / Wache (steht still, braucht kein Fuel) =====
+local function stand()
+    local quiet=os.clock()
+    while w.active() do
+        if strike() then
+            lastHit,quiet=os.clock(),os.clock()
+            w.status("Kampf",C.mode=="farm" and "Mobs werden besiegt, Drops gesammelt." or "Mob wird abgewehrt.")
+            collect();w.saveSoon()
+            sleep(0.2)
+        else
+            collect()
+            w.status("Wache",C.mode=="farm" and "Warte auf Mobs in der Farm." or "Halte Wache.")
+            sleep(0.5)
+        end
+        local ok,title,detail=stash(false)
+        if not ok then w.status(title,detail);w.fail(title);return false end
+        if run.mode=="once" and os.clock()-quiet>=8 then stash(true);return true end
+    end
+    w.save()
+    return false
+end
+-- ===== Patrouille =====
+local function walk()
+    run.scanned=0
+    local ok,title,detail=w.unload(keep)
+    if not ok then w.status(title,detail);w.fail(title);return false end
+    ok,title,detail=w.refuel(math.max(C.fuelTarget,perimeter+20))
+    if not ok and turtle.getFuelLevel()<perimeter+20 then
+        w.status(title,detail);w.fail(title);return false
+    end
+    for _,leg in ipairs(route) do
+        local okf,why=w.face(leg[1]);if not okf then w.fail(why);return false end
+        for _=1,leg[2] do
+            if not w.active() then
+                -- gestoppt: Runde zu Ende laufen waere zu lang -> direkt zurueck
+                return false
+            end
+            if strike() then lastHit=os.clock();w.status("Kampf","Mob auf der Runde abgewehrt.")
+            else w.status("Patrouille","Schritt "..run.scanned.." / "..perimeter) end
+            collect()
+            local okm,why2=w.move("forward",{attack=true})
+            if not okm then w.fail(why2);return false end
+            run.scanned=run.scanned+1
+        end
+    end
+    w.face(0)
+    local before=w.items()
+    ok,title,detail=w.unload(keep)
+    st.total=(st.total or 0)+math.max(0,before-w.items());w.save()
+    if not ok then w.status(title,detail) end
+    return true
+end
+-- Zurueck zur Basis immer auf dem Rechteck bleiben (nur dort ist sicher frei):
+-- auf der hinteren Kante (z = Ende) erst seitlich, sonst erst nach hinten.
+local function line(axis)
+    local cur=axis=="x" and st.x or st.z
+    if cur==0 then return true end
+    local dir=axis=="x" and (cur>0 and 3 or 1) or (cur>0 and 2 or 0)
+    local ok,why=w.face(dir);if not ok then return false,why end
+    while (axis=="x" and st.x or st.z)~=0 do
+        ok,why=w.move("forward",{attack=true});if not ok then return false,why end
+    end
+    return true
+end
+idleHome=function()
+    if not PATROL or (w.isHome() and st.dir==0) then return true end
+    w.status("Rueckkehr","Gehe zur Basis.")
+    local first,second="z","x"
+    if st.z==C.length-1 then first,second="x","z" end
+    local ok,why=line(first);if not ok then return false,why end
+    ok,why=line(second);if not ok then return false,why end
+    return w.face(0)
+end
+idleBase=function()
+    if PATROL then return w.unload(keep) end
+    -- Still stehende Turtle: auch ohne Auftrag Drops wegraeumen
+    local ok,title,detail=stash(false)
+    if not ok then return false,title,detail end
+    return true
+end
+round=function()
+    if PATROL then
+        if not w.isHome() then local ok,why=idleHome();if not ok then w.fail(why);return false end end
+        return walk()
+    end
+    return stand()
+end
+pcall(w.equipTool,isTool)
+local names={farm="Mobfarm",guard="Wache",patrol="Patrouille "..C.length.."x"..C.width}
+w.start("TOAST MOBS",names[C.mode])
+]======]
+-- TOAST CONTROL 3.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
---        wget run <link> farm|mining|repeater
+--        wget run <link> farm|mining|tree|mob|repeater
 -- Vor dem Schreiben wird ALLES Alte geloescht, damit nichts kollidiert.
 local args={...}
 local requested,clean
 for _,a in ipairs(args) do
     a=a:lower()
     if a=="clean" or a=="neu" then clean=true
-    elseif a=="farm" or a=="mining" or a=="repeater" then requested=a
+    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="repeater" then requested=a
     else error("Optional: farm / mining / repeater / clean",0) end
 end
 local code=FILES
@@ -3584,7 +4600,7 @@ if clean then
 end
 -- Im Update-Modus bleiben nur diese Dateien erhalten.
 local KEEP={["toast.config.lua"]=true,["farm.config.lua"]=true,["mine.config.lua"]=true}
-for _,n in ipairs({"toast_farm_state","toast_mining_state","toast_control_state","toast_pocket_state"})do
+for _,n in ipairs({"toast_farm_state","toast_mining_state","toast_tree_state","toast_mob_state","toast_control_state","toast_pocket_state"})do
     KEEP[n]=true;KEEP[n..".tmp"]=true
 end
 local function readFile(path)
@@ -3650,14 +4666,18 @@ end
 local function chooseJob()
     ui.header("Turtle #"..os.getComputerID())
     print("")
-    fg(colors.yellow);write("1 ");fg(colors.white);print("Farm")
-    fg(colors.yellow);write("2 ");fg(colors.white);print("Mining")
+    fg(colors.yellow);write("1 ");fg(colors.white);print("Farm      (Feld, Hacke)")
+    fg(colors.yellow);write("2 ");fg(colors.white);print("Mining    (Spitzhacke)")
+    fg(colors.yellow);write("3 ");fg(colors.white);print("Holz      (Baeume, Axt)")
+    fg(colors.yellow);write("4 ");fg(colors.white);print("Mobs      (Schwert)")
     print("")
     while true do
         write("Aufgabe: ")
         local answer=read():lower()
         if answer=="1" or answer=="farm" or answer=="f" then return "farm" end
         if answer=="2" or answer=="mining" or answer=="m" then return "mining" end
+        if answer=="3" or answer=="tree" or answer=="holz" or answer=="h" then return "tree" end
+        if answer=="4" or answer=="mob" or answer=="mobs" then return "mob" end
     end
 end
 local job
@@ -3741,12 +4761,14 @@ if role=="controller" then
     for _,name in ipairs({"toast_control.lua","toast_model.lua","toast_ui.lua"})do names[#names+1]=name end
 elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="toast_ui.lua"
 elseif role=="info" then names[#names+1]="toast_info.lua";names[#names+1]="toast_ui.lua"
+elseif role=="turtle" and (job=="tree" or job=="mob") then
+    names[#names+1]=job.."_turtle.lua";names[#names+1]="toast_worker.lua"
 elseif role=="turtle" then
     local prefix=job=="farm" and "farm" or "mine"
     names[#names+1]=prefix.."_turtle.lua";names[#names+1]=prefix.."_common.lua"
 else names[#names+1]="repeater.lua" end
 for _,name in ipairs(names)do assert(code[name] and load(code[name],"@"..name),"Installer beschaedigt: "..name) end
-if role=="turtle" then
+if role=="turtle" and (job=="farm" or job=="mining") then
     local prefix=job=="farm" and "farm" or "mine"
     assert(load(code[prefix.."_common.lua"]))().load(common.workerConfig(c))
 end
@@ -3775,7 +4797,7 @@ local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f
 ui.header("Fertig")
 print("")
 fg(colors.lime);print("Toast Control "..common.version.." installiert");fg(colors.white)
-print((role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining"))
+print((role=="turtle" and ("Turtle / "..(common.JOB_NAMES[job] or job))
     or ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role])..(c.name~="" and (" / "..c.name) or ""))
 if role~="controller" and role~="repeater" then print("Zentrale #"..c.controllerId) end
 print(clean and "Komplett neu installiert." or "Update: Einstellungen behalten.")
@@ -3783,7 +4805,7 @@ if resetProgress then print("Neuer Auftrag mit den neuen Massen.") end
 ui.hint("Spaeter aendern: toast.lua config")
 local checked=common.load()
 assert(checked.role==role,"role passt nicht zum erkannten Geraet.")
-if role=="turtle" then
+if role=="turtle" and (checked.job=="farm" or checked.job=="mining") then
     local prefix=checked.job=="farm" and "farm" or "mine"
     dofile("/toast/"..prefix.."_common.lua").load(common.workerConfig(checked))
 end

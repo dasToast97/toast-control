@@ -76,7 +76,7 @@ function M.new(cfg)
     end
     function m.command(action,target)
         if not common.actions[action] then return false end
-        if target~="all" and target~="farm" and target~="mining" and not (common.id(target) and devices[target]) then return false end
+        if target~="all" and not common.job(target) and not (common.id(target) and devices[target]) then return false end
         local changed={}
         local always=action=="stop" or action=="reset"
         for id,d in pairs(devices) do

@@ -71,3 +71,22 @@ if mode=="keys" then
     end
   end
 end
+if mode=="jobs" then
+  local f=fleet()
+  f.entries[20]={job="tree",label="Birken",online=true,data={status="Faellt Baum",detail="Baum 3 / 8",total=340,harvested=68,rounds=4,saplings=29,scanned=3,cells=8,fuel=820}}
+  f.entries[21]={job="mob",label="Zombiefarm",online=true,data={status="Kampf",detail="Mobs werden besiegt",total=1520,hits=980,mobMode="farm",lastHit=2,scanned=0,cells=0,fuel=0,freeSlots=14}}
+  f.entries[22]={job="mob",label="Wache Tor",online=true,data={status="Wache",detail="Halte Wache.",total=12,hits=30,mobMode="guard",scanned=0,cells=0,fuel=0,freeSlots=15}}
+  f.ids={5,6,12,13,14,15,20,21,22}
+  for _,sz in ipairs({{26,20},{39,19},{82,26}}) do
+    local sc=screen(sz[1],sz[2],true);local ui=UI.new(sc,cfg);ui.draw(f,true,"");sc.dump("ZENTRALE "..sz[1].."x"..sz[2].." alle Jobs")
+  end
+  local sc=screen(26,20,true);local ui=UI.new(sc,cfg);ui.draw(f,true,"");ui.action("filter:tree");ui.draw(f,true,"");sc.dump("POCKET Reiter Holz")
+  ui.action("filter:all");ui.action("id:21");ui.draw(f,true,"");sc.dump("POCKET Detail Mobfarm")
+  ui.action("id:20");ui.draw(f,true,"");sc.dump("POCKET Detail Holz")
+  for _,sz in ipairs({{39,19},{57,24},{82,26}}) do
+    sc=screen(sz[1],sz[2],true);UI.drawInfo(sc,f,true,{});sc.dump("INFO "..sz[1].."x"..sz[2].." alle Jobs")
+  end
+  sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},"mob");sc.dump("INFO nur Mobs")
+  sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},21);sc.dump("INFO Turtle #21 Mobfarm")
+  sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},20);sc.dump("INFO Turtle #20 Holz")
+end

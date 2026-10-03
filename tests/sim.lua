@@ -8,7 +8,7 @@ function Sim.new(opts)
         input=opts.input or {},polling=true,actions=opts.actions or {},deferred={},chestNames={}}
     -- Ausruestung: zwei Seiten wie in CC:Tweaked
     S.equip=opts.gear or {left=(opts.tool~=false) and "minecraft:diamond_pickaxe" or nil,right="computercraft:wireless_modem_advanced"}
-    local function isTool(n)return n and (n:find("pickaxe",1,true) or n:find("_hoe",1,true)) end
+    local function isTool(n)return n and (n:find("pickaxe",1,true) or n:find("_hoe",1,true) or n:find("_axe",1,true) or n:find("_sword",1,true)) end
     function S.hasTool()return isTool(S.equip.left) or isTool(S.equip.right) end
     function S.sideType(side)local n=S.equip[side];if not n then return nil end
         if n:find("wireless_modem",1,true) then return "modem" end
@@ -28,7 +28,7 @@ function Sim.new(opts)
     end
     -- Dateien
     for _,n in ipairs({"toast.lua"})do S.files["/"..n]=readReal(SRC..n)end
-    for _,n in ipairs({"toast_common.lua","mine_turtle.lua","farm_turtle.lua"})do S.files["/toast/"..n]=readReal(SRC..n)end
+    for _,n in ipairs({"toast_common.lua","mine_turtle.lua","farm_turtle.lua","toast_worker.lua","tree_turtle.lua","mob_turtle.lua"})do S.files["/toast/"..n]=readReal(SRC..n)end
     if opts.mineFile then S.files["/toast/mine_turtle.lua"]=readReal(opts.mineFile) end
     S.files["/toast/mine_common.lua"]=readReal(SRC.."test/mine_common.lua")
     S.files["/toast/farm_common.lua"]=readReal(SRC.."test/farm_common.lua")
@@ -39,7 +39,6 @@ function Sim.new(opts)
     S.world[key(0,0,0)]=false
     S.world[key(0,1,0)]="minecraft:chest"     -- unten Ausgabe
     S.world[key(0,-1,0)]="minecraft:chest"    -- oben Kohle
-    if opts.world then opts.world(S) end
     local function block(x,y,z)
         local b=S.world[key(x,y,z)]
         if b==nil then b=opts.default;if b==nil then b="minecraft:stone" end end
@@ -87,7 +86,28 @@ function Sim.new(opts)
         turnRight=function()S.p.dir=(S.p.dir+1)%4;return true end,
         inspect=inspect("forward"),inspectUp=inspect("up"),inspectDown=inspect("down"),
         dig=dig("forward"),digUp=dig("up"),digDown=dig("down"),
-        attack=function()return false end,attackUp=function()return false end,attackDown=function()return false end,
+        attack=function()
+            if (S.enemies or 0)>0 then S.enemies=S.enemies-1;S.kills=(S.kills or 0)+1;add("minecraft:rotten_flesh",1);return true end
+            if S.mobs>0 then S.hitsOnBlocker=(S.hitsOnBlocker or 0)+1 end
+            return false end,
+        attackUp=function()return false end,attackDown=function()return false end,
+        detect=function()local b=block(front("forward"));return b~=nil and not b:find("water",1,true) and not b:find("lava",1,true) end,
+        detectUp=function()local b=block(front("up"));return b~=nil end,
+        detectDown=function()local b=block(front("down"));return b~=nil end,
+        place=function()
+            local x,y,z=front("forward");local it=S.inv[S.sel];if not it then return false end
+            local b=block(x,y,z)
+            if it.name=="minecraft:bone_meal" then
+                if not b or not b:find("_sapling",1,true) then return false end
+                it.count=it.count-1;if it.count==0 then S.inv[S.sel]=nil end
+                S.boneUsed=(S.boneUsed or 0)+1
+                if S.boneUsed%2==0 then S.growTree(x,y,z) end
+                return true
+            end
+            if b then return false end
+            it.count=it.count-1;if it.count==0 then S.inv[S.sel]=nil end
+            S.world[key(x,y,z)]=it.name;S.placed=(S.placed or 0)+1;return true end,
+        suckDown=function()return false end,
         getFuelLevel=function()return S.fuel end,getFuelLimit=function()return 20000 end,
         select=function(i)S.sel=i;return true end,
         getItemCount=function(i)i=i or S.sel;return S.inv[i] and S.inv[i].count or 0 end,
@@ -96,6 +116,7 @@ function Sim.new(opts)
         dropDown=function(n)local it=S.inv[S.sel];if not it then return false end
             if block(S.p.x,S.p.y+1,S.p.z)~="minecraft:chest" then return false end
             n=math.min(n or it.count,it.count);it.count=it.count-n;S.chestBelow=S.chestBelow+n;S.chestNames[it.name]=true
+            local ck=key(S.p.x,S.p.y+1,S.p.z);S.dropsAt=S.dropsAt or {};S.dropsAt[ck]=(S.dropsAt[ck] or 0)+n
             if it.count==0 then S.inv[S.sel]=nil end;return true end,
         dropUp=function(n)local it=S.inv[S.sel];if not it then return false end
             n=math.min(n or it.count,it.count);it.count=it.count-n;S.coal=S.coal+n;if it.count==0 then S.inv[S.sel]=nil end;return true end,
@@ -109,12 +130,25 @@ function Sim.new(opts)
             if block(x,y,z) then return false end
             local below=block(x,y+1,z);if below and below:find("water",1,true) then return false end
             local it=S.inv[S.sel];if not it then return false end
+            local nm=it.name
             it.count=it.count-1;if it.count==0 then S.inv[S.sel]=nil end
-            S.world[key(x,y,z)]="minecraft:planted";return true end,
+            local crop=nm:find("seed",1,true) or nm=="minecraft:carrot" or nm=="minecraft:potato"
+            S.world[key(x,y,z)]=crop and "minecraft:planted" or nm;return true end,
         equipLeft=function()return S.equipSide("left")end,
         equipRight=function()return S.equipSide("right")end,
         getSelectedSlot=function()return S.sel end,digDownCrop=nil,
     }
+    -- Baum wachsen lassen: Stamm nach oben (y negativ = oben), Blaetter oben drauf
+    function S.growTree(x,y,z,h)
+        h=h or S.treeHeight or 5
+        for i=0,h-1 do S.world[key(x,y-i,z)]="minecraft:birch_log" end
+        S.world[key(x,y-h,z)]="minecraft:birch_leaves"
+    end
+    function S.growAll()
+        for k,v in pairs(S.world) do
+            if v=="minecraft:birch_sapling" then local x,y,z=k:match("(-?%d+),(-?%d+),(-?%d+)");S.growTree(tonumber(x),tonumber(y),tonumber(z)) end
+        end
+    end
     function S.equipSide(side)
         local it=S.inv[S.sel];local cur=S.equip[side]
         if it then
@@ -128,6 +162,7 @@ function Sim.new(opts)
         S.equipCount=(S.equipCount or 0)+1
         return true
     end
+    if opts.world then opts.world(S) end
     return S
 end
 -- Serialisierung wie textutils

@@ -1,7 +1,7 @@
 local M={
-    version="2.9",
+    version="3.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
-    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1"},
+    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true},
 }
@@ -14,7 +14,12 @@ function M.id(n) return M.integer(n,0,65500) end
 function M.serial(n) return M.integer(n,1,9007199254740991) end
 function M.number(n) return type(n)=="number" and n==n and n>-math.huge and n<math.huge and n or 0 end
 function M.contains(list,id) for _,v in ipairs(list or {}) do if v==id then return true end end;return false end
-function M.job(j) return j=="farm" or j=="mining" end
+-- Aufgaben einer Turtle. JOBS: Reihenfolge in Menues und Anzeigen.
+M.JOBS={"farm","mining","tree","mob"}
+M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs"}
+-- Config-Abschnitt und Programmdatei je Aufgabe
+M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob"}
+function M.job(j) return M.JOB_NAMES[j]~=nil end
 function M.label(v)
     return type(v)=="string" and v:gsub("[%c]"," "):sub(1,48) or ""
 end
@@ -39,15 +44,18 @@ M.DEFAULTS={
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
-    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,radioTimeout=60,
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
+    tree={trees=8,spacing=2,side="right",interval=120,bonemeal=false,maxHeight=32,keepSaplings=32,
+        fuelTarget=1000,radioTimeout=60},
+    mob={mode="farm",attack="front",length=12,width=12,side="right",interval=30,fuelTarget=500,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -91,14 +99,14 @@ function M.configText(c)
         out[#out+1]="    },"
     end
     local role,job=c.role,c.job
-    local what=role=="turtle" and ("Turtle / "..(job=="farm" and "Farm" or "Mining")) or
+    local what=role=="turtle" and ("Turtle / "..(M.JOB_NAMES[job] or tostring(job))) or
         ({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[role] or tostring(role)
     out[#out+1]="-- Toast Control "..M.version.." - Einstellungen"
     out[#out+1]="-- Geraet #"..os.getComputerID().." / "..what
     out[#out+1]="-- Aendern im Spiel:  toast.lua config     (oder: edit /toast.config.lua)"
     out[#out+1]="return {"
     line(4,"role",q(role))
-    if role=="turtle" then line(4,"job",q(job),"farm oder mining") end
+    if role=="turtle" then line(4,"job",q(job),"farm, mining, tree oder mob") end
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
@@ -109,9 +117,25 @@ function M.configText(c)
             {"tunnels","Anzahl Gaenge (1-64)"},{"gap","Bloecke zwischen den Gaengen (0-16)"},
             {"side","Gaenge nach \"right\" oder \"left\""},{"sideDig","nur gap = 0: seitlich mitabbauen"},
             {"useCoal","true = gefundene Kohle direkt als Fuel"},
+            {"placeChests","true = Kisten mitnehmen, unterwegs abladen"},
+            {"torches","Fackel alle x Bloecke (0 = aus, ab Hoehe 3)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
+    elseif role=="turtle" and job=="tree" then
+        section("tree","Holzfarm: Fahrspur nach vorne, Baeume neben der Spur",{
+            {"trees","Baeume hintereinander (1-32)"},{"spacing","freie Bloecke zwischen Baeumen (1-6)"},
+            {"side","Baeume \"right\", \"left\" oder \"both\""},{"interval","Pause zwischen Runden in s"},
+            {"bonemeal","true = Knochenmehl auf Setzlinge"},{"maxHeight","hoechstens so hoch faellen"},
+            {"keepSaplings","so viele Setzlinge behalten"},{"fuelTarget","an der Basis bis hierhin tanken"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.tree)
+    elseif role=="turtle" and job=="mob" then
+        section("mob","Mobs: Schwert-Turtle",{
+            {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Runde"},
+            {"attack","\"front\" oder \"all\" (auch oben/unten)"},
+            {"length","Patrouille: Laenge nach vorne"},{"width","Patrouille: Breite"},
+            {"side","Patrouille nach \"right\" oder \"left\""},{"interval","Patrouille: Pause in s"},
+            {"fuelTarget","Patrouille: bis hierhin tanken"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
     elseif role=="turtle" then
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
@@ -119,7 +143,7 @@ function M.configText(c)
             {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
     end
-    if role=="turtle" then
+    if role=="turtle" and (job=="farm" or job=="mining") then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
             {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
             {"idle","true = auch an der Basis wach"},{"wakeOnWorldLoad","nach Serverneustart weiter"},
@@ -167,13 +191,14 @@ function M.load(c)
     assert(M.id(c.controllerId),"controllerId: ganze ID 0 bis 65500.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
-        assert(turtle and M.job(c.job),"Turtle: job=farm oder mining einstellen.")
+        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree oder mob einstellen.")
+        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) end
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
     if c.role=="info" then
         assert(not turtle and not pocket and os.getComputerID()~=c.controllerId,"Infoscreen: eigener Computer, nicht die Zentrale.")
-        assert(c.show=="all" or c.show=="farm" or c.show=="mining" or M.id(c.show),"show: \"all\", \"farm\", \"mining\" oder Turtle-ID (Zahl).")
+        assert(c.show=="all" or M.job(c.show) or M.id(c.show),"show: \"all\", \"farm\", \"mining\", \"tree\", \"mob\" oder Turtle-ID (Zahl).")
     end
     assert(type(c.autoDiscover)=="boolean" and type(c.autoPairPockets)=="boolean","autoDiscover/autoPairPockets: true oder false.")
     assert(type(c.devices)=="table" and type(c.pocketIds)=="table","devices/pocketIds fehlen.")
@@ -207,6 +232,30 @@ function M.load(c)
     end
     c.label=M.label(c.label);c.name=c.label
     return c
+end
+function M.checkTree(t)
+    assert(type(t)=="table","tree fehlt.")
+    assert(M.integer(t.trees,1,32),"tree.trees: 1 bis 32.")
+    assert(M.integer(t.spacing,1,6),"tree.spacing: 1 bis 6.")
+    assert(t.side=="right" or t.side=="left" or t.side=="both","tree.side: right, left oder both.")
+    assert(M.integer(t.interval,1,86400),"tree.interval: 1 bis 86400 s.")
+    assert(type(t.bonemeal)=="boolean","tree.bonemeal: true oder false.")
+    assert(M.integer(t.maxHeight,4,64),"tree.maxHeight: 4 bis 64.")
+    assert(M.integer(t.keepSaplings,1,256),"tree.keepSaplings: 1 bis 256.")
+    assert(M.integer(t.fuelTarget,100,100000),"tree.fuelTarget: 100 bis 100000.")
+    assert(t.radioTimeout==0 or M.integer(t.radioTimeout,10,300),"tree.radioTimeout: 0 oder 10 bis 300.")
+    return t
+end
+function M.checkMob(m)
+    assert(type(m)=="table","mob fehlt.")
+    assert(m.mode=="farm" or m.mode=="guard" or m.mode=="patrol","mob.mode: farm, guard oder patrol.")
+    assert(m.attack=="front" or m.attack=="all","mob.attack: front oder all.")
+    assert(M.integer(m.length,2,64) and M.integer(m.width,1,64),"mob.length 2-64, mob.width 1-64.")
+    assert(m.side=="right" or m.side=="left","mob.side: right oder left.")
+    assert(M.integer(m.interval,0,86400),"mob.interval: 0 bis 86400 s.")
+    assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")
+    assert(m.radioTimeout==0 or M.integer(m.radioTimeout,10,300),"mob.radioTimeout: 0 oder 10 bis 300.")
+    return m
 end
 function M.workerConfig(c)
     return {role="turtle",controllerId=c.controllerId,turtleIds={os.getComputerID()},pocketIds={},

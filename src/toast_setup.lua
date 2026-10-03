@@ -53,9 +53,20 @@ function S.new(common)
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
             ..(m.sideDig and m.gap==0 and " +seitl" or "")..(m.useCoal~=false and " +Kohle" or "")
+            ..(m.placeChests and " +Kisten" or "")..((m.torches or 0)>0 and (" +Fackel/"..m.torches) or "")
     end
     local function farmText(f)
         return f.length.."x"..f.width.." "..sideName(f.side).." "..(common.CROP_NAMES[f.crop] or f.crop)
+    end
+    local function bothName(s) return s=="both" and "beidseitig" or sideName(s) end
+    local function treeText(t)
+        return t.trees.." Baeume, Abst."..t.spacing.." "..bothName(t.side)..(t.bonemeal and " +Knochenm." or "")
+    end
+    local MOB_MODES={farm="Mobfarm",guard="Wache",patrol="Patrouille"}
+    local function mobText(m)
+        local s=MOB_MODES[m.mode] or m.mode
+        if m.mode=="patrol" then s=s.." "..m.length.."x"..m.width.." "..sideName(m.side) end
+        return s..(m.attack=="all" and " +oben/unten" or "")
     end
     local function chunkText(cl)
         if not cl.enabled then return "aus" end
@@ -82,6 +93,17 @@ function S.new(common)
         hint("Kohle aus der Mine: direkt verbrennen")
         hint("(spart Fahrten) oder abliefern.")
         m.useCoal=yesno("Gefundene Kohle als Fuel nutzen?",m.useCoal~=false)
+        hint("Kisten ins Turtle-Inventar legen: bei")
+        hint("vollem Inventar setzt sie eine in den")
+        hint("Boden und laedt ab (kein Heimweg).")
+        m.placeChests=yesno("Kisten unterwegs setzen?",m.placeChests==true)
+        if m.height>=3 then
+            hint("Fackeln ins Inventar: auf den Boden")
+            hint("der untersten Reihe. 0 = aus")
+            m.torches=ask("Fackel alle x Bloecke (0-64)",m.torches or 0,0,64)
+        else
+            hint("Fackeln: erst ab Ganghoehe 3.");m.torches=0
+        end
     end
     local function editFarm(c)
         local f=c.farm
@@ -99,6 +121,45 @@ function S.new(common)
         hint("0 = automatisch passend zum Feld")
         f.seedReserve=ask("Saatgut behalten (0-256)",f.seedReserve or 0,0,256)
         f.water={}
+    end
+    local function editTree(c)
+        local t=c.tree
+        header("Holzfarm (von der Basis aus nach vorne)")
+        hint("Fahrspur nach vorne, Baeume daneben.")
+        hint("Unten Kiste=Holz, oben=Kohle, hinten=")
+        hint("Setzlinge. Birke/Fichte am besten.")
+        t.trees=ask("Baeume hintereinander (1-32)",t.trees,1,32)
+        t.spacing=ask("Abstand zwischen Baeumen (1-6)",t.spacing,1,6)
+        hint("1 rechts  2 links  3 beidseitig")
+        local cur=t.side=="left" and 2 or t.side=="both" and 3 or 1
+        t.side=({"right","left","both"})[ask("Baeume",cur,1,3)]
+        t.interval=ask("Pause zwischen Runden (s)",t.interval,1,86400)
+        t.bonemeal=yesno("Knochenmehl benutzen?",t.bonemeal==true)
+        t.maxHeight=ask("Max. Baumhoehe (4-64)",t.maxHeight,4,64)
+    end
+    local function editMob(c)
+        local m=c.mob
+        header("Mobs (Schwert-Turtle)")
+        hint("1 Mobfarm: steht an der Toetungsstelle,")
+        hint("  Drops in die Kiste unter ihr")
+        hint("2 Wache: steht an einer Stelle")
+        hint("3 Patrouille: laeuft ein Rechteck ab")
+        local cur=m.mode=="guard" and 2 or m.mode=="patrol" and 3 or 1
+        m.mode=({"farm","guard","patrol"})[ask("Art",cur,1,3)]
+        m.attack=yesno("Auch oben/unten angreifen?",m.attack=="all") and "all" or "front"
+        if m.mode=="patrol" then
+            hint("Rechteck ab der Basis: nach vorne")
+            hint("Laenge, zur Seite Breite. Weg muss frei")
+            hint("sein (baut nichts ab).")
+            m.length=ask("Laenge (2-64)",m.length,2,64)
+            m.width=ask("Breite (1-64)",m.width,1,64)
+            if m.width>1 then m.side=askSide("Rechteck nach",m.side) end
+            m.interval=ask("Pause zwischen Runden (s)",m.interval,0,86400)
+        end
+        fg(colors.orange)
+        print(cut("Achtung: greift alles direkt vor"))
+        print(cut("sich an, auch Spieler."))
+        fg(colors.white);sleep(1.5)
     end
     local function editChunks(c,job)
         local cl=c.chunkload
@@ -127,7 +188,7 @@ function S.new(common)
         end
     end
     local function editRadio(c,job)
-        local sec=job=="farm" and c.farm or c.mine
+        local sec=c[common.JOB_SECTION[job] or "mine"]
         header("Funk")
         hint("Keine Verbindung zur Zentrale:")
         hint("nach x Sekunden stoppen + heimfahren.")
@@ -165,18 +226,18 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
         print("")
-        hint("1 Alle Turtles")
-        hint("2 Alle Farmen")
-        hint("3 Alle Minen")
-        hint("4 Eine bestimmte Turtle")
-        local cur=c.show=="farm" and 2 or c.show=="mining" and 3 or type(c.show)=="number" and 4 or 1
-        local n=ask("Auswahl",cur,1,4)
-        if n==1 then c.show="all" elseif n==2 then c.show="farm" elseif n==3 then c.show="mining"
+        local opts={"all","farm","mining","tree","mob"}
+        for i,v in ipairs(opts) do hint(i.." "..showText(v)) end
+        hint("6 Eine bestimmte Turtle")
+        local cur=type(c.show)=="number" and 6 or 1
+        for i,v in ipairs(opts) do if c.show==v then cur=i end end
+        local n=ask("Auswahl",cur,1,6)
+        if n<=5 then c.show=opts[n]
         else
             hint("ID steht an der Zentrale hinter dem Namen")
             hint("(z.B. Mine Nord #12 -> 12)")
@@ -207,12 +268,18 @@ function S.new(common)
         end
         if role=="turtle" and job=="mining" then
             list[#list+1]={"Mine",function() return mineText(c.mine) end,function() editMine(c) end}
+        elseif role=="turtle" and job=="tree" then
+            list[#list+1]={"Baeume",function() return treeText(c.tree) end,function() editTree(c) end}
+        elseif role=="turtle" and job=="mob" then
+            list[#list+1]={"Mobs",function() return mobText(c.mob) end,function() editMob(c) end}
         elseif role=="turtle" then
             list[#list+1]={"Feld",function() return farmText(c.farm) end,function() editFarm(c) end}
         end
-        if role=="turtle" then
+        if role=="turtle" and (job=="farm" or job=="mining") then
             list[#list+1]={"Chunks",function() return chunkText(c.chunkload) end,function() editChunks(c,job) end}
-            list[#list+1]={"Funk",function() return radioText((job=="farm" and c.farm or c.mine).radioTimeout) end,
+        end
+        if role=="turtle" then
+            list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
         end
         if role=="controller" or role=="info" then
@@ -232,7 +299,7 @@ function S.new(common)
     end
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
-        local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(info.job=="farm" and "Farm" or "Mining"))
+        local what=info.role=="turtle" and ("Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
             or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen"})[info.role].." #"..os.getComputerID())
         while true do
             local list=items(c,info)
@@ -259,16 +326,18 @@ function S.new(common)
         if job=="mining" then local m=c.mine
             return table.concat({m.length,m.height,m.tunnels,m.gap,m.side,tostring(m.sideDig==true)},":") end
         if job=="farm" then local f=c.farm return table.concat({f.length,f.width,f.side,f.crop},":") end
+        if job=="tree" then local t=c.tree return table.concat({t.trees,t.spacing,t.side},":") end
+        if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         return ""
     end
     function M.confirmReset(job)
-        if job~="mining" then return end
-        local file="/toast_mining_state"
+        if job~="mining" and job~="tree" and job~="mob" then return end
+        local file="/toast_"..job.."_state"
         if not (fs.exists(file) or fs.exists(file..".tmp")) then return end
-        header("Neue Minenmasse")
+        header(job=="mining" and "Neue Minenmasse" or "Neue Masse")
         print("Neue Masse = neuer Auftrag.")
         print("Die Turtle muss an ihrer Basis stehen")
-        print("(Blick in die Mine).")
+        print(job=="mining" and "(Blick in die Mine)." or "(Blick nach vorne).")
         if yesno("Steht sie an der Basis?",true) then
             for _,p in ipairs({file,file..".tmp"}) do if fs.exists(p) then fs.delete(p) end end
             return true

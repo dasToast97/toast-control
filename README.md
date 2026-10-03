@@ -1,6 +1,6 @@
-# Toast Control 2.9
+# Toast Control 3.0
 
-Farm- und Mining-Turtles, Zentrale und Pocket für CC:Tweaked (Minecraft Fabric 1.20.1).
+Farm-, Mining-, Holz- und Mob-Turtles, Zentrale, Pocket und Infoscreens für CC:Tweaked (Minecraft Fabric 1.20.1).
 
 ## Installieren / Updaten
 
@@ -13,7 +13,8 @@ wget run https://raw.githubusercontent.com/dasToast97/toast-control/main/install
 - **1 Update:** löscht alles Alte, behält Config und Turtle-Fortschritt.
 - **2 Komplett neu:** löscht ALLES (mit `LOESCHEN` bestätigen). Turtle vorher an die Basis stellen.
 - Stationärer Computer: Auswahl **1 Zentrale / 2 Repeater / 3 Infoscreen** (ohne Monitor ist Repeater vorgewählt).
-- Direkt: `... install.lua clean`, `... install.lua farm`, `... install.lua mining`, `... install.lua repeater`
+- Turtle: Auswahl **1 Farm / 2 Mining / 3 Holz / 4 Mobs** (Mobfarm, Wache oder Patrouille).
+- Direkt: `... install.lua clean`, `... install.lua farm|mining|tree|mob|repeater`
 
 ## Bedienung (Pocket / Zentrale)
 

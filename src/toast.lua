@@ -1,4 +1,4 @@
--- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining und Repeater.
+-- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
 -- Neu: Waechter startet das Programm nach einem Absturz automatisch neu.
 local common=dofile("/toast/toast_common.lua")
 local args={...}
@@ -8,6 +8,20 @@ local function runOnce()
     -- Name auch im Spiel setzen (steht dann an Turtle/Computer und in der Item-Info).
     if cfg.label~="" and os.setComputerLabel and os.getComputerLabel()~=cfg.label then
         pcall(os.setComputerLabel,cfg.label)
+    end
+    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob") then
+        -- Holzfarm / Mobs: eigenes Grundgeruest (toast_worker.lua), liest die Config selbst.
+        local nativeRednet=rednet
+        local radio={}
+        for k,v in pairs(nativeRednet) do radio[k]=v end
+        radio.send=function(id,msg,protocol)
+            if type(msg)=="table" and msg.kind=="status" then
+                msg.label=cfg.label;msg.job=cfg.job;msg.controllerId=cfg.controllerId;msg.toast=common.version
+            end
+            return nativeRednet.send(id,msg,protocol)
+        end
+        local env=setmetatable({rednet=radio},{__index=_ENV})
+        return assert(loadfile("/toast/"..cfg.job.."_turtle.lua","t",env))(table.unpack(args))
     end
     if cfg.role=="turtle" then
         local name=cfg.job=="farm" and "farm" or "mine"

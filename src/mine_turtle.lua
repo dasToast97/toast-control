@@ -728,12 +728,19 @@ local function home()
 end
 local containers={['minecraft:chest']=true,['minecraft:trapped_chest']=true,['minecraft:barrel']=true}
 local function container(fn)local ok,b=fn();return ok and containers[b.name] end
+-- Mitgenommene Kisten (mine.placeChests) und Fackeln (mine.torches) nie abladen
+local TORCHES={['minecraft:torch']=true}
+local function keepItem(name)
+    return TOOLS[name] or TC.MODEM_ITEMS[name] or (C.placeChests and containers[name]) or ((C.torches or 0)>0 and TORCHES[name])
+end
+local function countItems(set) local n=0;for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then n=n+it.count end end;return n end
+local function findItem(set) for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then return i end end end
 local function unload()
     if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
     burnCoal()      -- uebrige Kohle zuerst in den Tank (falls eingeschaltet)
     for i=1,16 do
         local item=turtle.getItemDetail(i)
-        if item and not TOOLS[item.name] and not TC.MODEM_ITEMS[item.name] then
+        if item and not keepItem(item.name) then
             if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
             turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
             local delivered=before-turtle.getItemCount(i)
@@ -785,6 +792,62 @@ local function supplies()
     end
     return false,"stopped"
 end
+-- ===== Kiste unterwegs (mine.placeChests) =====
+-- Inventar voll: statt heimzufahren eine mitgebrachte Kiste in den Boden unter
+-- der untersten Reihe setzen (dort wird nie gegraben) und hineinladen.
+-- Nur wenn die Spalte bis zur untersten Reihe schon frei ist.
+local function dugAt(x,y,z) if SIDE then return blockDug(x,y,z) end return cellDug(x,y,z) end
+local function dumpHere()
+    if not C.placeChests or homePosition() or st.z<1 then return false end
+    local slot=findItem(containers);if not slot then return false end
+    for yy=st.y+1,0 do if not dugAt(st.x,yy,st.z) then return false end end
+    burnCoal()
+    local y0=st.y
+    status("Kiste setzen","Inventar voll: Kiste in den Boden, kein Heimweg noetig.")
+    local ok=vertical(0,false);if not ok then return false end
+    local e,b=turtle.inspectDown()
+    if e and (liquid[b.name] or blockReason(b)) then vertical(y0,false);return false end
+    if e then
+        ok=clear(turtle.inspectDown,turtle.digDown,false)
+        if not ok then vertical(y0,false);return false end
+    end
+    slot=findItem(containers)
+    if not slot then vertical(y0,false);return false end
+    turtle.select(slot)
+    if not turtle.placeDown() then turtle.select(1);vertical(y0,false);return false end
+    for i=1,16 do
+        local item=turtle.getItemDetail(i)
+        if item and not keepItem(item.name) then
+            turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
+            st.total=(st.total or 0)+before-turtle.getItemCount(i)
+        end
+    end
+    turtle.select(1)
+    st.chestsPlaced=(st.chestsPlaced or 0)+1
+    st.chestSpots=st.chestSpots or {}
+    if #st.chestSpots<64 then st.chestSpots[#st.chestSpots+1]={x=st.x,z=st.z} end
+    save()
+    ok=vertical(y0,false)
+    return ok
+end
+-- ===== Fackeln (mine.torches = Abstand, 0 = aus) =====
+-- Auf den Boden der untersten Reihe, waehrend die Turtle in Reihe 2 vorbeifaehrt.
+local function placeTorch()
+    local n=C.torches or 0
+    if n<=0 or st.y~=-1 or st.z<1 or st.z%n~=0 then return end
+    st.torchAt=st.torchAt or {}
+    local k=st.x..":"..st.z
+    if st.torchAt[k] then return end
+    local e=turtle.inspectDown();if e then return end
+    local slot=findItem(TORCHES);if not slot then return end
+    turtle.select(slot)
+    if turtle.placeDown() then st.torchAt[k]=true;st.torchesPlaced=(st.torchesPlaced or 0)+1;save() end
+    turtle.select(1)
+end
+local function fuelOk()
+    local fuel=turtle.getFuelLevel()
+    return fuel=="unlimited" or fuel>=reserve()
+end
 local function finish()
     run.mode,run.lastMode="off",nil
     if st.lastMode then st.lastMode=nil;save() end
@@ -834,7 +897,9 @@ local function work()
                     local ok,why=true
                     local fuel=turtle.getFuelLevel()
                     if homePosition() or freeSlots()<C.freeSlots or (fuel~="unlimited" and fuel<reserve()) then
-                        ok,why=supplies()
+                        if not (freeSlots()<C.freeSlots and fuelOk() and dumpHere() and freeSlots()>=C.freeSlots) then
+                            ok,why=supplies()
+                        end
                     end
                     if ok and active() then
                         status("Abbau",SIDE and ("Spur "..(math.floor((st.next-1)/L)+1).." / "..#LANES)
@@ -846,6 +911,7 @@ local function work()
                         else ok,why=routeTo(x,y,z,true) end
                         if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true) end
                         if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true) end
+                        if ok then placeTorch() end
                         -- Spurmodus: links/rechts durch Drehen mitabbauen (kostet kein Fuel).
                         -- Schon freie Seiten werden uebersprungen (spart Zeit).
                         if SIDE and ok then
@@ -865,8 +931,10 @@ local function work()
                         if run.mode=="once" and st.next>run.onceEnd then finish() end
                         if st.next>cells then finish() end
                     elseif not ok and why=="resupply" then
-                        local ready,problem=supplies()
-                        if not ready and problem~="stopped" then fail(problem) end
+                        if not (freeSlots()<C.freeSlots and fuelOk() and dumpHere() and freeSlots()>=C.freeSlots) then
+                            local ready,problem=supplies()
+                            if not ready and problem~="stopped" then fail(problem) end
+                        end
                     elseif not ok and why~="stopped" then fail(why) end
                 end
             end
@@ -882,6 +950,8 @@ local function snapshot()
         width=width,length=C.length,height=C.height,tunnels=C.tunnels,gap=C.gap,fuel=turtle.getFuelLevel(),freeSlots=freeSlots(),
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
         x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
+        placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
+        torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
 sendStatus=function()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end

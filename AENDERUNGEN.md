@@ -1,4 +1,48 @@
-# Toast Control 2.9
+# Toast Control 3.0
+
+## Neu in 3.0: Holzfarm, Mob-Turtles, Kisten und Fackeln beim Minen
+
+Im Installer gibt es jetzt vier Aufgaben: **1 Farm, 2 Mining, 3 Holz, 4 Mobs**.
+Alle erscheinen in Zentrale, Pocket und Infoscreens (eigener Reiter, eigene
+Kachel, eigene Detailwerte) und hören auf START / STOP / 1x / RESET.
+
+### Holzfarm (Axt)
+Die Turtle fährt eine Fahrspur nach vorne, die Bäume stehen daneben
+(rechts, links oder beidseitig) mit wählbarem Abstand.
+- Gewachsene Bäume werden komplett gefällt (Stamm bis „max. Höhe“), sofort
+  wird ein neuer Setzling gesetzt. Leere Plätze werden bepflanzt.
+- Optional Knochenmehl: direkt nach dem Pflanzen, wächst der Baum, wird er
+  gleich gefällt.
+- Liegende Setzlinge/Äpfel auf der Spur sammelt sie ein. Blätter im Weg
+  räumt sie weg – andere Blöcke baut sie **nie** ab (Fehler „Weg blockiert“).
+- Basis: Kiste **unten** = Holz, Kiste **oben** = Kohle, Kiste **hinten** =
+  Setzlinge (+ Knochenmehl). Setzlinge behält sie selbst (Standard 32).
+- Kein Fuel mehr in der Kiste: verbrennt im Notfall eigenes Holz.
+- Absturz mitten im Stamm: nach Neustart wird der Stamm fertig gefällt.
+- Am besten Birke oder Fichte (1x1). Eiche geht, Äste bleiben hängen.
+
+### Mobs (Schwert) – drei Arten
+- **Mobfarm**: steht an der Tötungsstelle, schlägt zu, sammelt Drops und
+  liefert sie in die Kiste **unter** sich. Braucht kein Fuel.
+- **Wache**: steht an einer Stelle (Tor, Gang) und wehrt alles ab, was davor
+  steht. 1x = bis 8 s Ruhe ist.
+- **Patrouille**: läuft ein Rechteck (Länge x Breite) ab der Basis ab und
+  greift an, was im Weg steht. Baut nie Blöcke ab. Basis: unten Drops, oben Kohle.
+- Optional auch oben/unten angreifen.
+- Achtung: Eine Turtle kann Mobs und Spieler **nicht** unterscheiden.
+  Die Patrouille wartet erst kurz, bevor sie zuschlägt.
+- Standard: läuft auch ohne Funkkontakt weiter (radioTimeout 0).
+
+### Mining: Kisten unterwegs und Fackeln (beides optional)
+- **Kisten unterwegs** (`mine.placeChests`): Kisten ins Turtle-Inventar legen.
+  Ist das Inventar voll, setzt sie eine Kiste in den Boden unter der
+  untersten Reihe (dort wird nie gegraben) und lädt hinein – kein Heimweg.
+  In hohen Gängen fährt sie dafür kurz in der freien Spalte nach unten.
+  Sind keine Kisten mehr da, fährt sie wie bisher zur Basis.
+- **Fackeln** (`mine.torches` = Abstand, 0 = aus): Fackeln ins Inventar legen.
+  Alle x Blöcke eine Fackel auf den Boden der untersten Reihe (ab Ganghöhe 3).
+- Kisten und Fackeln werden an der Basis nicht abgeladen. In den Details:
+  „Kisten 2 gesetzt, 5 dabei“, „Fackeln 12 gesetzt, 20 dabei“.
 
 ## Neu: Kohle als Fuel (Mine) und Saatgut automatisch (Farm)
 

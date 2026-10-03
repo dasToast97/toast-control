@@ -93,7 +93,7 @@ check("Feld links abgeerntet, Wasser uebersprungen",fs_.rounds==1 and left==0 an
 check("Name in Statusmeldung",S.last and S.last.label=="Karotten Sued")
 
 print("G Minenmasse aendern -> neuer Auftrag")
-S=Sim.new({config=MINECFG,input={"1","j","3","50","3","3","2","r","","","j","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","j","3","50","3","3","2","r","","","","","j","n","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG
 S.files["/toast_mining_state"]='{x=0,y=0,z=0,dir=0,next=5,total=5,harvested=5,commandSerial=1,layout="strip2:4:2:2:1"}'
 ok,err=install(S,true,7)
@@ -121,13 +121,13 @@ local shown=false;for _,l in ipairs(S.log)do if l:find("47185 Fuel/h",1,true) th
 check("Kosten angezeigt",shown)
 
 print("L Abstand 0 -> seitlich mitabbauen")
-S=Sim.new({config=MINECFG,input={"1","j","3","40","6","8","0","r","j","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
+S=Sim.new({config=MINECFG,input={"1","j","3","40","6","8","0","r","j","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
 ok,err=install(S,true,7)
 local lm=ok and cfgOf(S).mine
 check("sideDig gespeichert",lm and lm.gap==0 and lm.sideDig==true and lm.tunnels==8,err)
 
 print("M Ungueltige Eingabe wird abgefangen")
-S=Sim.new({config=MINECFG,input={"1","j","3","abc","5000","40","","","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
+S=Sim.new({config=MINECFG,input={"1","j","3","abc","5000","40","","","","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
 ok,err=install(S,true,7)
 check("Laenge 40 trotz Falscheingaben",ok and cfgOf(S).mine.length==40,err)
 
@@ -144,7 +144,7 @@ kc=ok and cfgOf(S)
 check("Infoscreen mit Name + Zentrale",kc and kc.role=="info" and kc.name=="Info Halle" and kc.controllerId==4
   and S.files["/toast/toast_info.lua"] and S.files["/toast/toast_ui.lua"] and not S.files["/toast/toast_control.lua"] and kc.display and not kc.mine,err)
 print("O2 Infoscreen zeigt bestimmte Turtle")
-S=Sim.new({config=MINECFG,input={"1","3","4","4","4","12","","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","3","4","4","6","12","","n","n"}});S.files={}
 ok,err=install(S,false,31)
 kc=ok and cfgOf(S)
 check("show = 12",kc and kc.role=="info" and kc.show==12,err)
@@ -167,5 +167,37 @@ print("R Falsche Groesse wird abgefangen")
 S=Sim.new({config=MINECFG,input={"1","1","2","","9x9","4 x 3","","n","n"}});S.files={}
 ok,err=install(S,false,4)
 check("4x3 trotz Falscheingabe",ok and cfgOf(S).display.size=="4x3",err)
+
+print("T Neue Holzfarm: 3 Baeume beidseitig, Abstand 2, Knochenmehl aus")
+S=Sim.new({config=MINECFG,input={"1","3","4","1","Birken","3","3","2","3","60","n","20","","j","n"}});S.files={}
+ok,err=install(S,true,7)
+kc=ok and cfgOf(S)
+check("Holz-Config gespeichert",kc and kc.job=="tree" and kc.tree.trees==3 and kc.tree.spacing==2 and kc.tree.side=="both"
+  and kc.tree.interval==60 and kc.tree.bonemeal==false and kc.tree.maxHeight==20 and not kc.mine and not kc.farm and not kc.chunkload,err)
+check("Holz-Programme installiert",S.files["/toast/tree_turtle.lua"] and S.files["/toast/toast_worker.lua"] and not S.files["/toast/mine_turtle.lua"])
+S.T=0;S.timers={};S.queue={};S.input={};S.protocol="toast.tree.v1"
+S.actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}
+S.inv[1]={name="minecraft:spruce_sapling",count=12}
+S.world[S.key(0,1,0)]="minecraft:chest";S.world[S.key(0,-1,0)]="minecraft:chest"
+for x=-2,2 do for z=0,8 do for y=-8,0 do if S.world[S.key(x,y,z)]==nil then S.world[S.key(x,y,z)]=false end end end end
+S.growTree(1,0,1);S.growTree(-1,0,4);S.growTree(1,0,7)
+Sim.run(S,600)
+local ts=load("return "..(S.files["/toast_tree_state"] or "{}"))()
+check("Holzrunde nach Installation",ts.rounds==1 and ts.harvested==3,tostring(ts.rounds).."/"..tostring(ts.harvested))
+check("Status mit Name + Job",S.last and S.last.label=="Birken" and S.last.job=="tree")
+
+print("U Neue Mob-Turtle: Patrouille 6x3 links")
+S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","6","3","l","10","","j","n"}});S.files={}
+ok,err=install(S,true,7)
+kc=ok and cfgOf(S)
+check("Mob-Config gespeichert",kc and kc.job=="mob" and kc.mob.mode=="patrol" and kc.mob.length==6 and kc.mob.width==3
+  and kc.mob.side=="left" and kc.mob.interval==10 and kc.mob.attack=="front",err)
+check("Mob-Programme installiert",S.files["/toast/mob_turtle.lua"] and S.files["/toast/toast_worker.lua"])
+print("U2 Update einer Mob-Turtle behaelt Einstellungen")
+local keepFiles=S.files
+S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files=keepFiles
+ok,err=install(S,true,7)
+kc=ok and cfgOf(S)
+check("Update: Mob-Patrouille bleibt",kc and kc.job=="mob" and kc.mob.mode=="patrol" and kc.mob.length==6,err)
 
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))
