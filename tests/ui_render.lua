@@ -53,3 +53,19 @@ if mode=="info2" then
   sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},"farm");sc.dump("INFOSCREEN 3x4 - nur Farmen")
   sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},99);sc.dump("INFOSCREEN - unbekannte Turtle")
 end
+if mode=="keys" then
+  for _,sz in ipairs({{26,20},{39,19},{82,26}}) do
+    local sc=screen(sz[1],sz[2],true);local ui=UI.new(sc,cfg);ui.kbd=true;ui.draw(fleet(),true,"")
+    ui.action(ui.key("down"));ui.action(ui.key("down"));ui.draw(fleet(),true,"");sc.dump("TASTATUR "..sz[1].."x"..sz[2].." - Markierung auf 2.")
+    if sz[1]==26 then
+      ui.action(ui.key("enter"));ui.draw(fleet(),true,"");sc.dump("Enter -> Detail")
+      ui.action(ui.key("down"));ui.draw(fleet(),true,"");sc.dump("Runter -> naechste Turtle im Detail")
+      ui.action(ui.key("left"));ui.action(ui.key("right"));ui.draw(fleet(),true,"");sc.dump("Links zurueck, Rechts -> Reiter Farm")
+      assert(ui.filter=="farm")
+      print(ui.action(ui.char("r")),"<- erstes R (nil erwartet)");ui.draw(fleet(),true,"");sc.dump("R -> Sicherheitsabfrage")
+      assert(ui.action(ui.char("r"))=="reset","2x R = reset")
+      ui.action(ui.char("h"));ui.draw(fleet(),true,"");sc.dump("Hilfe")
+      assert(ui.char("x")=="redraw" and not ui.help)
+    end
+  end
+end

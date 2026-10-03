@@ -268,8 +268,13 @@ function M.drawInfo(screen,fleet,link,st,show)
     P.text(1,footer,("Fuel "..short(fuel)..(chunk>0 and ("  Chunks -"..short(chunk).."/h") or "")):sub(1,w),colors.lightGray)
 end
 function M.new(screen,cfg)
-    local ui={filter="all",selected=nil,page=1,buttons={},ids={}}
-    function ui.setScreen(s) screen=s end
+    -- kbd: Tastatur-Bedienung sichtbar (Markierung + Tastenhinweise).
+    -- Auf dem eigenen Bildschirm (Pocket/Computer) immer, am Monitor sobald
+    -- eine Taste gedrueckt wurde.
+    local ui={filter="all",selected=nil,page=1,buttons={},ids={},cursor=nil,kbd=screen==term,help=false}
+    function ui.setScreen(s) screen=s;ui.kbd=ui.kbd or s==term end
+    local CONFIRM=5
+    local function confirming() return ui.confirm and os.clock()-ui.confirm.at<CONFIRM and ui.confirm end
     function ui.draw(fleet,link,notice)
         local w,h=screen.getSize();ui.buttons={}
         local color=screen.isColor and screen.isColor()
@@ -297,6 +302,22 @@ function M.new(screen,cfg)
             ui.buttons[#ui.buttons+1]={x=x,y=y,w=width,action=action,enabled=enabled}
         end
         screen.setBackgroundColor(colors.black);screen.setTextColor(colors.white);screen.clear()
+        if not confirming() then ui.confirm=nil end
+        if ui.help then
+            fill(1,colors.blue);text(2,1,"TOAST - Tasten",colors.white,colors.blue)
+            local L={{"\24 \25","Turtle waehlen"},{"Enter","Details oeffnen"},{"\27 Back","zurueck"},
+                {"\27 \26 Tab","Reiter wechseln"},{"S","Start"},{"X","Stop"},{"E","1 Runde / 1 Gang"},
+                {"R",w>=30 and "Reset (2x druecken)" or "Reset (2x)"},{"Bild\24\25","Seite blaettern"},{"H / ?","diese Hilfe"},{"Q","beenden"}}
+            local kw=w>=34 and 11 or 9
+            for i,l in ipairs(L) do
+                if i+2>h-1 then break end
+                text(2,i+2,l[1],colors.yellow);text(2+kw,i+2,l[2],colors.white)
+            end
+            text(1,h,("Taste druecken = weiter"):sub(1,w),colors.lightGray)
+            ui.buttons={{x=1,y=1,w=w,action="help",enabled=true}}
+            for y=2,h do ui.buttons[#ui.buttons+1]={x=1,y=y,w=w,action="help",enabled=true} end
+            return
+        end
         if w<24 or h<12 then
             text(1,1,"TOAST",colors.cyan);text(1,3,"Bildschirm zu klein",colors.orange)
             text(1,4,"mind. 24 x 12 Zeichen");text(1,5,"(Monitor groesser oder");text(1,6," Schrift kleiner)");return
@@ -322,8 +343,14 @@ function M.new(screen,cfg)
                 if kind~="off" and num(d.chunks)>0 then chunkFuel=chunkFuel+num(d.chunkFuel) end
             end
         end
+        -- Probleme zuerst, dann aktive, dann der Rest (sonst stabile Reihenfolge)
+        local rank,pos={fault=1,warn=2,work=3,move=3,wait=3,done=4,idle=4,off=5},{}
+        for i,id in ipairs(ids) do local _,k=M.state(entries[id] or {},link);pos[id]=(rank[k] or 4)*10000+i end
+        table.sort(ids,function(a,b) return pos[a]<pos[b] end)
         ui.ids=ids
         if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
+        if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
+        if not ui.cursor then ui.cursor=ui.selected or ids[1] end
         -- Kopfzeile
         fill(1,colors.blue)
         text(2,1,"TOAST",colors.white,colors.blue)
@@ -419,6 +446,12 @@ function M.new(screen,cfg)
             perPage=cfg.display.pageSize>0 and math.min(avail,cfg.display.pageSize) or avail
             local pages=math.max(1,math.ceil(#ids/perPage));ui.pages=pages;ui.page=math.min(ui.page,pages)
             local wide=w>=44
+            ui.perPage=perPage
+            -- Seite folgt der Tastatur-Markierung
+            if ui.kbd and ui.cursor and ui.followCursor then
+                for i,id in ipairs(ids) do if id==ui.cursor then ui.page=math.ceil(i/perPage) end end
+                ui.followCursor=false
+            end
             for row=1,perPage do
                 local id=ids[(ui.page-1)*perPage+row];if not id then break end
                 local e=entries[id] or {};local d=e.data or {}
@@ -432,42 +465,102 @@ function M.new(screen,cfg)
                     extra=string.format("%4d%%   %-8s%6s",pc,e.job=="farm" and "Ertrag" or "Abgebaut",e.job=="farm" and short(d.total) or short(d.harvested))
                 end
                 local nameW=w-2-stW-1-(#extra>0 and #extra+2 or 0)
-                text(1,yy,string.rep(" ",w),colors.white,colors.black)
-                text(1,yy,"\7",COLOR[kind])
-                text(3,yy,name:sub(1,nameW),kind=="off" and colors.gray or colors.white)
-                if #extra>0 then text(w-stW-#extra-1,yy,extra,colors.lightGray) end
-                right(yy,string.format("%-8s",label),COLOR[kind])
+                local mark=ui.kbd and id==ui.cursor
+                local bg=mark and colors.gray or colors.black
+                local sc=(mark and kind=="off") and colors.lightGray or COLOR[kind]
+                text(1,yy,string.rep(" ",w),colors.white,bg)
+                text(1,yy,mark and "\16" or "\7",mark and colors.white or sc,bg)
+                text(3,yy,name:sub(1,nameW),kind=="off" and (mark and colors.lightGray or colors.gray) or colors.white,bg)
+                if #extra>0 then text(w-stW-#extra-1,yy,extra,mark and colors.white or colors.lightGray,bg) end
+                right(yy,string.format("%-8s",label),sc,bg)
                 ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w,action="id:"..id,enabled=true}
             end
         end
         -- Hinweiszeile + untere Tastenreihe
         local info=tostring(notice or "")
-        if info=="" or info:find("bestaetigt",1,true) then
-            info=sel and "Ziel: diese Turtle" or ("Ziel: "..(ui.filter=="all" and "alle" or ui.filter=="farm" and "alle Farmen" or "alle Minen"))
-            if not sel and #info+20<=w then info=info.."  (Tippen = Details)" end
+        local infoCol=colors.lightGray
+        local goal=sel and "diese Turtle" or (ui.filter=="all" and "alle" or ui.filter=="farm" and "alle Farmen" or "alle Minen")
+        if confirming() then
+            info=#goal+24<=w and ("Reset fuer "..goal.."? Nochmal = ja") or "Reset? Nochmal = ja";infoCol=colors.orange
+        elseif info=="" or info:find("bestaetigt",1,true) then
+            info="Ziel: "..goal
+            local tip
+            if ui.kbd then
+                tip=sel and (w>=40 and "\24\25 Turtle  \27 zurueck  H Hilfe" or "\27 zurueck  H Hilfe")
+                    or (w>=40 and "\24\25 Wahl  Enter Details  H Hilfe" or "\24\25 Enter  H Hilfe")
+            else tip=not sel and "Tippen = Details" or nil end
+            if tip and #info+2+#tip<=w then info=info..string.rep(" ",w-#info-#tip)..tip
+            elseif tip and #tip<=w and ui.kbd then info=tip end
         end
-        text(1,foot,info:sub(1,w),colors.lightGray)
+        text(1,foot,info:sub(1,w),infoCol)
         local pages=ui.pages or 1
+        local sure=confirming()
+        local rbg=sure and colors.red or colors.orange
         if not sel and pages>1 then
             button(1,foot+2,third,"<","pageprev",colors.gray,ui.page>1)
-            button(1+third,foot+2,third,"RESET","reset",colors.orange,link and #ids>0)
+            button(1+third,foot+2,third,sure and "SICHER?" or "RESET","reset",rbg,link and #ids>0)
             button(1+2*third,foot+2,w-2*third,ui.page.."/"..pages.." >","pagenext",colors.gray,ui.page<pages)
         else
-            button(1,foot+2,w,w>=38 and "RESET  (Fehler loeschen + heim)" or "RESET","reset",colors.orange,link and #ids>0)
+            local long=sure and "SICHER? nochmal = RESET" or "RESET  (Fehler loeschen + heim)"
+            button(1,foot+2,w,w>=38 and long or (sure and "SICHER?" or "RESET"),"reset",rbg,link and #ids>0)
         end
     end
+    local TABS={"all","farm","mining"}
+    local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)
         if not a then return end
-        if a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1
-        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4))
-        elseif a=="group" then ui.selected=nil
+        if a~="reset" then ui.confirm=nil end
+        if a=="redraw" then return
+        elseif a=="help" then ui.help=not ui.help
+        elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
+        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected
+        elseif a=="group" then ui.cursor=ui.selected or ui.cursor;ui.selected=nil;ui.followCursor=true
         elseif a=="pageprev" then ui.page=math.max(1,ui.page-1)
         elseif a=="pagenext" then ui.page=math.min(ui.pages or 1,ui.page+1)
+        elseif a=="tabprev" or a=="tabnext" then
+            local i=1;for k,t in ipairs(TABS) do if t==ui.filter then i=k end end
+            i=(i-1+(a=="tabnext" and 1 or -1))%#TABS+1
+            return ui.action("filter:"..TABS[i])
+        elseif a=="up" or a=="down" then
+            if #ui.ids==0 then return end
+            local i=indexOf(ui.selected or ui.cursor)
+            if i==0 then i=a=="down" and 1 or #ui.ids else i=math.max(1,math.min(#ui.ids,i+(a=="down" and 1 or -1))) end
+            ui.cursor=ui.ids[i];ui.followCursor=true
+            if ui.selected then ui.selected=ui.cursor end
+        elseif a=="first" or a=="last" then
+            if #ui.ids==0 then return end
+            ui.cursor=ui.ids[a=="first" and 1 or #ui.ids];ui.followCursor=true
+            if ui.selected then ui.selected=ui.cursor end
+        elseif a=="open" then
+            if not ui.selected and ui.cursor and indexOf(ui.cursor)>0 then ui.selected=ui.cursor end
         elseif a=="next" or a=="prev" then
-            local index=0;for i,id in ipairs(ui.ids) do if id==ui.selected then index=i end end
+            local index=indexOf(ui.selected)
             index=(index+(a=="next" and 1 or -1))%(#ui.ids+1)
-            ui.selected=ui.ids[index]
+            ui.selected=ui.ids[index];if ui.selected then ui.cursor=ui.selected end
+        elseif a=="reset" then
+            -- Sicherheitsabfrage: zweimal innerhalb von 5 s druecken/tippen
+            if confirming() then ui.confirm=nil;return "reset" end
+            ui.confirm={at=os.clock()};return
         else return a end
+    end
+    -- Tastatur: Sondertasten (Name aus keys.getName) und Zeichen
+    local KEYS={up="up",down="down",enter="open",numPadEnter="open",space="open",backspace="group",
+        tab="tabnext",pageUp="pageprev",pageDown="pagenext",home="first",["end"]="last"}
+    function ui.key(name)
+        if not name then return end
+        ui.kbd=true
+        if ui.help then ui.help=false;return "redraw" end
+        if name=="left" then return ui.selected and "group" or "tabprev" end
+        if name=="right" then return ui.selected and nil or "tabnext" end
+        local a=KEYS[name]
+        if ui.selected and (a=="pageprev" or a=="pagenext") then return a=="pageprev" and "up" or "down" end
+        return a
+    end
+    function ui.char(ch)
+        if not ch then return end
+        ui.kbd=true
+        if ui.help then ui.help=false;return "redraw" end
+        return ui.keys[ch:lower()] or ui.keys[ch]
     end
     function ui.target() return ui.selected or ui.filter end
     function ui.click(x,y)
@@ -476,7 +569,9 @@ function M.new(screen,cfg)
             if b.enabled and y==b.y and x>=b.x and x<b.x+b.w then return b.action end
         end
     end
-    ui.keys={["0"]="group",["1"]="start",["2"]="stop",["3"]="once",["4"]="reset",["a"]="filter:all",["f"]="filter:farm",["m"]="filter:mining"}
+    ui.keys={["0"]="group",["1"]="start",["2"]="stop",["3"]="once",["4"]="reset",
+        s="start",x="stop",e="once",r="reset",h="help",["?"]="help",
+        a="filter:all",f="filter:farm",m="filter:mining"}
     return ui
 end
 return M

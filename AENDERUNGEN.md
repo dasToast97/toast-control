@@ -1,4 +1,30 @@
-# Toast Control 2.8
+# Toast Control 2.9
+
+## Neu in 2.9 – Bedienung mit Tastatur (Pocket in der Hand, Zentrale)
+
+Pocket und Zentrale lassen sich komplett mit den Tasten steuern, Antippen
+geht weiterhin. Die gewählte Turtle ist grau hinterlegt mit ►.
+
+| Taste | Wirkung |
+|---|---|
+| ↑ / ↓ (oder Mausrad) | Turtle wählen – in den Details: vorige/nächste Turtle |
+| Enter / Leertaste | Details der gewählten Turtle |
+| ← / Backspace | zurück zur Liste |
+| ← / → / Tab | in der Liste: Reiter Alle / Farm / Mine |
+| Bild ↑ / Bild ↓, Pos1 / Ende | blättern, zum Anfang/Ende |
+| S / X / E | Start / Stop / 1 Runde bzw. 1 Gang |
+| R | Reset – **zweimal** drücken (Sicherheitsabfrage, 5 s) |
+| H oder ? | Hilfe mit allen Tasten |
+| Q | beenden |
+
+Die Zahlen 1–4 und A/F/M funktionieren weiter.
+
+- **Reset fragt nach**: erst „SICHER?“, nochmal drücken/tippen = Reset. Auch
+  beim Antippen am Monitor.
+- **Probleme oben**: Turtles mit Fehler/Problem stehen ganz oben in der Liste,
+  dann die arbeitenden, dann der Rest.
+- Die Hinweiszeile zeigt die passenden Tasten, an der Zentrale sobald eine
+  Taste gedrückt wurde.
 
 ## Neu in 2.8
 

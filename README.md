@@ -1,4 +1,4 @@
-# Toast Control 2.8
+# Toast Control 2.9
 
 Farm- und Mining-Turtles, Zentrale und Pocket für CC:Tweaked (Minecraft Fabric 1.20.1).
 
@@ -14,6 +14,12 @@ wget run https://raw.githubusercontent.com/dasToast97/toast-control/main/install
 - **2 Komplett neu:** löscht ALLES (mit `LOESCHEN` bestätigen). Turtle vorher an die Basis stellen.
 - Stationärer Computer: Auswahl **1 Zentrale / 2 Repeater / 3 Infoscreen** (ohne Monitor ist Repeater vorgewählt).
 - Direkt: `... install.lua clean`, `... install.lua farm`, `... install.lua mining`, `... install.lua repeater`
+
+## Bedienung (Pocket / Zentrale)
+
+Antippen oder Tasten: **↑↓** Turtle wählen · **Enter** Details · **←** zurück ·
+**Tab / ←→** Reiter · **S** Start · **X** Stop · **E** 1x · **R** Reset (2x) ·
+**H** Hilfe · **Q** beenden.
 
 Einstellungen später ändern: auf dem Gerät `toast.lua config` eingeben.
 
