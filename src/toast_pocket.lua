@@ -69,6 +69,7 @@ local function loop()
     end
 end
 local ok,why=pcall(loop)
+pcall(function() dofile("/toast/toast_ui.lua").resetTrack(term) end)
 term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
 if not ok and why~="Terminated" then error(why,0) end
 print("Pocket geschlossen. Farmen und Minen laufen weiter.")

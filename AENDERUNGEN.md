@@ -25,7 +25,9 @@ Die Zahlen 1–4 und A/F/M funktionieren weiter.
   dann die arbeitenden, dann der Rest.
 - **Grüne Fortschrittsbalken** vor den Prozentangaben in der Hauptübersicht
   der Zentrale (ab 3x4) und der Infoscreens (Turtle-Liste und „Fortschritt“
-  der Mine-Kachel). Breite passt sich dem Bildschirm an.
+  der Mine-Kachel). Breite passt sich dem Bildschirm an. Die Balken füllen nur
+  die oberen 2/3 der Zeile, so berühren sich Balken untereinander nicht; der
+  leere Teil ist dunkelgrau (fast schwarz) statt hellgrau.
 - Die Hinweiszeile zeigt die passenden Tasten, an der Zentrale sobald eine
   Taste gedrückt wurde.
 

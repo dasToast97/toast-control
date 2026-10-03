@@ -82,6 +82,7 @@ if deliberate then
 end
 pcall(rednet.unhost,common.protocol)
 if screen~=term then pcall(screen.clear) end
+UI.resetTrack(screen);UI.resetTrack(term)
 term.clear();term.setCursorPos(1,1)
 if deliberate then
     print("Zentrale beendet. Stopp/Heimfahrt fuer alle Turtles angefordert.")

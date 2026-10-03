@@ -29,13 +29,37 @@ local function short(n)
     if math.abs(n)>=10000 then return string.format("%.1fk",n/1000) end
     return tostring(math.floor(n))
 end
+-- Dunkler Balken-Hintergrund: "braun" wird umdefiniert (sonst nirgends benutzt),
+-- weil CC kein dunkleres Grau als colors.gray kennt.
+local TRACK=colors.brown
+M.TRACK=TRACK
+local function setTrack(screen)
+    if screen.isColor and screen.isColor() and screen.setPaletteColour then
+        pcall(screen.setPaletteColour,TRACK,0x262626)
+    end
+end
+M.setTrack=setTrack
+function M.resetTrack(screen)
+    if screen and screen.setPaletteColour and term.nativePaletteColour then
+        pcall(function() screen.setPaletteColour(TRACK,term.nativePaletteColour(TRACK)) end)
+    end
+end
+-- Balken in einer Listenzeile: obere 2/3 der Zeile gefuellt (Zeichen 143),
+-- unten bleibt ein Spalt -> untereinander stehende Balken beruehren sich nicht.
+local function thinBar(text,x,y,width,pc,fg,bg)
+    local f=math.floor(width*math.max(0,math.min(1,pc))+0.5)
+    text(x,y,string.rep("\143",f),fg or colors.lime,bg or colors.black)
+    text(x+f,y,string.rep("\143",width-f),TRACK,bg or colors.black)
+end
 -- Zeichenhilfen fuer einen Bildschirm (Farbe nur, wenn der Bildschirm sie kann)
 local function painter(screen)
     local w,h=screen.getSize()
     local color=screen.isColor and screen.isColor()
     local P={w=w,h=h}
+    setTrack(screen)
     local function col(c)
         if color then return c end
+        if c==TRACK then return colors.gray end
         if c==colors.black or c==colors.gray or c==colors.lightGray or c==colors.white then return c end
         return colors.white
     end
@@ -50,8 +74,9 @@ local function painter(screen)
     function P.bar(x,y,width,pc,fg)
         local f=math.floor(width*math.max(0,math.min(1,pc))+0.5)
         P.text(x,y,string.rep(" ",f),colors.white,fg or colors.lime)
-        P.text(x+f,y,string.rep(" ",width-f),colors.white,colors.gray)
+        P.text(x+f,y,string.rep(" ",width-f),colors.white,TRACK)
     end
+    function P.thin(x,y,width,pc,fg) thinBar(P.text,x,y,width,pc,fg) end
     return P
 end
 -- ===== Infoscreen: nur Anzeige, keine Knoepfe =====
@@ -187,7 +212,7 @@ function M.drawInfo(screen,fleet,link,st,show)
             if r.bar then
                 -- gruener Balken zwischen Bezeichnung und Prozent
                 local bx=x+#r[1]+1;local bw=pw-#r[1]-#r[2]-2
-                if bw>=3 then P.bar(bx,yy,bw,r.bar,colors.lime) end
+                if bw>=3 then P.thin(bx,yy,bw,r.bar,colors.lime) end
             end
             yy=yy+1
         end
@@ -264,7 +289,7 @@ function M.drawInfo(screen,fleet,link,st,show)
                 stx=bx-9
                 if l.kind~="off" then
                     local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
-                    P.bar(bx,y,barW,pc,colors.lime)
+                    P.thin(bx,y,barW,pc,colors.lime)
                     P.text(bx+barW,y,string.format("%4d%%",math.floor(pc*100+0.5)),colors.lightGray)
                 end
                 if valW>0 then P.right(y,val,colors.lightGray) end
@@ -290,10 +315,12 @@ function M.new(screen,cfg)
     function ui.draw(fleet,link,notice)
         local w,h=screen.getSize();ui.buttons={}
         local color=screen.isColor and screen.isColor()
+        setTrack(screen)
         -- Ohne Farbbildschirm nur Grautoene verwenden
         local function col(c)
             if color then return c end
-            if c==colors.black or c==colors.gray or c==colors.lightGray or c==colors.white then return c end
+            if c==TRACK then return colors.gray end
+        if c==colors.black or c==colors.gray or c==colors.lightGray or c==colors.white then return c end
             return colors.white
         end
         local function fill(y,bg) screen.setCursorPos(1,y);screen.setBackgroundColor(col(bg));screen.write(string.rep(" ",w)) end
@@ -408,7 +435,7 @@ function M.new(screen,cfg)
             local barW=math.max(4,w-6)
             local fillW=math.floor(barW*pc+0.5)
             text(1,y,string.rep(" ",fillW),colors.white,colors.lime)
-            text(1+fillW,y,string.rep(" ",barW-fillW),colors.white,colors.gray)
+            text(1+fillW,y,string.rep(" ",barW-fillW),colors.white,TRACK)
             right(y,math.floor(pc*100+0.5).."%",colors.white)
             y=y+2
             local rows={}
@@ -485,9 +512,7 @@ function M.new(screen,cfg)
                 if block>0 and kind~="off" then
                     local pc=math.max(0,math.min(1,num(d.scanned)/math.max(1,num(d.cells))))
                     local x0=w-stW-block
-                    local f=math.floor(barW*pc+0.5)
-                    text(x0,yy,string.rep(" ",f),colors.white,colors.lime)
-                    text(x0+f,yy,string.rep(" ",barW-f),colors.white,mark and colors.black or colors.gray)
+                    thinBar(text,x0,yy,barW,pc,colors.lime,bg)
                     text(x0+barW,yy,string.format("%4d%%",math.floor(pc*100+0.5)),mark and colors.white or colors.lightGray,bg)
                     if #value>0 then text(x0+barW+5,yy,value,mark and colors.white or colors.lightGray,bg) end
                 end

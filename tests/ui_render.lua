@@ -19,10 +19,10 @@ end
 local function screen(W,H,color)
   local rows,cx,cy={},1,1
   for y=1,H do rows[y]=string.rep(" ",W) end
-  local bg
-  return {getSize=function()return W,H end,isColor=function()return color end,setBackgroundColor=function(c)bg=c end,setTextColor=function()end,
+  local bg,fg
+  return {getSize=function()return W,H end,isColor=function()return color end,setBackgroundColor=function(c)bg=c end,setTextColor=function(c)fg=c end,
     clear=function()for y=1,H do rows[y]=string.rep(" ",W) end end,setCursorPos=function(x,y)cx,cy=x,y end,
-    write=function(s)if cy<1 or cy>H then return end;s=s:gsub("\7","*");if BARS and bg==G.colors.lime then s=s:gsub(" ","#") elseif BARS and bg==G.colors.gray then s=s:gsub(" ",".") end;local r=rows[cy];rows[cy]=(r:sub(1,cx-1)..s..r:sub(cx+#s)):sub(1,W);cx=cx+#s end,
+    write=function(s)if cy<1 or cy>H then return end;s=s:gsub("\7","*");s=s:gsub("\143",fg==G.colors.lime and "=" or "_");if BARS and bg==G.colors.lime then s=s:gsub(" ","#") elseif BARS and (bg==G.colors.gray or bg==G.colors.brown) then s=s:gsub(" ",".") end;local r=rows[cy];rows[cy]=(r:sub(1,cx-1)..s..r:sub(cx+#s)):sub(1,W);cx=cx+#s end,
     dump=function(title)print(title);print("+"..string.rep("-",W).."+");for y=1,H do print("|"..rows[y].."|") end;print("+"..string.rep("-",W).."+")end}
 end
 local mode=arg[1] or "all"

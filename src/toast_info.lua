@@ -61,7 +61,7 @@ local function loop()
     end
 end
 local ok,why=pcall(loop)
-for _,s in ipairs(screens) do pcall(function() s.dev.setBackgroundColor(colors.black);s.dev.clear() end) end
+for _,s in ipairs(screens) do pcall(function() s.dev.setBackgroundColor(colors.black);s.dev.clear();UI.resetTrack(s.dev) end) end
 term.setBackgroundColor(colors.black);term.clear();term.setCursorPos(1,1)
 if not ok and why~="Terminated" then error(why,0) end
 print("Infoscreen beendet.")
