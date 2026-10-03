@@ -419,14 +419,14 @@ function M.new(screen,cfg)
             end
             text(x+pad,mid,l,enabled and colors.white or colors.lightGray,b)
         end
-        -- Moderner Knopf mit runden Enden (Zeichen 145/157 = halbe Rundung links/rechts).
+        -- Schlichter, eckiger Knopf (einfarbig, Text mittig).
         local color=screen.isColor and screen.isColor()
         local function pill(x,y,width,label,action,bg,enabled,fgc)
             if width<1 then return end
             local b=enabled and bg or TRACK
             local f=fgc or (enabled and colors.white or colors.gray)
             if not enabled then f=colors.gray end
-            if width>=5 and color and #tostring(label)<=width-2 then
+            if false then   -- runde Enden sahen im Spiel ausgefranst aus: eckig ist sauberer
                 text(x,y,"\145",colors.black,b)
                 text(x+1,y,string.rep(" ",width-2),f,b)
                 text(x+width-1,y,"\157",b,colors.black)
@@ -486,10 +486,12 @@ function M.new(screen,cfg)
         local rank,pos={fault=1,warn=2,work=3,move=3,wait=3,done=4,idle=4,off=5},{}
         for i,id in ipairs(ids) do local _,k=M.state(entries[id] or {},link);pos[id]=(rank[k] or 4)*10000+i end
         table.sort(ids,function(a,b) return pos[a]<pos[b] end)
-        ui.ids=ids
-        if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
-        if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
-        if not ui.cursor then ui.cursor=ui.selected or ids[1] end
+        if ui.filter~="net" then
+            ui.ids=ids
+            if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
+            if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
+            if not ui.cursor then ui.cursor=ui.selected or ids[1] end
+        end
         -- Kopfzeile
         fill(1,colors.blue)
         text(2,1,"TOAST",colors.white,colors.blue)
@@ -501,7 +503,10 @@ function M.new(screen,cfg)
             text(x,1," "..lab.." ",up and colors.white or colors.blue,up and colors.red or colors.lightBlue)
             ui.buttons[#ui.buttons+1]={x=x,y=1,w=#lab+2,action="update",enabled=link}
         end
-        if link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
+        if link and ui.filter=="net" and fleet.nodes then
+            local on=0;for _,id in ipairs(fleet.nodes.ids) do if fleet.nodes.entries[id].online then on=on+1 end end
+            right(1,on.."/"..#fleet.nodes.ids.." online ",colors.white,colors.blue)
+        elseif link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
         else right(1,"keine Verbindung ",colors.orange,colors.blue) end
         -- Reiter
         -- Reiter: Alle + jede Aufgabe, die es gibt (Farm und Mine immer)
@@ -510,6 +515,9 @@ function M.new(screen,cfg)
         for _,j in ipairs(ORDER) do
             if count[j]>0 or j=="farm" or j=="mining" or ui.filter==j then tabs[#tabs+1]={JOB[j].name,count[j],j} end
         end
+        -- Netz: Repeater, GPS-Sender, Infoscreens, Pockets
+        local nodes=fleet.nodes or {ids={},entries={}}
+        if #nodes.ids>0 or ui.filter=="net" then tabs[#tabs+1]={"Netz",#nodes.ids,"net"} end
         ui.tabs={};for i,t in ipairs(tabs) do ui.tabs[i]=t[3] end
         local tw=math.floor(w/#tabs)
         for i,t in ipairs(tabs) do
@@ -525,6 +533,7 @@ function M.new(screen,cfg)
                 ui.buttons[#ui.buttons+1]={x=x,y=2,w=width,action="filter:"..t[3],enabled=true}
             end
         end
+        if ui.filter=="net" then return ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice) end
         local third=math.floor(w/3)
         -- Fusszeile: Hinweiszeile + grosse Tastenreihe + untere Reihe
         -- Grosse Bildschirme bekommen hoehere Knoepfe (leichter zu treffen).
@@ -700,6 +709,72 @@ function M.new(screen,cfg)
             pill(math.floor((w-rw)/2)+1,y2,rw,lab,"reset",rbg,link and #ids>0,rfg)
         end
         if not sel and pages>1 then right(foot,ui.page.."/"..pages,colors.gray) end
+    end
+    -- ===== Netz-Ansicht =====
+    local NODE_NAMES={repeater="Repeater",gps="GPS-Sender",info="Infoscreen",pocket="Pocket"}
+    function ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice)
+        local ids=nodes.ids
+        ui.ids=ids
+        if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
+        if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
+        if not ui.cursor then ui.cursor=ui.selected or ids[1] end
+        local function coords(d)
+            local p=d and d.pos;if type(p)~="table" then return nil end
+            return "X"..num(p.x).." Y"..num(p.y).." Z"..num(p.z)
+        end
+        local foot=h-1
+        local sel=ui.selected and nodes.entries[ui.selected]
+        if sel then
+            local d=sel.data or {}
+            local name=(sel.label~="" and sel.label or NODE_NAMES[sel.role] or "Geraet").." #"..ui.selected
+            pill(1,3,math.min(w,#name+(w>=30 and 14 or 4)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
+            local kind=sel.online and "done" or "off"
+            fill(4,COLOR[kind])
+            text(2,4,sel.online and "Online" or "Offline - keine Meldung seit 30 s",colors.black,COLOR[kind])
+            local rows={{"Typ",NODE_NAMES[sel.role] or tostring(sel.role)},
+                {"Version",tostring(d.toast)..((d.toast and d.toast~=common.version) and (" (Zentrale "..common.version..")") or "")}}
+            local c=coords(d)
+            rows[#rows+1]={"Koordinaten",c and (c..(d.pos.src and (" "..d.pos.src) or "")) or "unbekannt"}
+            local st=d.stats or {}
+            if st.gps then rows[#rows+1]={"GPS-Anfragen",short(st.gps)} end
+            if st.repeated then rows[#rows+1]={"Weitergeleitet",short(st.repeated).." Nachrichten"} end
+            local y=6
+            for _,r in ipairs(rows) do if y<foot then text(1,y,r[1],colors.lightGray);text(15,y,r[2],colors.white);y=y+1 end end
+        else
+            local y=3
+            if #ids==0 then
+                text(1,y+1,"Keine Netzgeraete gemeldet.",colors.lightGray)
+                text(1,y+2,"Repeater/GPS-Sender melden sich",colors.lightGray)
+                text(1,y+3,"nach dem Update auf 3.4 selbst.",colors.lightGray)
+            end
+            local avail=foot-y
+            for row=1,avail do
+                local id=ids[row];if not id then break end
+                local e=nodes.entries[id];local d=e.data or {}
+                local yy=y+row-1
+                local mark=ui.kbd and id==ui.cursor
+                local bg=mark and colors.gray or colors.black
+                text(1,yy,string.rep(" ",w),colors.white,bg)
+                text(1,yy,mark and "\16" or "\7",e.online and colors.lime or colors.gray,bg)
+                local name=e.label~="" and e.label or ((NODE_NAMES[e.role] or "Geraet").." #"..id)
+                local typ=NODE_NAMES[e.role] or e.role
+                local c=coords(d)
+                if w>=60 then
+                    text(3,yy,name:sub(1,24),e.online and colors.white or colors.gray,bg)
+                    text(29,yy,typ,colors.lightGray,bg)
+                    if c then text(42,yy,c,colors.lightGray,bg) end
+                    right(yy,(e.online and "" or "Offline ").."v"..tostring(d.toast),e.online and colors.lightGray or colors.gray,bg)
+                else
+                    text(3,yy,name:sub(1,w-13),e.online and colors.white or colors.gray,bg)
+                    right(yy,e.online and typ:sub(1,10) or "Offline",e.online and colors.lightGray or colors.gray,bg)
+                end
+                ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w,action="id:"..id,enabled=true}
+            end
+        end
+        local info=tostring(notice or "")
+        if info:find("Warte auf Geraete",1,true) or info:find("bestaetigt",1,true) then info="" end
+        if info=="" then info=sel and "Update oben aktualisiert alle Geraete" or "Tippen = Details, Position, Version" end
+        text(1,h,info:sub(1,w),colors.lightGray)
     end
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)

@@ -6,6 +6,7 @@ function M.new(cfg)
     local s=common.readState(PATH)
     local serial=common.serial(s.serial) and s.serial or 0
     local devices,pockets,remote={}, {}, {}
+    m.nodes={}           -- Netzgeraete: [id]={role,label,data,seen}
     if type(s.remote)=="table" then
         for k,v in pairs(s.remote) do if type(k)=="string" and common.serial(v) then remote[k]=v end end
     end
@@ -44,7 +45,21 @@ function M.new(cfg)
             local e=m.entries[id];local d=devices[id]
             entries[id]={job=d.job,label=d.label,online=m.online(id),data=e and e.data or nil,pending=m.pending[id]~=nil}
         end
-        return {ids=ids,entries=entries}
+        local nids,nentries={},{}
+        for id,n in pairs(m.nodes) do nids[#nids+1]=id end
+        table.sort(nids)
+        for _,id in ipairs(nids) do local n=m.nodes[id]
+            nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=n.data} end
+        return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries}}
+    end
+    local function node(id,info)
+        if type(info)~="table" then return end
+        local role=info.role
+        if not ({repeater=true,gps=true,info=true,pocket=true})[role] then return end
+        local n=0;for _ in pairs(m.nodes) do n=n+1 end
+        if not m.nodes[id] and n>=128 then return end
+        m.nodes[id]={role=role,label=common.label(info.name),seen=os.clock(),
+            data={toast=tostring(info.toast or "?"),pos=type(info.pos)=="table" and info.pos or nil,stats=type(info.stats)=="table" and info.stats or nil}}
     end
     function m.ingest(id,b,p)
         local job
@@ -92,7 +107,10 @@ function M.new(cfg)
         if action=="update" then
             -- Pockets und Infoscreens ebenfalls; die Zentrale selbst danach (kurz warten)
             local n=0
-            for pid in pairs(pockets) do
+            local sentTo={}
+            for pid in pairs(pockets) do sentTo[pid]=true end
+            for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then sentTo[nid]=true end end
+            for pid in pairs(sentTo) do
                 serial=serial+1;n=n+1
                 send(pid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
             end
@@ -122,6 +140,11 @@ function M.new(cfg)
         local scope="all";local valid=protocol==common.remoteProtocol
         for j,p in pairs(common.legacyRemote)do if p==protocol then scope=j;valid=true end end
         if not valid or not common.id(id) or id==cfg.controllerId or devices[id] or type(b)~="table" then return false end
+        -- Repeater / GPS-Sender melden sich per Rundfunk
+        if b.kind=="node" and protocol==common.remoteProtocol and (b.controllerId==0 or b.controllerId==cfg.controllerId) then
+            node(id,b.info);return true
+        end
+        if b.kind=="hello" and type(b.info)=="table" then node(id,b.info) end
         if not pockets[id] then
             if not (cfg.autoPairPockets and protocol==common.remoteProtocol and b.kind=="hello"
                 and b.version==1 and (b.role=="pocket" or b.role=="info") and b.controllerId==cfg.controllerId) then return false end

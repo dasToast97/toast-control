@@ -11,7 +11,7 @@ local function connected()return seen~=nil and os.clock()-seen<cfg.network.stale
 local function send(b)pcall(rednet.send,cfg.controllerId,b,common.remoteProtocol)end
 local function poll()
     common.refreshModems()
-    send({kind="hello",role="pocket",version=1,controllerId=cfg.controllerId})
+    send({kind="hello",role="pocket",version=1,controllerId=cfg.controllerId,info=common.nodeInfo(cfg,"pocket")})
 end
 local function draw()ui.draw(fleet or {ids={},entries={}},connected(),notice)end
 local function validFleet(f)

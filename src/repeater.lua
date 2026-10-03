@@ -21,11 +21,20 @@ local function scan()
     end
     modems=current
 end
--- Nebenbei GPS-Sender (Toast-Config, falls vorhanden)
+-- Toast-Netz: nebenbei GPS-Sender und Meldung an die Zentrale (falls Toast installiert)
+local common,toastCfg
 pcall(function()
-    local common=dofile("/toast/toast_common.lua")
-    gpsHost=common.gpsHost(common.load(),true)
+    common=dofile("/toast/toast_common.lua")
+    toastCfg=common.load()
+    common.refreshModems()
+    gpsHost=common.gpsHost(toastCfg,true)
 end)
+local beaconAt=-1e9
+local function beacon()
+    if not common or os.clock()-beaconAt<10 then return end
+    beaconAt=os.clock()
+    common.nodeBeacon(toastCfg,"repeater",{repeated=repeated,gps=gpsHost and gpsHost.served or nil})
+end
 local function draw()
     local w,h=term.getSize()
     term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear()
@@ -56,13 +65,19 @@ local function loop()
         local e,name,channel,reply,message,dist=os.pullEventRaw()
         if gpsHost and gpsHost.event(e,name,channel,reply,message,dist) then
             -- GPS-Anfrage beantwortet
+        elseif e=="rednet_message" and common and toastCfg and common.isUpdateFor(toastCfg,name,channel) then
+            -- Update-Befehl der Zentrale (name=Absender, channel=Nachricht)
+            cleanup()
+            local ok,why=common.selfUpdate()
+            if not ok then common.log("Update: "..tostring(why)) end
+            scan()
         elseif e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return
         elseif e=="peripheral" or e=="peripheral_detach" then scan();draw()
         elseif e=="term_resize" then draw()
         elseif e=="timer" and name==timer then
             local now=os.clock()
             for id,expires in pairs(seen) do if expires<=now then seen[id]=nil;cacheCount=cacheCount-1 end end
-            draw();timer=os.startTimer(1)
+            beacon();draw();timer=os.startTimer(1)
         elseif e=="modem_message" and modems[name] and channel==CHANNEL_REPEAT
             and integer(reply,0,65535) and type(message)=="table"
             and integer(message.nMessageID,0,9007199254740991)
@@ -85,4 +100,5 @@ local function loop()
 end
 local ok,why=pcall(loop);cleanup()
 term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
+if not ok and tostring(why):find("TOAST_UPDATE",1,true) then error(why,0) end
 if not ok then printError(tostring(why)) else print("Repeater beendet.") end

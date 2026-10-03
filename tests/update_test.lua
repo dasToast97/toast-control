@@ -58,4 +58,38 @@ ui.draw(model.fleet(),true,"")
 check("Update-Knopf oben",ui.click(9,1)=="update")
 check("1x tippen = Nachfrage",ui.action("update")==nil)
 check("2x tippen = Update",ui.action("update")=="update")
+
+print("U3 Netzgeraete: Repeater meldet sich, bekommt Update")
+model.remote(40,{kind="node",version=1,controllerId=0,info={role="repeater",name="Turm",toast="3.0",pos={x=1,y=2,z=3},stats={repeated=5}}},"toast.control.remote.v1")
+model.remote(41,{kind="node",version=1,controllerId=99,info={role="gps",name="fremd"}},"toast.control.remote.v1")
+local f=model.fleet()
+check("Repeater in der Netz-Liste",f.nodes and f.nodes.entries[40] and f.nodes.entries[40].role=="repeater" and f.nodes.entries[40].data.pos.x==1)
+check("fremde Zentrale ignoriert",f.nodes.entries[41]==nil)
+model.selfUpdateAt=nil;S.sent={}
+model.command("update","all")
+local toRep=0;for _,m in ipairs(S.sent) do if m.id==40 and m.msg.kind=="update" then toRep=toRep+1 end end
+check("Update an Repeater",toRep==1,toRep)
+
+print("U4 Repeater-Programm: Meldung an Zentrale + Update per Funk")
+S=Sim.new({config=[[return {role="repeater",name="Turm",gps={host=true,set=true,x=5,y=80,z=9,auto=false}}]]})
+S.files["/toast/repeater.lua"]=io.open("/home/claude/toast/repeater.lua"):read("a")
+S.files["/startup.lua"]='shell.run("/toast.lua")\n'
+S.polling=false
+local orig2=Sim.env
+Sim.env=function(S2) local G=orig2(S2);G.turtle=nil;G.os.getComputerID=function()return 40 end
+    G.term.isColor=function()return true end;G.os.pullEventRaw=G.os.pullEvent
+    G.http={get=function() S2.dl=(S2.dl or 0)+1;return {readAll=function()return SRC end,close=function()end} end}
+    G.rednet.broadcast=function(msg,p) S2.beacons=(S2.beacons or 0)+1;S2.lastBeacon=msg end
+    G.peripheral.getNames=function()return {"top"} end
+    G.peripheral.getType=function(n)return n=="top" and "modem" or nil end
+    G.peripheral.find=function(t,fl) if t=="modem" then local m={isWireless=function()return true end,_side="top"};if not fl or fl("top",m) then return m end end end
+    G.peripheral.wrap=function(n) if n=="top" then return {isWireless=function()return true end,open=function()end,close=function()end,isOpen=function()return false end,transmit=function()end} end end
+    return G end
+S.actions={{t=25,fn=function(S) table.insert(S.queue,table.pack("rednet_message",4,{kind="update",version=1,controllerId=4,serial=5},"toast.control.remote.v1")) end}}
+Sim.run(S,60)
+Sim.env=orig2
+local rlog=table.concat(S.log," | ")
+check("meldet sich (Beacon)",(S.beacons or 0)>=1 and S.lastBeacon.info.role=="repeater" and S.lastBeacon.info.pos.x==5,S.beacons)
+check("Update geladen + neu gestartet",S.dl==1 and rlog:find("Update fertig",1,true)~=nil,tostring(S.dl).." "..rlog:sub(-300))
+check("bleibt Repeater",load(S.files["/toast.config.lua"])().role=="repeater")
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

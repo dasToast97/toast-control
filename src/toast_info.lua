@@ -26,9 +26,11 @@ end
 bind()
 local fleet,seen={ids={},entries={}},nil
 local function connected() return seen~=nil and os.clock()-seen<cfg.network.staleAfter end
+local gpsHost=common.gpsHost(cfg)
 local function poll()
     common.refreshModems()
-    pcall(rednet.send,cfg.controllerId,{kind="hello",role="info",version=1,controllerId=cfg.controllerId},common.remoteProtocol)
+    pcall(rednet.send,cfg.controllerId,{kind="hello",role="info",version=1,controllerId=cfg.controllerId,
+        info=common.nodeInfo(cfg,"info",gpsHost and {gps=gpsHost.served} or nil)},common.remoteProtocol)
 end
 local function draw()
     for _,s in ipairs(screens) do
@@ -45,7 +47,6 @@ local function validFleet(f)
     end
     return true
 end
-local gpsHost=common.gpsHost(cfg)
 local function loop()
     poll();draw()
     local timer=os.startTimer(cfg.network.pollInterval)

@@ -90,3 +90,15 @@ if mode=="jobs" then
   sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},21);sc.dump("INFO Turtle #21 Mobfarm")
   sc=screen(39,19,true);UI.drawInfo(sc,f,true,{},20);sc.dump("INFO Turtle #20 Holz")
 end
+if mode=="net" then
+  local f=fleet()
+  f.nodes={ids={40,41,50,60},entries={
+    [40]={role="repeater",label="Repeater Turm",online=true,data={toast="3.4",pos={x=120,y=200,z=-50,src="GPS"},stats={repeated=1532,gps=88}}},
+    [41]={role="gps",label="",online=true,data={toast="3.3",pos={x=124,y=204,z=-50,src="Config"},stats={gps=420}}},
+    [50]={role="info",label="Info Halle",online=true,data={toast="3.4",pos={x=10,y=70,z=5,src="Config"}}},
+    [60]={role="pocket",label="",online=false,data={toast="3.4"}}}}
+  for _,sz in ipairs({{26,20},{82,26}}) do
+    local sc=screen(sz[1],sz[2],true);local ui=UI.new(sc,cfg);ui.draw(f,true,"");ui.action("filter:net");ui.draw(f,true,"");sc.dump("NETZ "..sz[1].."x"..sz[2])
+    ui.action("id:41");ui.draw(f,true,"");sc.dump("NETZ Detail GPS "..sz[1].."x"..sz[2])
+  end
+end

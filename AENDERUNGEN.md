@@ -1,4 +1,17 @@
-# Toast Control 3.3
+# Toast Control 3.4
+
+## Neu in 3.4: Repeater und GPS-Sender im Netz
+
+- Neuer Reiter **Netz** in Zentrale und Pocket: alle Repeater, GPS-Sender,
+  Infoscreens und Pockets mit Online-Status, **Koordinaten** und **Version**.
+  Antippen zeigt Details (GPS-Anfragen, weitergeleitete Nachrichten).
+- Repeater und GPS-Sender melden sich alle 10 s selbst bei der Zentrale
+  (keine Einstellung nötig) und werden beim **Update** (Knopf oder automatisch)
+  mit aktualisiert.
+- Ihre Position kommt aus den eingetragenen GPS-Koordinaten oder per GPS.
+- Knöpfe wieder **eckig** (die runden Enden sahen im Spiel ausgefranst aus),
+  schlicht einfarbig mit Abstand dazwischen.
+
 
 ## Neu in 3.3: Automatische Updates und GPS auf jedem Computer
 

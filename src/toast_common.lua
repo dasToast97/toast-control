@@ -1,5 +1,5 @@
 local M={
-    version="3.3",
+    version="3.4",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -403,6 +403,30 @@ function M.gpsHost(c,quiet)
         return false
     end
     return h
+end
+-- ===== Netzgeraete (Repeater, GPS-Sender, Infoscreens, Pockets) =====
+-- Melden sich bei der Zentrale mit Name, Version und Position.
+local myPosAt,myPos=-1e9,nil
+function M.myPos(c)
+    if type(c.gps)=="table" and c.gps.set then return {x=c.gps.x,y=c.gps.y,z=c.gps.z,src="Config"} end
+    if os.clock()-myPosAt<60 then return myPos end
+    myPosAt=os.clock()
+    if gps and gps.locate then
+        local ok,x,y,z=pcall(gps.locate,0.3)
+        myPos=(ok and x) and {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5),src="GPS"} or nil
+    end
+    return myPos
+end
+function M.nodeInfo(c,role,stats)
+    return {name=c.label or c.name or "",role=role,toast=M.version,pos=M.myPos(c),stats=stats}
+end
+-- Repeater/GPS-Sender: Status an die Zentrale(n) funken (alle 10 s)
+function M.nodeBeacon(c,role,stats)
+    pcall(rednet.broadcast,{kind="node",version=1,controllerId=c.controllerId or 0,info=M.nodeInfo(c,role,stats)},M.remoteProtocol)
+end
+-- Update-Befehl fuer Netzgeraete pruefen
+function M.isUpdateFor(c,sender,b)
+    return type(b)=="table" and b.kind=="update" and ((c.controllerId or 0)==0 or b.controllerId==c.controllerId or sender==c.controllerId)
 end
 -- ===== Dimension =====
 -- CC kennt keine Dimension; erkannt wird sie an den Bloecken um die Turtle

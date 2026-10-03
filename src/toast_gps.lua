@@ -36,6 +36,7 @@ if G.auto and gps and gps.locate then
     end
 end
 local served,last,started=0,"-",os.clock()
+common.refreshModems()       -- rednet fuer Meldung an die Zentrale und Update-Befehl
 local function draw()
     local w,h=term.getSize()
     term.setBackgroundColor(colors.black);term.clear()
@@ -55,7 +56,7 @@ local function draw()
     line(11,"Q: beenden",colors.lightGray)
 end
 draw()
-local timer=os.startTimer(5)
+local timer=os.startTimer(2)
 while true do
     local e,a,b,c,d,dist=os.pullEvent()
     if e=="modem_message" and b==CH and d=="PING" and dist then
@@ -63,7 +64,13 @@ while true do
         if m then pcall(m.transmit,c,CH,{x,y,z});served=served+1;last=(textutils.formatTime and textutils.formatTime(os.time(),true) or "jetzt") end
         draw()
     elseif e=="peripheral" or e=="peripheral_detach" then modems=wireless();draw()
-    elseif e=="timer" and a==timer then draw();timer=os.startTimer(5)
+    elseif e=="rednet_message" and common.isUpdateFor(cfg,a,b) then
+        local ok,why=common.selfUpdate()
+        if not ok then common.log("Update: "..tostring(why)) end
+    elseif e=="timer" and a==timer then
+        cfg.gps.x,cfg.gps.y,cfg.gps.z,cfg.gps.set=x,y,z,true
+        common.nodeBeacon(cfg,"gps",{gps=served})
+        draw();timer=os.startTimer(10)
     elseif e=="char" and (a=="q" or a=="Q") then
         term.clear();term.setCursorPos(1,1);print("GPS-Sender beendet.");return
     end

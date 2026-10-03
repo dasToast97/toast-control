@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.3",
+    version="3.4",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -533,6 +533,30 @@ function M.gpsHost(c,quiet)
         return false
     end
     return h
+end
+-- ===== Netzgeraete (Repeater, GPS-Sender, Infoscreens, Pockets) =====
+-- Melden sich bei der Zentrale mit Name, Version und Position.
+local myPosAt,myPos=-1e9,nil
+function M.myPos(c)
+    if type(c.gps)=="table" and c.gps.set then return {x=c.gps.x,y=c.gps.y,z=c.gps.z,src="Config"} end
+    if os.clock()-myPosAt<60 then return myPos end
+    myPosAt=os.clock()
+    if gps and gps.locate then
+        local ok,x,y,z=pcall(gps.locate,0.3)
+        myPos=(ok and x) and {x=math.floor(x+0.5),y=math.floor(y+0.5),z=math.floor(z+0.5),src="GPS"} or nil
+    end
+    return myPos
+end
+function M.nodeInfo(c,role,stats)
+    return {name=c.label or c.name or "",role=role,toast=M.version,pos=M.myPos(c),stats=stats}
+end
+-- Repeater/GPS-Sender: Status an die Zentrale(n) funken (alle 10 s)
+function M.nodeBeacon(c,role,stats)
+    pcall(rednet.broadcast,{kind="node",version=1,controllerId=c.controllerId or 0,info=M.nodeInfo(c,role,stats)},M.remoteProtocol)
+end
+-- Update-Befehl fuer Netzgeraete pruefen
+function M.isUpdateFor(c,sender,b)
+    return type(b)=="table" and b.kind=="update" and ((c.controllerId or 0)==0 or b.controllerId==c.controllerId or sender==c.controllerId)
 end
 -- ===== Dimension =====
 -- CC kennt keine Dimension; erkannt wird sie an den Bloecken um die Turtle
@@ -1442,6 +1466,7 @@ function M.new(cfg)
     local s=common.readState(PATH)
     local serial=common.serial(s.serial) and s.serial or 0
     local devices,pockets,remote={}, {}, {}
+    m.nodes={}           -- Netzgeraete: [id]={role,label,data,seen}
     if type(s.remote)=="table" then
         for k,v in pairs(s.remote) do if type(k)=="string" and common.serial(v) then remote[k]=v end end
     end
@@ -1480,7 +1505,21 @@ function M.new(cfg)
             local e=m.entries[id];local d=devices[id]
             entries[id]={job=d.job,label=d.label,online=m.online(id),data=e and e.data or nil,pending=m.pending[id]~=nil}
         end
-        return {ids=ids,entries=entries}
+        local nids,nentries={},{}
+        for id,n in pairs(m.nodes) do nids[#nids+1]=id end
+        table.sort(nids)
+        for _,id in ipairs(nids) do local n=m.nodes[id]
+            nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=n.data} end
+        return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries}}
+    end
+    local function node(id,info)
+        if type(info)~="table" then return end
+        local role=info.role
+        if not ({repeater=true,gps=true,info=true,pocket=true})[role] then return end
+        local n=0;for _ in pairs(m.nodes) do n=n+1 end
+        if not m.nodes[id] and n>=128 then return end
+        m.nodes[id]={role=role,label=common.label(info.name),seen=os.clock(),
+            data={toast=tostring(info.toast or "?"),pos=type(info.pos)=="table" and info.pos or nil,stats=type(info.stats)=="table" and info.stats or nil}}
     end
     function m.ingest(id,b,p)
         local job
@@ -1528,7 +1567,10 @@ function M.new(cfg)
         if action=="update" then
             -- Pockets und Infoscreens ebenfalls; die Zentrale selbst danach (kurz warten)
             local n=0
-            for pid in pairs(pockets) do
+            local sentTo={}
+            for pid in pairs(pockets) do sentTo[pid]=true end
+            for nid,nd in pairs(m.nodes) do if nd.role=="repeater" or nd.role=="gps" then sentTo[nid]=true end end
+            for pid in pairs(sentTo) do
                 serial=serial+1;n=n+1
                 send(pid,{kind="update",version=1,controllerId=cfg.controllerId,serial=serial},common.remoteProtocol)
             end
@@ -1558,6 +1600,11 @@ function M.new(cfg)
         local scope="all";local valid=protocol==common.remoteProtocol
         for j,p in pairs(common.legacyRemote)do if p==protocol then scope=j;valid=true end end
         if not valid or not common.id(id) or id==cfg.controllerId or devices[id] or type(b)~="table" then return false end
+        -- Repeater / GPS-Sender melden sich per Rundfunk
+        if b.kind=="node" and protocol==common.remoteProtocol and (b.controllerId==0 or b.controllerId==cfg.controllerId) then
+            node(id,b.info);return true
+        end
+        if b.kind=="hello" and type(b.info)=="table" then node(id,b.info) end
         if not pockets[id] then
             if not (cfg.autoPairPockets and protocol==common.remoteProtocol and b.kind=="hello"
                 and b.version==1 and (b.role=="pocket" or b.role=="info") and b.controllerId==cfg.controllerId) then return false end
@@ -2015,14 +2062,14 @@ function M.new(screen,cfg)
             end
             text(x+pad,mid,l,enabled and colors.white or colors.lightGray,b)
         end
-        -- Moderner Knopf mit runden Enden (Zeichen 145/157 = halbe Rundung links/rechts).
+        -- Schlichter, eckiger Knopf (einfarbig, Text mittig).
         local color=screen.isColor and screen.isColor()
         local function pill(x,y,width,label,action,bg,enabled,fgc)
             if width<1 then return end
             local b=enabled and bg or TRACK
             local f=fgc or (enabled and colors.white or colors.gray)
             if not enabled then f=colors.gray end
-            if width>=5 and color and #tostring(label)<=width-2 then
+            if false then   -- runde Enden sahen im Spiel ausgefranst aus: eckig ist sauberer
                 text(x,y,"\145",colors.black,b)
                 text(x+1,y,string.rep(" ",width-2),f,b)
                 text(x+width-1,y,"\157",b,colors.black)
@@ -2082,10 +2129,12 @@ function M.new(screen,cfg)
         local rank,pos={fault=1,warn=2,work=3,move=3,wait=3,done=4,idle=4,off=5},{}
         for i,id in ipairs(ids) do local _,k=M.state(entries[id] or {},link);pos[id]=(rank[k] or 4)*10000+i end
         table.sort(ids,function(a,b) return pos[a]<pos[b] end)
-        ui.ids=ids
-        if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
-        if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
-        if not ui.cursor then ui.cursor=ui.selected or ids[1] end
+        if ui.filter~="net" then
+            ui.ids=ids
+            if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
+            if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
+            if not ui.cursor then ui.cursor=ui.selected or ids[1] end
+        end
         -- Kopfzeile
         fill(1,colors.blue)
         text(2,1,"TOAST",colors.white,colors.blue)
@@ -2097,7 +2146,10 @@ function M.new(screen,cfg)
             text(x,1," "..lab.." ",up and colors.white or colors.blue,up and colors.red or colors.lightBlue)
             ui.buttons[#ui.buttons+1]={x=x,y=1,w=#lab+2,action="update",enabled=link}
         end
-        if link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
+        if link and ui.filter=="net" and fleet.nodes then
+            local on=0;for _,id in ipairs(fleet.nodes.ids) do if fleet.nodes.entries[id].online then on=on+1 end end
+            right(1,on.."/"..#fleet.nodes.ids.." online ",colors.white,colors.blue)
+        elseif link then right(1,online.."/"..#ids.." online ",colors.white,colors.blue)
         else right(1,"keine Verbindung ",colors.orange,colors.blue) end
         -- Reiter
         -- Reiter: Alle + jede Aufgabe, die es gibt (Farm und Mine immer)
@@ -2106,6 +2158,9 @@ function M.new(screen,cfg)
         for _,j in ipairs(ORDER) do
             if count[j]>0 or j=="farm" or j=="mining" or ui.filter==j then tabs[#tabs+1]={JOB[j].name,count[j],j} end
         end
+        -- Netz: Repeater, GPS-Sender, Infoscreens, Pockets
+        local nodes=fleet.nodes or {ids={},entries={}}
+        if #nodes.ids>0 or ui.filter=="net" then tabs[#tabs+1]={"Netz",#nodes.ids,"net"} end
         ui.tabs={};for i,t in ipairs(tabs) do ui.tabs[i]=t[3] end
         local tw=math.floor(w/#tabs)
         for i,t in ipairs(tabs) do
@@ -2121,6 +2176,7 @@ function M.new(screen,cfg)
                 ui.buttons[#ui.buttons+1]={x=x,y=2,w=width,action="filter:"..t[3],enabled=true}
             end
         end
+        if ui.filter=="net" then return ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice) end
         local third=math.floor(w/3)
         -- Fusszeile: Hinweiszeile + grosse Tastenreihe + untere Reihe
         -- Grosse Bildschirme bekommen hoehere Knoepfe (leichter zu treffen).
@@ -2297,6 +2353,72 @@ function M.new(screen,cfg)
         end
         if not sel and pages>1 then right(foot,ui.page.."/"..pages,colors.gray) end
     end
+    -- ===== Netz-Ansicht =====
+    local NODE_NAMES={repeater="Repeater",gps="GPS-Sender",info="Infoscreen",pocket="Pocket"}
+    function ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice)
+        local ids=nodes.ids
+        ui.ids=ids
+        if ui.selected and not common.contains(ids,ui.selected) then ui.selected=nil end
+        if ui.cursor and not common.contains(ids,ui.cursor) then ui.cursor=nil end
+        if not ui.cursor then ui.cursor=ui.selected or ids[1] end
+        local function coords(d)
+            local p=d and d.pos;if type(p)~="table" then return nil end
+            return "X"..num(p.x).." Y"..num(p.y).." Z"..num(p.z)
+        end
+        local foot=h-1
+        local sel=ui.selected and nodes.entries[ui.selected]
+        if sel then
+            local d=sel.data or {}
+            local name=(sel.label~="" and sel.label or NODE_NAMES[sel.role] or "Geraet").." #"..ui.selected
+            pill(1,3,math.min(w,#name+(w>=30 and 14 or 4)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
+            local kind=sel.online and "done" or "off"
+            fill(4,COLOR[kind])
+            text(2,4,sel.online and "Online" or "Offline - keine Meldung seit 30 s",colors.black,COLOR[kind])
+            local rows={{"Typ",NODE_NAMES[sel.role] or tostring(sel.role)},
+                {"Version",tostring(d.toast)..((d.toast and d.toast~=common.version) and (" (Zentrale "..common.version..")") or "")}}
+            local c=coords(d)
+            rows[#rows+1]={"Koordinaten",c and (c..(d.pos.src and (" "..d.pos.src) or "")) or "unbekannt"}
+            local st=d.stats or {}
+            if st.gps then rows[#rows+1]={"GPS-Anfragen",short(st.gps)} end
+            if st.repeated then rows[#rows+1]={"Weitergeleitet",short(st.repeated).." Nachrichten"} end
+            local y=6
+            for _,r in ipairs(rows) do if y<foot then text(1,y,r[1],colors.lightGray);text(15,y,r[2],colors.white);y=y+1 end end
+        else
+            local y=3
+            if #ids==0 then
+                text(1,y+1,"Keine Netzgeraete gemeldet.",colors.lightGray)
+                text(1,y+2,"Repeater/GPS-Sender melden sich",colors.lightGray)
+                text(1,y+3,"nach dem Update auf 3.4 selbst.",colors.lightGray)
+            end
+            local avail=foot-y
+            for row=1,avail do
+                local id=ids[row];if not id then break end
+                local e=nodes.entries[id];local d=e.data or {}
+                local yy=y+row-1
+                local mark=ui.kbd and id==ui.cursor
+                local bg=mark and colors.gray or colors.black
+                text(1,yy,string.rep(" ",w),colors.white,bg)
+                text(1,yy,mark and "\16" or "\7",e.online and colors.lime or colors.gray,bg)
+                local name=e.label~="" and e.label or ((NODE_NAMES[e.role] or "Geraet").." #"..id)
+                local typ=NODE_NAMES[e.role] or e.role
+                local c=coords(d)
+                if w>=60 then
+                    text(3,yy,name:sub(1,24),e.online and colors.white or colors.gray,bg)
+                    text(29,yy,typ,colors.lightGray,bg)
+                    if c then text(42,yy,c,colors.lightGray,bg) end
+                    right(yy,(e.online and "" or "Offline ").."v"..tostring(d.toast),e.online and colors.lightGray or colors.gray,bg)
+                else
+                    text(3,yy,name:sub(1,w-13),e.online and colors.white or colors.gray,bg)
+                    right(yy,e.online and typ:sub(1,10) or "Offline",e.online and colors.lightGray or colors.gray,bg)
+                end
+                ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w,action="id:"..id,enabled=true}
+            end
+        end
+        local info=tostring(notice or "")
+        if info:find("Warte auf Geraete",1,true) or info:find("bestaetigt",1,true) then info="" end
+        if info=="" then info=sel and "Update oben aktualisiert alle Geraete" or "Tippen = Details, Position, Version" end
+        text(1,h,info:sub(1,w),colors.lightGray)
+    end
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)
         if not a then return end
@@ -2382,7 +2504,7 @@ local function connected()return seen~=nil and os.clock()-seen<cfg.network.stale
 local function send(b)pcall(rednet.send,cfg.controllerId,b,common.remoteProtocol)end
 local function poll()
     common.refreshModems()
-    send({kind="hello",role="pocket",version=1,controllerId=cfg.controllerId})
+    send({kind="hello",role="pocket",version=1,controllerId=cfg.controllerId,info=common.nodeInfo(cfg,"pocket")})
 end
 local function draw()ui.draw(fleet or {ids={},entries={}},connected(),notice)end
 local function validFleet(f)
@@ -2479,9 +2601,11 @@ end
 bind()
 local fleet,seen={ids={},entries={}},nil
 local function connected() return seen~=nil and os.clock()-seen<cfg.network.staleAfter end
+local gpsHost=common.gpsHost(cfg)
 local function poll()
     common.refreshModems()
-    pcall(rednet.send,cfg.controllerId,{kind="hello",role="info",version=1,controllerId=cfg.controllerId},common.remoteProtocol)
+    pcall(rednet.send,cfg.controllerId,{kind="hello",role="info",version=1,controllerId=cfg.controllerId,
+        info=common.nodeInfo(cfg,"info",gpsHost and {gps=gpsHost.served} or nil)},common.remoteProtocol)
 end
 local function draw()
     for _,s in ipairs(screens) do
@@ -2498,7 +2622,6 @@ local function validFleet(f)
     end
     return true
 end
-local gpsHost=common.gpsHost(cfg)
 local function loop()
     poll();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
@@ -4370,11 +4493,20 @@ local function scan()
     end
     modems=current
 end
--- Nebenbei GPS-Sender (Toast-Config, falls vorhanden)
+-- Toast-Netz: nebenbei GPS-Sender und Meldung an die Zentrale (falls Toast installiert)
+local common,toastCfg
 pcall(function()
-    local common=dofile("/toast/toast_common.lua")
-    gpsHost=common.gpsHost(common.load(),true)
+    common=dofile("/toast/toast_common.lua")
+    toastCfg=common.load()
+    common.refreshModems()
+    gpsHost=common.gpsHost(toastCfg,true)
 end)
+local beaconAt=-1e9
+local function beacon()
+    if not common or os.clock()-beaconAt<10 then return end
+    beaconAt=os.clock()
+    common.nodeBeacon(toastCfg,"repeater",{repeated=repeated,gps=gpsHost and gpsHost.served or nil})
+end
 local function draw()
     local w,h=term.getSize()
     term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear()
@@ -4405,13 +4537,19 @@ local function loop()
         local e,name,channel,reply,message,dist=os.pullEventRaw()
         if gpsHost and gpsHost.event(e,name,channel,reply,message,dist) then
             -- GPS-Anfrage beantwortet
+        elseif e=="rednet_message" and common and toastCfg and common.isUpdateFor(toastCfg,name,channel) then
+            -- Update-Befehl der Zentrale (name=Absender, channel=Nachricht)
+            cleanup()
+            local ok,why=common.selfUpdate()
+            if not ok then common.log("Update: "..tostring(why)) end
+            scan()
         elseif e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return
         elseif e=="peripheral" or e=="peripheral_detach" then scan();draw()
         elseif e=="term_resize" then draw()
         elseif e=="timer" and name==timer then
             local now=os.clock()
             for id,expires in pairs(seen) do if expires<=now then seen[id]=nil;cacheCount=cacheCount-1 end end
-            draw();timer=os.startTimer(1)
+            beacon();draw();timer=os.startTimer(1)
         elseif e=="modem_message" and modems[name] and channel==CHANNEL_REPEAT
             and integer(reply,0,65535) and type(message)=="table"
             and integer(message.nMessageID,0,9007199254740991)
@@ -4434,6 +4572,7 @@ local function loop()
 end
 local ok,why=pcall(loop);cleanup()
 term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear();term.setCursorPos(1,1)
+if not ok and tostring(why):find("TOAST_UPDATE",1,true) then error(why,0) end
 if not ok then printError(tostring(why)) else print("Repeater beendet.") end
 ]======]
 FILES["toast_worker.lua"]=[======[
@@ -5467,6 +5606,7 @@ if G.auto and gps and gps.locate then
     end
 end
 local served,last,started=0,"-",os.clock()
+common.refreshModems()       -- rednet fuer Meldung an die Zentrale und Update-Befehl
 local function draw()
     local w,h=term.getSize()
     term.setBackgroundColor(colors.black);term.clear()
@@ -5486,7 +5626,7 @@ local function draw()
     line(11,"Q: beenden",colors.lightGray)
 end
 draw()
-local timer=os.startTimer(5)
+local timer=os.startTimer(2)
 while true do
     local e,a,b,c,d,dist=os.pullEvent()
     if e=="modem_message" and b==CH and d=="PING" and dist then
@@ -5494,13 +5634,19 @@ while true do
         if m then pcall(m.transmit,c,CH,{x,y,z});served=served+1;last=(textutils.formatTime and textutils.formatTime(os.time(),true) or "jetzt") end
         draw()
     elseif e=="peripheral" or e=="peripheral_detach" then modems=wireless();draw()
-    elseif e=="timer" and a==timer then draw();timer=os.startTimer(5)
+    elseif e=="rednet_message" and common.isUpdateFor(cfg,a,b) then
+        local ok,why=common.selfUpdate()
+        if not ok then common.log("Update: "..tostring(why)) end
+    elseif e=="timer" and a==timer then
+        cfg.gps.x,cfg.gps.y,cfg.gps.z,cfg.gps.set=x,y,z,true
+        common.nodeBeacon(cfg,"gps",{gps=served})
+        draw();timer=os.startTimer(10)
     elseif e=="char" and (a=="q" or a=="Q") then
         term.clear();term.setCursorPos(1,1);print("GPS-Sender beendet.");return
     end
 end
 ]======]
--- TOAST CONTROL 3.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
