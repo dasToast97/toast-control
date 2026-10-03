@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,12 +129,14 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.2",
+    version="3.3",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true,update=true},
     updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
+    versionUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/version.txt",
+    versionUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/version.txt",
 }
 -- Standardwerte fuer Stabilitaet. Fehlen sie in einer alten Config, werden sie ergaenzt.
 M.recoveryDefaults={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8}
@@ -167,15 +169,15 @@ function M.recovery(r)
 end
 -- ===== Standardwerte (fehlende Eintraege in der Config werden hiermit ergaenzt) =====
 M.DEFAULTS={
-    role="auto",job="auto",name="",controllerId=0,
-    autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},
+    role="auto",job="auto",name="",controllerId=0,autoUpdate=true,
+    autoDiscover=true,autoPairPockets=true,devices={},pocketIds={},autoUpdate=true,updateEvery=5,
     display={monitor="auto",size="3x4",textScale=0.5,pageSize=0},
     show="all",
     network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},
     recovery={autoRestart=true,restartDelay=5,maxRestarts=5,autoRetry=3,retryDelay=30,moveRetries=8},
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
     base={set=false,x=0,y=64,z=0,facing="north",dimension="auto"},
-    gps={auto=true,x=0,y=64,z=0},
+    gps={auto=true,x=0,y=64,z=0,host=true,set=false},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
@@ -243,6 +245,12 @@ function M.configText(c)
     line(4,"name",q(c.name or ""),"Anzeigename")
     if role=="controller" then line(4,"controllerId",q(c.controllerId),"= ID dieser Zentrale")
     elseif role~="repeater" and role~="gps" then line(4,"controllerId",q(c.controllerId),"ID der Zentrale") end
+    if role=="controller" or role=="info" or role=="repeater" then
+        section("gps","Nebenbei GPS-Sender (spart eigene GPS-Computer)",{
+            {"host","true = GPS-Anfragen beantworten"},{"set","true = Koordinaten unten stimmen"},
+            {"auto","true = beim Start selbst per GPS suchen"},
+            {"x","X dieses Computers (F3)"},{"y","Y"},{"z","Z"}},c.gps)
+    end
     if role=="gps" then
         section("gps","GPS-Sender: Koordinaten DIESES Computers (F3, Targeted Block)",{
             {"auto","true = beim Start selbst per GPS suchen (wenn schon 4 andere laufen)"},
@@ -306,8 +314,11 @@ function M.configText(c)
             {"monitor","\"auto\" = alle Monitore, oder Name"},{"size","Bloecke Hoehe x Breite, z.B. \"3x4\", oder \"auto\""},
             {"textScale","nur ohne size: Schrift 0.5 bis 5"}},c.display)
         out[#out+1]=""
+        line(4,"autoUpdate",q(c.autoUpdate~=false),"alle 5 min neue Version suchen + alle updaten")
         line(4,"autoDiscover",q(c.autoDiscover),"neue Turtles automatisch aufnehmen")
         line(4,"autoPairPockets",q(c.autoPairPockets),"neue Pockets automatisch aufnehmen")
+        line(4,"autoUpdate",q(c.autoUpdate),"neue Version selbst fuer alle installieren")
+        line(4,"updateEvery",q(c.updateEvery),"alle x Minuten nachsehen (1-1440)")
         out[#out+1]="    devices = {                       -- feste Namen: [ID] = { job = ..., name = ... }"
         local ids={};for id in pairs(c.devices or {}) do ids[#ids+1]=id end;table.sort(ids)
         for _,id in ipairs(ids) do
@@ -342,7 +353,12 @@ function M.load(c)
         assert(type(g)=="table" and type(g.auto)=="boolean","gps.auto: true oder false.")
         assert(M.integer(g.x,-30000000,30000000) and M.integer(g.y,-2048,4096) and M.integer(g.z,-30000000,30000000),"gps: x/y/z ganze Zahlen.")
     end
+    if c.role~="gps" and type(c.gps)=="table" and c.gps.set then
+        local g=c.gps
+        assert(M.integer(g.x,-30000000,30000000) and M.integer(g.y,-2048,4096) and M.integer(g.z,-30000000,30000000),"gps: x/y/z ganze Zahlen.")
+    end
     assert(M.id(c.controllerId),"controllerId: ganze ID 0 bis 65500.")
+    assert(type(c.autoUpdate)=="boolean" and M.integer(c.updateEvery,1,1440),"autoUpdate true/false, updateEvery 1 bis 1440 Minuten.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
         assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree oder mob einstellen.")
@@ -476,6 +492,48 @@ function M.gpsPosition(rel)
     if last and rel and last.rel.fwd==rel.fwd and last.rel.right==rel.right and last.rel.up==rel.up then return last.fix end
     return nil
 end
+-- ===== Nebenbei GPS-Sender (Zentrale, Infoscreens, Repeater) =====
+-- Stationaere Toast-Computer beantworten GPS-Anfragen mit, so braucht man
+-- weniger eigene GPS-Computer. Koordinaten aus der Config (gps.set) oder
+-- beim Start selbst per GPS (wenn schon 4 andere Sender laufen).
+local GPS_CH=65534
+function M.gpsHost(c,quiet)
+    local g=c.gps
+    if type(g)~="table" or g.host==false or turtle or pocket then return nil,"aus" end
+    if not g.set and g.auto and gps and gps.locate then
+        if not quiet then print("GPS: suche eigene Position ...") end
+        local ok,x,y,z=pcall(gps.locate,2)
+        if ok and x then
+            g.x,g.y,g.z,g.set=math.floor(x+0.5),math.floor(y+0.5),math.floor(z+0.5),true
+            pcall(function()
+                local raw=dofile("/toast.config.lua");local cc=M.withDefaults(raw)
+                cc.gps.x,cc.gps.y,cc.gps.z,cc.gps.set=g.x,g.y,g.z,true;cc.label=nil
+                local f=fs.open("/toast.config.lua","w");f.write(M.configText(cc));f.close()
+            end)
+        end
+    end
+    if not g.set then return nil,"Koordinaten fehlen (toast.lua config -> GPS)" end
+    local h={x=g.x,y=g.y,z=g.z,served=0}
+    local function open()
+        for _,name in ipairs(peripheral.getNames()) do
+            if peripheral.getType(name)=="modem" then
+                local m=peripheral.wrap(name)
+                if m and m.isWireless and m.isWireless() then pcall(m.open,GPS_CH) end
+            end
+        end
+    end
+    open()
+    -- Mit jedem Ereignis des Programms aufrufen; true = war eine GPS-Anfrage
+    function h.event(e,side,ch,reply,msg,dist)
+        if e=="modem_message" and ch==GPS_CH and msg=="PING" and dist then
+            local m=peripheral.wrap(side)
+            if m then pcall(m.transmit,reply,GPS_CH,{h.x,h.y,h.z});h.served=h.served+1 end
+            return true
+        elseif e=="peripheral" then open() end
+        return false
+    end
+    return h
+end
 -- ===== Dimension =====
 -- CC kennt keine Dimension; erkannt wird sie an den Bloecken um die Turtle
 -- (Netherrack = Nether, Endstein = End, Stein/Erde = Oberwelt). Eingetragene
@@ -531,6 +589,35 @@ end
 -- Config, Fortschritt und Autostart bleiben. Danach Neustart des Programms
 -- (error "TOAST_UPDATE" -> toast.lua laedt sich neu). Turtles machen dank
 -- gespeicherter Position und Auftrag dort weiter, wo sie waren.
+-- Versionen vergleichen ("3.2.1" > "3.2")
+function M.newer(a,b)
+    local function parts(v) local t={};for n in tostring(v):gmatch("%d+") do t[#t+1]=tonumber(n) end;return t end
+    local x,y=parts(a),parts(b)
+    for i=1,math.max(#x,#y) do
+        local p,q=x[i] or 0,y[i] or 0
+        if p~=q then return p>q end
+    end
+    return false
+end
+-- Neueste Version auf GitHub (kleine Datei, schnell)
+function M.remoteVersion()
+    if not http then return nil,"HTTP aus" end
+    local ok,h=pcall(http.get,M.versionUrl.."?t="..math.floor((os.epoch and os.epoch("utc") or 0)/1000))
+    if not ok or not h then return nil,"nicht erreichbar" end
+    local v=h.readAll();h.close()
+    v=tostring(v or ""):match("[%d%.]+")
+    return v
+end
+-- Versionen vergleichen: "3.2.1" > "3.2"
+function M.newer(a,b)
+    local function parts(v) local t={};for n in tostring(v):gmatch("%d+") do t[#t+1]=tonumber(n) end;return t end
+    local x,y=parts(a),parts(b)
+    for i=1,math.max(#x,#y) do
+        local p,q=x[i] or 0,y[i] or 0
+        if p~=q then return p>q end
+    end
+    return false
+end
 function M.selfUpdate(statusFn)
     local say=statusFn or function() end
     if not http then return false,"HTTP im Spiel/Server aus" end
@@ -1062,6 +1149,14 @@ function S.new(common)
         header("Geraete")
         c.autoDiscover=yesno("Neue Turtles automatisch aufnehmen?",c.autoDiscover)
         c.autoPairPockets=yesno("Neue Pockets automatisch aufnehmen?",c.autoPairPockets)
+        hint("Alle 5 min nach neuer Version suchen;")
+        hint("dann updaten sich alle Geraete selbst.")
+        c.autoUpdate=yesno("Automatisch updaten?",c.autoUpdate~=false)
+        hint("Automatisch updaten: Zentrale sieht")
+        hint("regelmaessig nach einer neuen Version")
+        hint("und aktualisiert dann ALLE Geraete.")
+        c.autoUpdate=yesno("Automatisch updaten?",c.autoUpdate~=false)
+        if c.autoUpdate then c.updateEvery=ask("Alle x Minuten nachsehen",c.updateEvery or 5,1,1440) end
     end
     local function editController(c)
         header("Zentrale")
@@ -1112,7 +1207,22 @@ function S.new(common)
         end
         if role=="controller" then
             list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "
-                ..(c.autoPairPockets and "Pockets auto" or "Pockets fest") end,function() editDevices(c) end}
+                ..(c.autoPairPockets and "Pockets auto" or "Pockets fest")..(c.autoUpdate and ", Update auto" or "") end,function() editDevices(c) end}
+        end
+        if role=="controller" or role=="info" or role=="repeater" then
+            list[#list+1]={"GPS",function()
+                local g=c.gps
+                if g.host==false then return "aus" end
+                return g.set and ("Sender "..gpsText(g)) or "Sender, Position fehlt" end,
+                function()
+                    header("Nebenbei GPS-Sender")
+                    hint("Dieser Computer beantwortet GPS-")
+                    hint("Anfragen mit (spart GPS-Computer).")
+                    hint("Mind. 4 Sender insgesamt, nicht alle")
+                    hint("auf derselben Hoehe.")
+                    c.gps.host=yesno("Als GPS-Sender mitlaufen?",c.gps.host~=false)
+                    if c.gps.host then editGps(c);c.gps.set=true end
+                end}
         end
         return list
     end
@@ -1213,8 +1323,18 @@ local function bindScreen()
 end
 bindScreen()
 local UI=dofile("/toast/toast_ui.lua")
+-- Nebenbei GPS-Sender (wenn Koordinaten bekannt)
+local gpsHost=common.gpsHost(cfg)
 local ui=UI.new(screen,cfg)
 local model=dofile("/toast/toast_model.lua").new(cfg)
+-- Automatisches Update: alle 5 min version.txt auf GitHub pruefen (ohne zu blockieren)
+local AUTO={next=os.clock()+60,url=nil,every=300}
+local function checkVersion()
+    if cfg.autoUpdate==false or not http or not http.request or AUTO.url or os.clock()<AUTO.next or model.selfUpdateAt then return end
+    AUTO.next=os.clock()+AUTO.every
+    AUTO.url=common.versionUrl.."?t="..math.floor(os.epoch("utc")/1000)
+    if not pcall(http.request,AUTO.url) then AUTO.url=nil end
+end
 local dirty=true
 -- Zeichnen gedrosselt: Viele Statusmeldungen loesen nicht mehr je ein
 -- komplettes Neuzeichnen aus (verhinderte Lag bei grossen Flotten).
@@ -1237,11 +1357,37 @@ local function loop()
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
     local frame=os.startTimer(0.25)
+    -- Automatisches Update: kurz nach dem Start und dann alle updateEvery Minuten
+    local upTimer=cfg.autoUpdate and os.startTimer(30) or nil
     while true do
-        local e,a,b,c=os.pullEvent()
-        if e=="rednet_message" then
+        local e,a,b,c,d,f=os.pullEvent()
+        if gpsHost and gpsHost.event(e,a,b,c,d,f) then
+            -- GPS-Anfrage beantwortet
+        elseif e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
-        elseif e=="timer" and a==timer then model.tick();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==timer then model.tick();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="http_success" and AUTO.url and a==AUTO.url then
+            AUTO.url=nil
+            local remote=b and b.readAll and b.readAll() or "";pcall(b.close)
+            remote=remote:match("[%d%.]+")
+            if remote and common.newer(remote,common.version) then
+                common.log("Neue Version "..remote.." gefunden, Update fuer alle")
+                model.command("update","all")
+                model.notice="Neue Version "..remote..": Update fuer alle gestartet"
+                dirty=true
+            end
+        elseif e=="http_failure" and AUTO.url and a==AUTO.url then AUTO.url=nil
+        elseif e=="timer" and a==upTimer then
+            upTimer=os.startTimer(cfg.updateEvery*60)
+            if not model.selfUpdateAt then
+                local ok,remote=pcall(common.remoteVersion)
+                if ok and remote and common.newer(remote,common.version) then
+                    common.log("Neue Version "..remote.." gefunden, Update fuer alle")
+                    model.command("update","all")
+                    model.notice="Neue Version "..remote..": Update fuer alle laeuft ..."
+                    dirty=true
+                end
+            end
         elseif e=="timer" and a==frame and model.selfUpdateAt and (os.clock()>=model.selfUpdateAt or (model.waiting()==0 and os.clock()>=model.selfUpdateAt-20)) then
             -- Alle Geraete haben das Update bekommen (oder Zeit um): jetzt die Zentrale selbst
             model.selfUpdateAt=nil
@@ -2352,12 +2498,15 @@ local function validFleet(f)
     end
     return true
 end
+local gpsHost=common.gpsHost(cfg)
 local function loop()
     poll();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
     while true do
-        local e,a,b,c=os.pullEvent()
-        if e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+        local e,a,b,c,d,f=os.pullEvent()
+        if gpsHost and gpsHost.event(e,a,b,c,d,f) then
+            -- GPS-Anfrage beantwortet
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
@@ -4200,6 +4349,7 @@ return M
 FILES["repeater.lua"]=[======[
 -- Toast Wireless Repeater | CC:Tweaked Rednet | Farm + Strip Mining
 -- Start: repeater.lua. Q oder Ctrl+T beendet und schliesst eigene Kanaele.
+local gpsHost
 local CHANNEL_REPEAT, CHANNEL_BROADCAST, MAX_ID = 65533, 65535, 65500
 local CACHE_SECONDS, CACHE_LIMIT = 30, 4096
 local modems, seen, cacheCount = {}, {}, 0
@@ -4220,6 +4370,11 @@ local function scan()
     end
     modems=current
 end
+-- Nebenbei GPS-Sender (Toast-Config, falls vorhanden)
+pcall(function()
+    local common=dofile("/toast/toast_common.lua")
+    gpsHost=common.gpsHost(common.load(),true)
+end)
 local function draw()
     local w,h=term.getSize()
     term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear()
@@ -4237,6 +4392,8 @@ local function draw()
     line(10,"Rednet: Farm, Mining, Pocket")
     line(12,"Endermodem: Reichweite unbegrenzt")
     line(11,"IDs bleiben unveraendert.")
+    line(13,gpsHost and ("GPS-Sender: "..gpsHost.served.." Anfragen") or "GPS-Sender: aus")
+    line(13,gpsHost and ("GPS-Sender: "..gpsHost.x.." "..gpsHost.y.." "..gpsHost.z.."  ("..gpsHost.served..")") or "")
     line(14,"Q / Ctrl+T: beenden")
 end
 local function cleanup()
@@ -4245,8 +4402,10 @@ end
 local function loop()
     scan();draw();local timer=os.startTimer(1)
     while true do
-        local e,name,channel,reply,message=os.pullEventRaw()
-        if e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return
+        local e,name,channel,reply,message,dist=os.pullEventRaw()
+        if gpsHost and gpsHost.event(e,name,channel,reply,message,dist) then
+            -- GPS-Anfrage beantwortet
+        elseif e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return
         elseif e=="peripheral" or e=="peripheral_detach" then scan();draw()
         elseif e=="term_resize" then draw()
         elseif e=="timer" and name==timer then
@@ -5341,7 +5500,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

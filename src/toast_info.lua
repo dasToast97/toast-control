@@ -45,12 +45,15 @@ local function validFleet(f)
     end
     return true
 end
+local gpsHost=common.gpsHost(cfg)
 local function loop()
     poll();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
     while true do
-        local e,a,b,c=os.pullEvent()
-        if e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+        local e,a,b,c,d,f=os.pullEvent()
+        if gpsHost and gpsHost.event(e,a,b,c,d,f) then
+            -- GPS-Anfrage beantwortet
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"

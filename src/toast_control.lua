@@ -24,8 +24,18 @@ local function bindScreen()
 end
 bindScreen()
 local UI=dofile("/toast/toast_ui.lua")
+-- Nebenbei GPS-Sender (wenn Koordinaten bekannt)
+local gpsHost=common.gpsHost(cfg)
 local ui=UI.new(screen,cfg)
 local model=dofile("/toast/toast_model.lua").new(cfg)
+-- Automatisches Update: alle 5 min version.txt auf GitHub pruefen (ohne zu blockieren)
+local AUTO={next=os.clock()+60,url=nil,every=300}
+local function checkVersion()
+    if cfg.autoUpdate==false or not http or not http.request or AUTO.url or os.clock()<AUTO.next or model.selfUpdateAt then return end
+    AUTO.next=os.clock()+AUTO.every
+    AUTO.url=common.versionUrl.."?t="..math.floor(os.epoch("utc")/1000)
+    if not pcall(http.request,AUTO.url) then AUTO.url=nil end
+end
 local dirty=true
 -- Zeichnen gedrosselt: Viele Statusmeldungen loesen nicht mehr je ein
 -- komplettes Neuzeichnen aus (verhinderte Lag bei grossen Flotten).
@@ -48,11 +58,37 @@ local function loop()
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
     local frame=os.startTimer(0.25)
+    -- Automatisches Update: kurz nach dem Start und dann alle updateEvery Minuten
+    local upTimer=cfg.autoUpdate and os.startTimer(30) or nil
     while true do
-        local e,a,b,c=os.pullEvent()
-        if e=="rednet_message" then
+        local e,a,b,c,d,f=os.pullEvent()
+        if gpsHost and gpsHost.event(e,a,b,c,d,f) then
+            -- GPS-Anfrage beantwortet
+        elseif e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
-        elseif e=="timer" and a==timer then model.tick();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==timer then model.tick();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="http_success" and AUTO.url and a==AUTO.url then
+            AUTO.url=nil
+            local remote=b and b.readAll and b.readAll() or "";pcall(b.close)
+            remote=remote:match("[%d%.]+")
+            if remote and common.newer(remote,common.version) then
+                common.log("Neue Version "..remote.." gefunden, Update fuer alle")
+                model.command("update","all")
+                model.notice="Neue Version "..remote..": Update fuer alle gestartet"
+                dirty=true
+            end
+        elseif e=="http_failure" and AUTO.url and a==AUTO.url then AUTO.url=nil
+        elseif e=="timer" and a==upTimer then
+            upTimer=os.startTimer(cfg.updateEvery*60)
+            if not model.selfUpdateAt then
+                local ok,remote=pcall(common.remoteVersion)
+                if ok and remote and common.newer(remote,common.version) then
+                    common.log("Neue Version "..remote.." gefunden, Update fuer alle")
+                    model.command("update","all")
+                    model.notice="Neue Version "..remote..": Update fuer alle laeuft ..."
+                    dirty=true
+                end
+            end
         elseif e=="timer" and a==frame and model.selfUpdateAt and (os.clock()>=model.selfUpdateAt or (model.waiting()==0 and os.clock()>=model.selfUpdateAt-20)) then
             -- Alle Geraete haben das Update bekommen (oder Zeit um): jetzt die Zentrale selbst
             model.selfUpdateAt=nil

@@ -1,4 +1,4 @@
-# Toast Control 3.2
+# Toast Control 3.3
 
 Farm-, Mining-, Holz- und Mob-Turtles, Zentrale, Pocket und Infoscreens für CC:Tweaked (Minecraft Fabric 1.20.1).
 
@@ -23,7 +23,11 @@ Antippen oder Tasten: **↑↓** Turtle wählen · **Enter** Details · **←** 
 **H** Hilfe · **Q** beenden.
 
 **Update für alle**: an der Zentrale oben **Update** (2x tippen) – alle Geräte
-aktualisieren sich selbst und machen weiter, wo sie waren.
+aktualisieren sich selbst und machen weiter, wo sie waren. Die Zentrale prüft
+außerdem alle 5 min selbst, ob es eine neue Version gibt.
+
+**GPS**: Zentrale, Infoscreens und Repeater arbeiten nebenbei als GPS-Sender
+(Koordinaten im Menü unter „GPS“). Zusammen mind. 4 Sender.
 
 Neuer Auftrag (z. B. Mine fertig): an der Turtle **N** drücken oder `toast.lua neu`
 – neue Werte eingeben, Enter startet. Position jeder Turtle steht in den Details

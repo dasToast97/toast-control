@@ -1,5 +1,6 @@
 -- Toast Wireless Repeater | CC:Tweaked Rednet | Farm + Strip Mining
 -- Start: repeater.lua. Q oder Ctrl+T beendet und schliesst eigene Kanaele.
+local gpsHost
 local CHANNEL_REPEAT, CHANNEL_BROADCAST, MAX_ID = 65533, 65535, 65500
 local CACHE_SECONDS, CACHE_LIMIT = 30, 4096
 local modems, seen, cacheCount = {}, {}, 0
@@ -20,6 +21,11 @@ local function scan()
     end
     modems=current
 end
+-- Nebenbei GPS-Sender (Toast-Config, falls vorhanden)
+pcall(function()
+    local common=dofile("/toast/toast_common.lua")
+    gpsHost=common.gpsHost(common.load(),true)
+end)
 local function draw()
     local w,h=term.getSize()
     term.setBackgroundColor(colors.black);term.setTextColor(colors.white);term.clear()
@@ -37,6 +43,8 @@ local function draw()
     line(10,"Rednet: Farm, Mining, Pocket")
     line(12,"Endermodem: Reichweite unbegrenzt")
     line(11,"IDs bleiben unveraendert.")
+    line(13,gpsHost and ("GPS-Sender: "..gpsHost.served.." Anfragen") or "GPS-Sender: aus")
+    line(13,gpsHost and ("GPS-Sender: "..gpsHost.x.." "..gpsHost.y.." "..gpsHost.z.."  ("..gpsHost.served..")") or "")
     line(14,"Q / Ctrl+T: beenden")
 end
 local function cleanup()
@@ -45,8 +53,10 @@ end
 local function loop()
     scan();draw();local timer=os.startTimer(1)
     while true do
-        local e,name,channel,reply,message=os.pullEventRaw()
-        if e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return
+        local e,name,channel,reply,message,dist=os.pullEventRaw()
+        if gpsHost and gpsHost.event(e,name,channel,reply,message,dist) then
+            -- GPS-Anfrage beantwortet
+        elseif e=="terminate" or (e=="char" and (name=="q" or name=="Q")) then return
         elseif e=="peripheral" or e=="peripheral_detach" then scan();draw()
         elseif e=="term_resize" then draw()
         elseif e=="timer" and name==timer then

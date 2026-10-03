@@ -1,4 +1,20 @@
-# Toast Control 3.2
+# Toast Control 3.3
+
+## Neu in 3.3: Automatische Updates und GPS auf jedem Computer
+
+**Automatisches Update** (Zentrale, `autoUpdate`, Standard an; Menü „Geraete“):
+Die Zentrale schaut alle 5 Minuten auf GitHub nach (kleine Datei
+`version.txt`, ohne die Anzeige zu blockieren). Gibt es eine neuere Version,
+startet sie das Update für alle Geräte – genau wie der Update-Knopf. Turtles
+machen danach dort weiter, wo sie waren.
+
+**GPS nebenbei**: Zentrale, Infoscreens und Repeater beantworten GPS-Anfragen
+mit – so braucht man weniger eigene GPS-Computer (insgesamt mind. 4 Sender,
+nicht alle auf derselben Höhe).
+- Koordinaten: beim Start selbst per GPS (wenn schon 4 andere laufen) oder im
+  Menü unter **GPS** eintragen (F3 auf den Computer, „Targeted Block“).
+- Abschaltbar im selben Menüpunkt.
+
 
 ## Neu in 3.2: Update für alle Geräte per Knopf
 

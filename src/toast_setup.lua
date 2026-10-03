@@ -309,6 +309,14 @@ function S.new(common)
         header("Geraete")
         c.autoDiscover=yesno("Neue Turtles automatisch aufnehmen?",c.autoDiscover)
         c.autoPairPockets=yesno("Neue Pockets automatisch aufnehmen?",c.autoPairPockets)
+        hint("Alle 5 min nach neuer Version suchen;")
+        hint("dann updaten sich alle Geraete selbst.")
+        c.autoUpdate=yesno("Automatisch updaten?",c.autoUpdate~=false)
+        hint("Automatisch updaten: Zentrale sieht")
+        hint("regelmaessig nach einer neuen Version")
+        hint("und aktualisiert dann ALLE Geraete.")
+        c.autoUpdate=yesno("Automatisch updaten?",c.autoUpdate~=false)
+        if c.autoUpdate then c.updateEvery=ask("Alle x Minuten nachsehen",c.updateEvery or 5,1,1440) end
     end
     local function editController(c)
         header("Zentrale")
@@ -359,7 +367,22 @@ function S.new(common)
         end
         if role=="controller" then
             list[#list+1]={"Geraete",function() return (c.autoDiscover and "Turtles auto" or "Turtles fest")..", "
-                ..(c.autoPairPockets and "Pockets auto" or "Pockets fest") end,function() editDevices(c) end}
+                ..(c.autoPairPockets and "Pockets auto" or "Pockets fest")..(c.autoUpdate and ", Update auto" or "") end,function() editDevices(c) end}
+        end
+        if role=="controller" or role=="info" or role=="repeater" then
+            list[#list+1]={"GPS",function()
+                local g=c.gps
+                if g.host==false then return "aus" end
+                return g.set and ("Sender "..gpsText(g)) or "Sender, Position fehlt" end,
+                function()
+                    header("Nebenbei GPS-Sender")
+                    hint("Dieser Computer beantwortet GPS-")
+                    hint("Anfragen mit (spart GPS-Computer).")
+                    hint("Mind. 4 Sender insgesamt, nicht alle")
+                    hint("auf derselben Hoehe.")
+                    c.gps.host=yesno("Als GPS-Sender mitlaufen?",c.gps.host~=false)
+                    if c.gps.host then editGps(c);c.gps.set=true end
+                end}
         end
         return list
     end
