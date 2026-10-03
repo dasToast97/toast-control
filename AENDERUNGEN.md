@@ -1,5 +1,9 @@
 # Toast Control 3.4
 
+## 3.4.1
+- `wget run <link> auto` von Hand: installiert ohne Fragen **und startet Toast
+  danach wieder** (vorher blieb das Gerät nach dem Update an der Eingabe stehen).
+
 ## Neu in 3.4: Repeater und GPS-Sender im Netz
 
 - Neuer Reiter **Netz** in Zentrale und Pocket: alle Repeater, GPS-Sender,

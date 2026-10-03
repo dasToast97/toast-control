@@ -1,5 +1,5 @@
 local M={
-    version="3.4",
+    version="3.4.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -523,7 +523,7 @@ function M.selfUpdate(statusFn)
     local fn,why=load(code,"@install","t",_ENV)
     if not fn then return false,"Installer defekt: "..tostring(why) end
     say("Update","Installiere ...")
-    local okRun,res=pcall(fn,"auto")
+    local okRun,res=pcall(fn,"auto","intern")
     if not okRun then return false,"Update: "..tostring(res) end
     M.log("Update installiert, Neustart")
     error("TOAST_UPDATE",0)

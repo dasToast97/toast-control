@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.4.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.4",
+    version="3.4.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -653,7 +653,7 @@ function M.selfUpdate(statusFn)
     local fn,why=load(code,"@install","t",_ENV)
     if not fn then return false,"Installer defekt: "..tostring(why) end
     say("Update","Installiere ...")
-    local okRun,res=pcall(fn,"auto")
+    local okRun,res=pcall(fn,"auto","intern")
     if not okRun then return false,"Update: "..tostring(res) end
     M.log("Update installiert, Neustart")
     error("TOAST_UPDATE",0)
@@ -5646,7 +5646,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.4.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -5655,10 +5655,11 @@ local args={...}
 local requested,clean
 -- "auto": Update ohne Fragen (vom Update-Knopf der Zentrale ausgeloest).
 -- Behaelt Config, Fortschritt und Autostart; startet nichts selbst.
-local auto=false
+local auto,internal=false,false
 for _,a in ipairs(args) do
     a=a:lower()
     if a=="auto" then auto=true;clean=false
+    elseif a=="intern" then internal=true
     elseif a=="clean" or a=="neu" then clean=true
     elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="repeater" then requested=a
     else error("Optional: farm / mining / repeater / clean / auto",0) end
@@ -5918,8 +5919,13 @@ if role=="turtle" and (checked.job=="farm" or checked.job=="mining") then
 end
 print("")
 if auto then
-    -- Autostart wie vorher; Neustart uebernimmt das laufende Programm
+    -- Autostart wie vorher
     if hadStartup then local f=fs.open("/startup.lua","w");f.write(hadStartup);f.close() end
+    -- Vom Update-Knopf (laufendes Programm startet sich selbst neu): fertig.
+    -- Von Hand ("wget run ... auto"): Toast gleich wieder starten.
+    if internal or not shell then return true end
+    print("Starte Toast ...")
+    shell.run("/toast.lua")
     return true
 end
 if ui.yesno("Autostart einrichten?",true) then

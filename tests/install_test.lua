@@ -237,4 +237,17 @@ check("Antwort mit Koordinaten",#sent==1 and sent[1][1]==4711 and sent[1][2]==65
 resume("modem_message","top",65534,4711,"PING",nil)
 check("ohne Entfernung (Kabel) keine Antwort",#sent==1)
 
+print("X Von Hand 'auto': ohne Fragen, danach startet Toast")
+S=Sim.new({config=MINECFG,input={}});S.files={["/toast.config.lua"]=MINECFG,["/startup.lua"]="shell.run(\"/toast.lua\")\n"}
+do local G=env(S,true,7);local ran;G.shell={run=function(p)ran=p end}
+  local f=assert(load(src,"@inst","t",G));local okA,errA=pcall(f,"auto")
+  check("lief ohne Eingaben",okA,errA)
+  check("Toast gestartet",ran=="/toast.lua",ran)
+  check("Autostart behalten",S.files["/startup.lua"]~=nil) end
+print("X2 Vom Update-Knopf ('auto','intern'): startet NICHT selbst")
+S=Sim.new({config=MINECFG,input={}});S.files={["/toast.config.lua"]=MINECFG}
+do local G=env(S,true,7);local ran;G.shell={run=function(p)ran=p end}
+  local f=assert(load(src,"@inst","t",G));local okA=pcall(f,"auto","intern")
+  check("intern: kein Start",okA and ran==nil) end
+
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))
