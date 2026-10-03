@@ -1818,6 +1818,26 @@ function M.new(screen,cfg)
             end
             text(x+pad,mid,l,enabled and colors.white or colors.lightGray,b)
         end
+        -- Moderner Knopf mit runden Enden (Zeichen 145/157 = halbe Rundung links/rechts).
+        local color=screen.isColor and screen.isColor()
+        local function pill(x,y,width,label,action,bg,enabled,fgc)
+            if width<1 then return end
+            local b=enabled and bg or TRACK
+            local f=fgc or (enabled and colors.white or colors.gray)
+            if not enabled then f=colors.gray end
+            if width>=5 and color and #tostring(label)<=width-2 then
+                text(x,y,"\145",colors.black,b)
+                text(x+1,y,string.rep(" ",width-2),f,b)
+                text(x+width-1,y,"\157",b,colors.black)
+                local l=tostring(label):sub(1,width-2)
+                text(x+1+math.floor((width-2-#l)/2),y,l,f,b)
+            else
+                local l=tostring(label):sub(1,width)
+                text(x,y,string.rep(" ",width),f,b)
+                text(x+math.floor((width-#l)/2),y,l,f,b)
+            end
+            ui.buttons[#ui.buttons+1]={x=x,y=y,w=width,action=action,enabled=enabled}
+        end
         screen.setBackgroundColor(colors.black);screen.setTextColor(colors.white);screen.clear()
         if not confirming() then ui.confirm=nil end
         if ui.help then
@@ -1887,13 +1907,19 @@ function M.new(screen,cfg)
             local active=ui.filter==t[3]
             local width=i==#tabs and w-(#tabs-1)*tw or tw
             local lab=t[1].." "..t[2]
-            if #lab>width-1 then lab=t[1] end
-            button(1+(i-1)*tw,2,width,lab,"filter:"..t[3],active and colors.lightBlue or colors.gray,true)
+            if #lab>width-2 then lab=t[1] end
+            local x=1+(i-1)*tw
+            if active then pill(x,2,width,lab,"filter:"..t[3],colors.lightBlue,true,colors.black)
+            else
+                local l=lab:sub(1,width)
+                text(x+math.floor((width-#l)/2),2,l,colors.lightGray,colors.black)
+                ui.buttons[#ui.buttons+1]={x=x,y=2,w=width,action="filter:"..t[3],enabled=true}
+            end
         end
         local third=math.floor(w/3)
         -- Fusszeile: Hinweiszeile + grosse Tastenreihe + untere Reihe
         -- Grosse Bildschirme bekommen hoehere Knoepfe (leichter zu treffen).
-        local bh=h>=30 and 3 or h>=19 and 2 or 1
+        local bh=1
         local foot=h-1-bh
         local sel=ui.selected and entries[ui.selected]
         local job=sel and jobOf(sel) or (ui.filter~="all" and ui.filter) or nil
@@ -1911,13 +1937,15 @@ function M.new(screen,cfg)
             end
         end
         ui.state={canStart=canStart,canStop=canStop,faults=faultsT,running=running}
-        local tw=third
-        local startL=tw>=11 and "\16 STARTEN" or tw>=8 and "STARTEN" or "START"
-        local stopL=tw>=11 and "\7 STOPPEN" or tw>=8 and "STOPPEN" or "STOP"
-        local onceL=JOB[job] and JOB[job].once or "EINMAL"
-        if tw>=11 and JOB[job] then onceL="\26 "..onceL elseif tw>=11 then onceL="\26 EINMAL" end
+        local startL="Start"
+        local stopL="Stopp"
+        local onceL=JOB[job] and JOB[job].once or "Einmal"
+        onceL=onceL:sub(1,1)..onceL:sub(2):lower()
+        local gap=w>=30 and 2 or 1
+        local bw=math.floor((w-2*gap)/3)
         for i,b in ipairs({{startL,"start",colors.green,canStart},{stopL,"stop",colors.red,canStop},{onceL,"once",colors.blue,canStart}}) do
-            button(1+(i-1)*third,foot+1,i==3 and w-2*third or third,b[1],b[2],b[3],b[4],bh,i<3)
+            local x=1+(i-1)*(bw+gap)
+            pill(x,foot+1,i==3 and w-x+1 or bw,b[1],b[2],b[3],b[4])
         end
         local perPage
         -- ===== Detailansicht =====
@@ -1925,7 +1953,7 @@ function M.new(screen,cfg)
             local d=sel.data or {}
             local label,kind=M.state(sel,link)
             local name=(sel.label and sel.label~="" and sel.label or JOB[jobOf(sel)].name).." #"..ui.selected
-            button(1,3,w,(w>=30 and "\27 ZURUECK  |  " or "\27 ")..name,"group",colors.gray,true)
+            pill(1,3,math.min(w,#name+(w>=30 and 14 or 4)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
             fill(4,COLOR[kind])
             local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
             text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
@@ -2020,6 +2048,7 @@ function M.new(screen,cfg)
         end
         -- Hinweiszeile + untere Tastenreihe
         local info=tostring(notice or "")
+        if info:find("Warte auf Geraete",1,true) then info="" end
         local infoCol=colors.lightGray
         local goal=sel and "diese Turtle" or (ui.filter=="all" and "alle" or ("alle "..(JOB[ui.filter] and JOB[ui.filter].plural or ui.filter)))
         if confirming() then
@@ -2038,20 +2067,28 @@ function M.new(screen,cfg)
         local pages=ui.pages or 1
         local sure=confirming()
         -- Reset: orange, wenn es Fehler gibt ("Fehler loeschen"), sonst unauffaellig grau
-        local rbg=sure and colors.red or (faultsT>0 and colors.orange or colors.gray)
+        -- Reset als dezenter Knopf: dunkelgrau, Schrift orange bei Fehlern, rot bei Nachfrage
         local function resetLabel(width)
-            if sure then return width>=24 and "SICHER? NOCHMAL TIPPEN" or "SICHER?" end
-            if faultsT>0 then return width>=24 and "FEHLER LOESCHEN + HEIM" or width>=15 and "FEHLER LOESCHEN" or width>=10 and "FEHLER WEG" or "RESET" end
-            return width>=24 and "RESET (STOPP + HEIM)" or "RESET"
+            if sure then return width>=22 and "Sicher? Nochmal tippen" or "Sicher?" end
+            if faultsT>0 then return width>=22 and "Fehler loeschen + heim" or width>=17 and "Fehler loeschen" or "Reset" end
+            return width>=20 and "Reset (Stopp + heim)" or "Reset"
         end
+        local rfg=sure and colors.white or (faultsT>0 and colors.orange or colors.lightGray)
+        local rbg=sure and colors.red or colors.gray
         local y2=h
         if not sel and pages>1 then
-            button(1,y2,third,"\27","pageprev",colors.gray,ui.page>1,1,true)
-            button(1+third,y2,third,resetLabel(third-1),"reset",rbg,link and #ids>0,1,true)
-            button(1+2*third,y2,w-2*third,ui.page.."/"..pages.." \26","pagenext",colors.gray,ui.page<pages)
+            local pw=math.max(5,math.floor(w/6))
+            pill(1,y2,pw,"\27","pageprev",colors.gray,ui.page>1,colors.white)
+            pill(w-pw+1,y2,pw,"\26","pagenext",colors.gray,ui.page<pages,colors.white)
+            local mw=w-2*pw-2*gap
+            local lab=resetLabel(mw-2)
+            pill(pw+gap+1,y2,mw,lab,"reset",rbg,link and #ids>0,rfg)
         else
-            button(1,y2,w,resetLabel(w),"reset",rbg,link and #ids>0)
+            local lab=resetLabel(w-2)
+            local rw=math.min(w,math.max(#lab+6,bw))
+            pill(math.floor((w-rw)/2)+1,y2,rw,lab,"reset",rbg,link and #ids>0,rfg)
         end
+        if not sel and pages>1 then right(foot,ui.page.."/"..pages,colors.gray) end
     end
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)

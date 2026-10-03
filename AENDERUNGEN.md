@@ -1,16 +1,16 @@
 # Toast Control 3.0
 
-## Update 3.1.3: Knöpfe übersichtlicher
+## Update 3.1.3: Knöpfe schlicht und modern
 
-- **Größere Knöpfe** auf großen Bildschirmen (2–3 Zeilen hoch), mit kleinem
-  Abstand dazwischen – leichter zu treffen am Monitor.
-- **Klare Beschriftung**: STARTEN / STOPPEN / EINMAL (bzw. 1 Runde, 1 Gang),
-  mit Symbolen, wenn Platz ist.
+- **Runde Knöpfe** (abgerundete Enden), eine Zeile hoch, mit Abstand dazwischen.
+- Beschriftung schlicht: Start / Stopp / Einmal (bzw. 1 Runde, 1 Gang).
+- **Reiter**: nur der aktive ist hinterlegt, die anderen als ruhiger Text.
 - **Nur was geht, ist aktiv**: STARTEN ist grau, wenn alle Ziele schon laufen;
   STOPPEN ist grau, wenn nichts läuft.
-- **Reset** heißt jetzt je nach Lage „FEHLER LOESCHEN + HEIM“ (orange, wenn es
-  Fehler gibt) oder „RESET (STOPP + HEIM)“ (grau). Weiterhin mit Sicherheitsabfrage.
-- Detailansicht: „← ZURUECK | Name“ oben.
+- **Reset** als dezenter grauer Knopf in der Mitte: „Fehler loeschen + heim“
+  (orange Schrift, wenn es Fehler gibt) oder „Reset (Stopp + heim)“.
+  Weiterhin mit Sicherheitsabfrage.
+- Detailansicht: runder „← Zurueck  Name“-Knopf oben.
 - Meldungen verständlicher: „Start an 3 Turtles gesendet …“, „Befehl bestätigt“,
   „Keine Antwort von 1 Turtle (Funk/Chunk?)“.
 

@@ -20,7 +20,7 @@ for _,sz in ipairs({{26,18},{39,13},{26,20},{79,38}})do
   local found=false;for _,b in ipairs(ui.buttons)do if b.action=="reset" and b.enabled then found=true end end
   local okSmall=sz[2]<18
   assert(found or okSmall,"reset button "..sz[1].."x"..sz[2])
-  if found then assert(ui.click(1,sz[2])=="reset","reset unten") end
+  if found then assert(ui.click(math.floor(sz[1]/2),sz[2])=="reset","reset unten") end
   print("UI "..sz[1].."x"..sz[2].." ok"..(okSmall and " (Mindestgroesse-Hinweis)" or ""))
 end
 assert(G.dofile("/toast/toast_ui.lua").new({},cfg).keys["4"]=="reset")
