@@ -333,7 +333,7 @@ function S.new(common)
             hint("Noetig, damit sie START hoert, wenn")
             hint("niemand in der Naehe ist (z.B. Nether)")
             cl.idle=yesno("An der Basis wach",(not wasOn) or cl.idle==true)
-            hint("Anbau: Chunkloader + "..(job=="farm" and "Werkzeug" or "Spitzhacke"))
+            hint("Anbau: Chunkloader + "..(({farm="Hacke",tree="Axt",mob="Schwert"})[job] or "Spitzhacke"))
             hint("Funkmodem ins Turtle-Inventar legen.")
             sleep(1.5)
         end
@@ -457,7 +457,7 @@ function S.new(common)
         elseif role=="turtle" then
             list[#list+1]={"Feld",function() return farmText(c.farm) end,function() editFarm(c) end}
         end
-        if role=="turtle" and (job=="farm" or job=="mining") then
+        if role=="turtle" then
             list[#list+1]={"Chunks",function() return chunkText(c.chunkload) end,function() editChunks(c,job) end}
         end
         if role=="turtle" then

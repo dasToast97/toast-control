@@ -1,5 +1,5 @@
 local M={
-    version="3.9.3",
+    version="3.10",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -198,7 +198,7 @@ function M.configText(c)
             {"facing","Blick an der Basis: north/east/south/west"},
             {"dimension","\"auto\", \"overworld\", \"nether\" oder \"end\""}},c.base)
     end
-    if role=="turtle" and (job=="farm" or job=="mining") then
+    if role=="turtle" then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
             {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
             {"idle","true = auch an der Basis wach"},{"wakeOnWorldLoad","nach Serverneustart weiter"},

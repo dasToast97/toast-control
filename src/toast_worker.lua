@@ -79,6 +79,18 @@ function W.new(o)
         st.layout=o.layout
     end
     w.save()
+    -- Chunkloader (Mod CCChunkloader): eine Seite Chunkloader, die andere wechselt
+    -- zwischen Werkzeug (nur beim Abbauen/Angreifen) und Modem (sonst immer).
+    local CL=common.chunkConfig(cfg.chunkload)
+    local G
+    local lastTool=-1e9
+    if CL.enabled and o.tools then
+        local set=setmetatable({},{__index=function(_,k) return o.tools(k) or nil end})
+        local why;G,why=common.gear(CL,set)
+        assert(G,why)
+        assert(G.radio(),"Chunkloader: Funk-/Endermodem ins Turtle-Inventar legen.")
+    end
+    w.gear=G
     common.modem()
 
     -- ===== Laufzustand =====
@@ -123,6 +135,7 @@ function W.new(o)
     function w.items() local n=0;for i=1,16 do n=n+turtle.getItemCount(i) end;return n end
     -- Werkzeug aus dem Inventar anlegen (Seite ohne Modem)
     function w.equipTool(tools)
+        if G then lastTool=os.clock();return G.tool() end
         for i=1,16 do
             local it=turtle.getItemDetail(i)
             if it and tools(it.name) then
@@ -244,7 +257,8 @@ function W.new(o)
         end
         function T.fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
         function T.homeCost()
-            if st.trail then return #st.trail+CLIMB+20+(opt.extraCost or 0) end
+            local drain=G and math.ceil(G.perSecond()*60) or 0
+            if st.trail then return #st.trail+CLIMB+20+(opt.extraCost or 0)+drain end
             return (math.abs(st.x)+math.abs(st.z))*3+math.abs(st.y)+CLIMB*3+40+(opt.extraCost or 0)
         end
         function T.startTrail() st.trail={};idx={} end
@@ -437,6 +451,7 @@ function W.new(o)
             mode=run.mode,recovery=run.recovery,ack=st.commandSerial or 0,fault=run.fault,retries=run.retries,
             contactAge=math.max(0,math.floor(os.clock()-run.lastContact)),radioTimeout=radioTimeout,
             fuel=turtle.getFuelLevel(),freeSlots=w.freeSlots(),x=st.x,y=st.y,z=st.z,
+            chunks=G and (G.radius>0 and CL.chunks or 0) or nil,chunkFuel=G and math.floor(G.perSecond()*3600+0.5) or nil,
             total=st.total or 0,harvested=st.harvested or 0,rounds=st.rounds or 0,
             scanned=run.scanned,cells=run.cells,wait=math.max(0,math.ceil(run.waitUntil-os.clock()))}
         if o.extra then for k,v in pairs(o.extra()) do s[k]=v end end
@@ -480,7 +495,16 @@ function W.new(o)
             end
         end
     end
-    local function heartbeat() while true do common.refreshModems();sendStatus();sleep(2) end end
+    -- Chunks laden: bei Arbeit, unterwegs, bei neuem Versuch; an der Basis nur mit
+    -- chunkload.idle ("An der Basis wach"). Modem zurueck, sobald kein Werkzeug gebraucht wird.
+    local function chunkTick()
+        if not G then return end
+        local need=run.mode~="off" or not w.isHome() or (run.fault~=nil and run.retryAt~=nil) or CL.idle
+        G.set(need and CL.radius or 0)
+        if os.clock()-lastTool>3 then G.radio() end
+    end
+    w.chunkTick=chunkTick
+    local function heartbeat() while true do pcall(chunkTick);common.refreshModems();sendStatus();sleep(2) end end
 
     -- ===== Ablauf =====
     -- Warten, solange aktiv (fuer Pausen zwischen Runden)

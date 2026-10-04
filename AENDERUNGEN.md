@@ -1,3 +1,18 @@
+# Toast Control 3.10
+
+## Dauerhaft online: Chunkloader für alle Turtles
+
+- „Offline“ heißt: Die Zentrale hört 15 s nichts. Bei einer Turtle, die an der
+  Basis wartet, liegt das fast immer am **entladenen Chunk** (kein Spieler in
+  der Nähe) – die Turtle steht dann komplett still.
+- **Chunkloader jetzt auch für Holz, Mobs (Wache/Wächter/Mobfarm) und Aushub**
+  (vorher nur Farm und Mine). Menü `toast.lua config` -> **Chunks** -> 1 Chunk,
+  **„An der Basis wach“ = j** -> bleibt dauerhaft online.
+- Ausrüstung wie bei der Mine: eine Seite Chunkloader, die andere wechselt
+  zwischen Werkzeug (Schwert/Axt/Spitzhacke, nur beim Kämpfen/Abbauen) und
+  Endermodem (sonst immer) – beide ins Inventar legen.
+- Offline-Turtles zeigen in den Details den Hinweis, was zu tun ist.
+
 # Toast Control 3.9.3
 
 - **Mine: Abladekisten werden gemerkt.** Jede unterwegs gesetzte Kiste wird

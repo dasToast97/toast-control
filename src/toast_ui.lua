@@ -221,7 +221,7 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     P.text(2,3,label,colors.black,COLOR[kind])
     local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
     if why then P.text(2,4,tostring(why),colors.black,COLOR[kind]) end
-    local det=kind=="off" and "Keine Daten - offline oder Chunk entladen" or tostring(d.detail or "")
+    local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
     local y=6
     while #det>0 and y<=7 do P.text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
     -- Fortschritt (nicht bei Mobfarm/Wache: dort gibt es keine Runde)
@@ -648,7 +648,7 @@ function M.new(screen,cfg)
             local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
             text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
             -- Detailtext umbrechen (max. 2 Zeilen)
-            local det=kind=="off" and "Keine Daten - Turtle offline oder Chunk entladen" or tostring(d.detail or "")
+            local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
             local y=5
             while #det>0 and y<=6 do text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
             y=7

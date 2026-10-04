@@ -201,7 +201,14 @@ end
 -- ===== Bewegung =====
 local INSPECT={forward=turtle.inspect,up=turtle.inspectUp,down=turtle.inspectDown}
 local PLACE={forward=turtle.place,up=turtle.placeUp,down=turtle.placeDown}
-local DIG={forward=turtle.dig,up=turtle.digUp,down=turtle.digDown}
+local RAWDIG={forward=turtle.dig,up=turtle.digUp,down=turtle.digDown}
+-- Abbauen; mit Chunkloader liegt evtl. das Modem an -> Spitzhacke anlegen, nochmal
+local DIG={}
+for k,f in pairs(RAWDIG) do DIG[k]=function()
+    local ok,why=f()
+    if not ok and tostring(why):find("No tool",1,true) and w.equipTool(isTool) then ok,why=f() end
+    return ok,why
+end end
 local function placeFill(kind)
     local slot=w.find(isFill)
     if not slot then st.noFill=true;return false end

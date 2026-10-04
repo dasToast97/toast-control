@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.9.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.10 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.9.3",
+    version="3.10",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -341,7 +341,7 @@ function M.configText(c)
             {"facing","Blick an der Basis: north/east/south/west"},
             {"dimension","\"auto\", \"overworld\", \"nether\" oder \"end\""}},c.base)
     end
-    if role=="turtle" and (job=="farm" or job=="mining") then
+    if role=="turtle" then
         section("chunkload","Chunks laden (Mod CCChunkloader)",{
             {"enabled","true = arbeitet auch ohne Spieler"},{"chunks","1 / 9 / 21 (1 reicht, wandert mit)"},
             {"idle","true = auch an der Basis wach"},{"wakeOnWorldLoad","nach Serverneustart weiter"},
@@ -1316,7 +1316,7 @@ function S.new(common)
             hint("Noetig, damit sie START hoert, wenn")
             hint("niemand in der Naehe ist (z.B. Nether)")
             cl.idle=yesno("An der Basis wach",(not wasOn) or cl.idle==true)
-            hint("Anbau: Chunkloader + "..(job=="farm" and "Werkzeug" or "Spitzhacke"))
+            hint("Anbau: Chunkloader + "..(({farm="Hacke",tree="Axt",mob="Schwert"})[job] or "Spitzhacke"))
             hint("Funkmodem ins Turtle-Inventar legen.")
             sleep(1.5)
         end
@@ -1440,7 +1440,7 @@ function S.new(common)
         elseif role=="turtle" then
             list[#list+1]={"Feld",function() return farmText(c.farm) end,function() editFarm(c) end}
         end
-        if role=="turtle" and (job=="farm" or job=="mining") then
+        if role=="turtle" then
             list[#list+1]={"Chunks",function() return chunkText(c.chunkload) end,function() editChunks(c,job) end}
         end
         if role=="turtle" then
@@ -2174,7 +2174,7 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     P.text(2,3,label,colors.black,COLOR[kind])
     local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
     if why then P.text(2,4,tostring(why),colors.black,COLOR[kind]) end
-    local det=kind=="off" and "Keine Daten - offline oder Chunk entladen" or tostring(d.detail or "")
+    local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
     local y=6
     while #det>0 and y<=7 do P.text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
     -- Fortschritt (nicht bei Mobfarm/Wache: dort gibt es keine Runde)
@@ -2601,7 +2601,7 @@ function M.new(screen,cfg)
             local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
             text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
             -- Detailtext umbrechen (max. 2 Zeilen)
-            local det=kind=="off" and "Keine Daten - Turtle offline oder Chunk entladen" or tostring(d.detail or "")
+            local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
             local y=5
             while #det>0 and y<=6 do text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
             y=7
@@ -5277,6 +5277,18 @@ function W.new(o)
         st.layout=o.layout
     end
     w.save()
+    -- Chunkloader (Mod CCChunkloader): eine Seite Chunkloader, die andere wechselt
+    -- zwischen Werkzeug (nur beim Abbauen/Angreifen) und Modem (sonst immer).
+    local CL=common.chunkConfig(cfg.chunkload)
+    local G
+    local lastTool=-1e9
+    if CL.enabled and o.tools then
+        local set=setmetatable({},{__index=function(_,k) return o.tools(k) or nil end})
+        local why;G,why=common.gear(CL,set)
+        assert(G,why)
+        assert(G.radio(),"Chunkloader: Funk-/Endermodem ins Turtle-Inventar legen.")
+    end
+    w.gear=G
     common.modem()
 
     -- ===== Laufzustand =====
@@ -5321,6 +5333,7 @@ function W.new(o)
     function w.items() local n=0;for i=1,16 do n=n+turtle.getItemCount(i) end;return n end
     -- Werkzeug aus dem Inventar anlegen (Seite ohne Modem)
     function w.equipTool(tools)
+        if G then lastTool=os.clock();return G.tool() end
         for i=1,16 do
             local it=turtle.getItemDetail(i)
             if it and tools(it.name) then
@@ -5442,7 +5455,8 @@ function W.new(o)
         end
         function T.fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
         function T.homeCost()
-            if st.trail then return #st.trail+CLIMB+20+(opt.extraCost or 0) end
+            local drain=G and math.ceil(G.perSecond()*60) or 0
+            if st.trail then return #st.trail+CLIMB+20+(opt.extraCost or 0)+drain end
             return (math.abs(st.x)+math.abs(st.z))*3+math.abs(st.y)+CLIMB*3+40+(opt.extraCost or 0)
         end
         function T.startTrail() st.trail={};idx={} end
@@ -5635,6 +5649,7 @@ function W.new(o)
             mode=run.mode,recovery=run.recovery,ack=st.commandSerial or 0,fault=run.fault,retries=run.retries,
             contactAge=math.max(0,math.floor(os.clock()-run.lastContact)),radioTimeout=radioTimeout,
             fuel=turtle.getFuelLevel(),freeSlots=w.freeSlots(),x=st.x,y=st.y,z=st.z,
+            chunks=G and (G.radius>0 and CL.chunks or 0) or nil,chunkFuel=G and math.floor(G.perSecond()*3600+0.5) or nil,
             total=st.total or 0,harvested=st.harvested or 0,rounds=st.rounds or 0,
             scanned=run.scanned,cells=run.cells,wait=math.max(0,math.ceil(run.waitUntil-os.clock()))}
         if o.extra then for k,v in pairs(o.extra()) do s[k]=v end end
@@ -5678,7 +5693,16 @@ function W.new(o)
             end
         end
     end
-    local function heartbeat() while true do common.refreshModems();sendStatus();sleep(2) end end
+    -- Chunks laden: bei Arbeit, unterwegs, bei neuem Versuch; an der Basis nur mit
+    -- chunkload.idle ("An der Basis wach"). Modem zurueck, sobald kein Werkzeug gebraucht wird.
+    local function chunkTick()
+        if not G then return end
+        local need=run.mode~="off" or not w.isHome() or (run.fault~=nil and run.retryAt~=nil) or CL.idle
+        G.set(need and CL.radius or 0)
+        if os.clock()-lastTool>3 then G.radio() end
+    end
+    w.chunkTick=chunkTick
+    local function heartbeat() while true do pcall(chunkTick);common.refreshModems();sendStatus();sleep(2) end end
 
     -- ===== Ablauf =====
     -- Warten, solange aktiv (fuer Pausen zwischen Runden)
@@ -6043,7 +6067,8 @@ local function strike()
     local hit=false
     for _,d in ipairs(DIRS) do
         for _=1,20 do
-            local ok=ATTACK[d]()
+            local ok,why=ATTACK[d]()
+            if not ok and tostring(why):find("No tool",1,true) and w.equipTool(isTool) then ok=ATTACK[d]() end
             if not ok then break end
             hit=true;st.harvested=(st.harvested or 0)+1
         end
@@ -6427,7 +6452,14 @@ end
 -- ===== Bewegung =====
 local INSPECT={forward=turtle.inspect,up=turtle.inspectUp,down=turtle.inspectDown}
 local PLACE={forward=turtle.place,up=turtle.placeUp,down=turtle.placeDown}
-local DIG={forward=turtle.dig,up=turtle.digUp,down=turtle.digDown}
+local RAWDIG={forward=turtle.dig,up=turtle.digUp,down=turtle.digDown}
+-- Abbauen; mit Chunkloader liegt evtl. das Modem an -> Spitzhacke anlegen, nochmal
+local DIG={}
+for k,f in pairs(RAWDIG) do DIG[k]=function()
+    local ok,why=f()
+    if not ok and tostring(why):find("No tool",1,true) and w.equipTool(isTool) then ok,why=f() end
+    return ok,why
+end end
 local function placeFill(kind)
     local slot=w.find(isFill)
     if not slot then st.noFill=true;return false end
@@ -6897,7 +6929,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.9.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.10 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

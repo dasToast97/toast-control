@@ -46,7 +46,8 @@ local function strike()
     local hit=false
     for _,d in ipairs(DIRS) do
         for _=1,20 do
-            local ok=ATTACK[d]()
+            local ok,why=ATTACK[d]()
+            if not ok and tostring(why):find("No tool",1,true) and w.equipTool(isTool) then ok=ATTACK[d]() end
             if not ok then break end
             hit=true;st.harvested=(st.harvested or 0)+1
         end

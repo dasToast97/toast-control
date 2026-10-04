@@ -192,4 +192,25 @@ check("nie in Lava gefahren",S.inLava==0,S.inLava)
 check("trotzdem viel unterwegs",(st.targets or 0)>=5,st.targets)
 check("zu Hause",S.p.x==0 and S.p.z==0 and S.p.y==0)
 
+print("M11 Wache mit Chunkloader: Schwert nur zum Kaempfen, sonst Modem; Chunk bleibt geladen")
+local function mobcfg(mob,cl) return [[return {role="turtle",job="mob",controllerId=4,name="Mob Test",
+    network={pollInterval=1,staleAfter=15,commandTimeout=10,maxDevices=256},chunkload=]]..cl..[[,mob=]]..mob..[[}]] end
+S=Sim.new({config=mobcfg([[{mode="guard",attack="front",length=12,width=12,side="right",interval=30,fuelTarget=500,radioTimeout=0}]],
+    "{enabled=true,chunks=1,idle=true,reportEvery=10}"),
+    default=false,fuel=3000,gear={left="ccchunkloader:chunkloader",right="computercraft:wireless_modem_advanced"},
+    actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},{t=10,fn=function(S)S.enemies=4 end},
+        {t=40,fn=function(S)S.eq40=S.equipCount or 0 end},{t=60,fn=function(S)Sim.cmd(S,"stop",11)end}}})
+S.protocol="toast.mob.v1"
+S.inv[5]={name="minecraft:diamond_sword",count=1}
+do local at=S.turtle.attack
+  S.turtle.attack=function() if S.equip.left~="minecraft:diamond_sword" and S.equip.right~="minecraft:diamond_sword" then return false,"No tool to attack with" end;return at() end end
+Sim.run(S,90)
+check("Mobs besiegt (Schwert selbst angelegt)",S.kills==4,tostring(S.kills).." "..tail(S))
+check("Modem und Schwert wechseln sich ab (Funk bleibt erreichbar)",(S.equipCount or 0)>=4 and (S.equipCount or 0)>(S.eq40 or 0),tostring(S.equipCount))
+local polls=0;for _,m in ipairs(S.sent) do if m.msg.kind=="status" then polls=polls+1 end end
+check("meldet sich regelmaessig",polls>=20,polls)
+check("Chunk geladen (auch an der Basis, idle)",S.cl.radius>0,S.cl.radius)
+check("Chunkloader bleibt dran",S.equip.left=="ccchunkloader:chunkloader")
+check("Status zeigt Chunks",S.last and S.last.chunks==1,S.last and S.last.chunks)
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

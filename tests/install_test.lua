@@ -187,7 +187,7 @@ S=Sim.new({config=MINECFG,input={"1","3","4","1","Birken","3","6","3","r","","20
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Holz-Config gespeichert",kc and kc.job=="tree" and kc.tree.length==6 and kc.tree.width==3 and kc.tree.side=="right"
-  and kc.tree.interval==60 and kc.tree.replant==true and kc.tree.maxHeight==20 and not kc.mine and not kc.farm and not kc.chunkload,err)
+  and kc.tree.interval==60 and kc.tree.replant==true and kc.tree.maxHeight==20 and not kc.mine and not kc.farm,err)
 check("Holz-Programme installiert (+ alle anderen fuer Aufgabenwechsel)",S.files["/toast/tree_turtle.lua"] and S.files["/toast/toast_worker.lua"] and S.files["/toast/mine_turtle.lua"] and S.files["/toast/mob_turtle.lua"] and S.files["/toast/farm_turtle.lua"])
 S.T=0;S.timers={};S.queue={};S.input={};S.protocol="toast.tree.v1"
 S.actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}
