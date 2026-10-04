@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.8 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.8.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.8",
+    version="3.8.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -3352,8 +3352,16 @@ end
 local function active()
     maybeUpdate()
     -- radioTimeout = 0: auch ohne Zentrale weiterarbeiten.
-    if run.mode ~= "off" and CFG.radioTimeout > 0 and os.clock() - run.lastContact > CFG.radioTimeout then
-        fail("Funkverbindung verloren")
+    -- Mit Chunkloader: nur Funkfenster ohne Antwort zaehlen (siehe radioWindow).
+    if run.mode ~= "off" and CFG.radioTimeout > 0 then
+        if GEAR then
+            if os.clock() - run.lastContact < 3 then run.radioMiss = 0 end
+            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, CL.report))) then
+                fail("Funkverbindung verloren")
+            end
+        elseif os.clock() - run.lastContact > CFG.radioTimeout then
+            fail("Funkverbindung verloren")
+        end
     end
     return run.mode ~= "off" and not run.recovery
 end
@@ -3574,7 +3582,11 @@ local lastRadio = os.clock()
 -- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
 local function radioWindow()
     if not GEAR or os.clock() - lastRadio < CL.report then return end
-    if GEAR.radio() then sendStatus(); sleep(1.5) end
+    if GEAR.radio() then
+        local t0 = os.clock()
+        sendStatus(); sleep(1.5)
+        if run.lastContact >= t0 then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end
+    end
     lastRadio = os.clock()
 end
 local function scan()
@@ -4081,7 +4093,14 @@ end
 local function active()
     maybeUpdate()
     -- radioTimeout=0: auch ohne Zentrale weiterarbeiten (z.B. Zentrale in entladenem Chunk).
-    if run.mode~="off" and C.radioTimeout>0 and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
+    -- Mit Chunkloader ist das Modem nur kurz angelegt (Funkfenster): dann zaehlen nur
+    -- Funkfenster ohne Antwort, nicht die Zeit (lange Wege ohne Fenster sind normal).
+    if run.mode~="off" and C.radioTimeout>0 then
+        if GEAR then
+            if os.clock()-run.lastContact<3 then run.radioMiss=0 end
+            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,CL.report))) then fail("Funkverbindung verloren") end
+        elseif os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
+    end
     return run.mode~="off" and not run.recovery
 end
 local function action(kind,fn,update)
@@ -4764,7 +4783,11 @@ local lastRadio=os.clock()
 -- Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
 local function radioWindow()
     if not GEAR or os.clock()-lastRadio<CL.report then return end
-    if GEAR.radio() then sendStatus();sleep(1.5) end
+    if GEAR.radio() then
+        local t0=os.clock()
+        sendStatus();sleep(1.5)
+        if run.lastContact>=t0 then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end
+    end
     lastRadio=os.clock()
 end
 local function work()
@@ -6737,7 +6760,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.8 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.8.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

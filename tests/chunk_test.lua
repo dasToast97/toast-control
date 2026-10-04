@@ -37,6 +37,24 @@ check("Chunkloader bleibt angebaut",S.equip.left=="ccchunkloader:chunkloader")
 check("wakeOnWorldLoad gesetzt",S.cl.wake==true)
 check("Ausruestung wurde getauscht",(S.equipCount or 0)>=2,S.equipCount)
 
+print("C1b Lange Schritte ohne Funkfenster (> radioTimeout) -> kein falscher Funkabbruch")
+S=Sim.new({config=cfg("mining",CL1),fuel=6000,gear={left="ccchunkloader:chunkloader",right="minecraft:diamond_pickaxe"},
+  actions={{t=3,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.inv[16]={name="computercraft:wireless_modem_advanced",count=1};S.protocol="toast.mine.v1"
+do
+  local orig=Sim.env
+  Sim.env=function(S2) local G=orig(S2)
+    local dig=G.turtle.dig;local n=0
+    G.turtle.dig=function(...) n=n+1;local a,b=dig(...);if a and n%15==0 then G.sleep(25) end;return a,b end
+    return G end
+  Sim.run(S,6000)
+  Sim.env=orig
+end
+st=load("return "..S.files["/toast_mining_state"])()
+local lost=false;for _,m in ipairs(S.sent) do if type(m.msg)=="table" and tostring(m.msg.fault):find("Funk",1,true) then lost=true end end
+check("Mine trotz langer Schritte fertig",st.next==61 and S.last and not S.last.fault,st.next.." "..tostring(S.last and S.last.fault))
+check("nie \"Funkverbindung verloren\"",not lost)
+
 print("C2 STOP waehrend der Arbeit kommt trotz Modem-Tausch an")
 S=Sim.new({config=cfg("mining",CL1),fuel=6000,gear={left="ccchunkloader:chunkloader",right="minecraft:diamond_pickaxe"},
   actions={{t=3,fn=function(S)Sim.cmd(S,"start",10)end},{t=25,fn=function(S)Sim.cmd(S,"stop",11)end}}})

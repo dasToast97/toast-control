@@ -207,8 +207,16 @@ end
 local function active()
     maybeUpdate()
     -- radioTimeout = 0: auch ohne Zentrale weiterarbeiten.
-    if run.mode ~= "off" and CFG.radioTimeout > 0 and os.clock() - run.lastContact > CFG.radioTimeout then
-        fail("Funkverbindung verloren")
+    -- Mit Chunkloader: nur Funkfenster ohne Antwort zaehlen (siehe radioWindow).
+    if run.mode ~= "off" and CFG.radioTimeout > 0 then
+        if GEAR then
+            if os.clock() - run.lastContact < 3 then run.radioMiss = 0 end
+            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, CL.report))) then
+                fail("Funkverbindung verloren")
+            end
+        elseif os.clock() - run.lastContact > CFG.radioTimeout then
+            fail("Funkverbindung verloren")
+        end
     end
     return run.mode ~= "off" and not run.recovery
 end
@@ -429,7 +437,11 @@ local lastRadio = os.clock()
 -- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
 local function radioWindow()
     if not GEAR or os.clock() - lastRadio < CL.report then return end
-    if GEAR.radio() then sendStatus(); sleep(1.5) end
+    if GEAR.radio() then
+        local t0 = os.clock()
+        sendStatus(); sleep(1.5)
+        if run.lastContact >= t0 then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end
+    end
     lastRadio = os.clock()
 end
 local function scan()

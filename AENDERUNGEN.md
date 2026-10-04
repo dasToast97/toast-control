@@ -1,3 +1,12 @@
+# Toast Control 3.8.1
+
+- **Fehler behoben: falsches „Funkverbindung verloren“ mit Chunkloader.**
+  Mit Chunkloader + Werkzeug legt die Turtle ihr Modem nur kurz an (alle 10 s
+  ein Funkfenster). Bei langen Wegen (z.B. Heimweg aus einer langen Mine) gab es
+  über 60 s kein Fenster – die Turtle hielt das fälschlich für Funkverlust.
+  Jetzt zählen nur Funkfenster, in denen die Zentrale nicht antwortet
+  (Mine und Farm).
+
 # Toast Control 3.8
 
 ## Aushub: Wände, Boden und Decke verkleiden

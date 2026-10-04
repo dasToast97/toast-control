@@ -244,7 +244,14 @@ end
 local function active()
     maybeUpdate()
     -- radioTimeout=0: auch ohne Zentrale weiterarbeiten (z.B. Zentrale in entladenem Chunk).
-    if run.mode~="off" and C.radioTimeout>0 and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
+    -- Mit Chunkloader ist das Modem nur kurz angelegt (Funkfenster): dann zaehlen nur
+    -- Funkfenster ohne Antwort, nicht die Zeit (lange Wege ohne Fenster sind normal).
+    if run.mode~="off" and C.radioTimeout>0 then
+        if GEAR then
+            if os.clock()-run.lastContact<3 then run.radioMiss=0 end
+            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,CL.report))) then fail("Funkverbindung verloren") end
+        elseif os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
+    end
     return run.mode~="off" and not run.recovery
 end
 local function action(kind,fn,update)
@@ -927,7 +934,11 @@ local lastRadio=os.clock()
 -- Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
 local function radioWindow()
     if not GEAR or os.clock()-lastRadio<CL.report then return end
-    if GEAR.radio() then sendStatus();sleep(1.5) end
+    if GEAR.radio() then
+        local t0=os.clock()
+        sendStatus();sleep(1.5)
+        if run.lastContact>=t0 then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end
+    end
     lastRadio=os.clock()
 end
 local function work()
