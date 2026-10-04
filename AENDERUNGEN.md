@@ -1,3 +1,17 @@
+# Toast Control 3.9.1
+
+## Mobs: Beute einsammeln und abliefern
+
+- Mob-Turtles sammeln Drops und herumliegende Items **vorne, oben und unten**
+  ein (vorher nur in Angriffsrichtung) – auch der Wächter unterwegs bei jedem
+  Schritt und beim Umsehen.
+- **Wächter:** Ist das Inventar fast voll, fährt er zur Basis, liefert alles in
+  die Kiste unten ab und patrouilliert weiter.
+- **Wache / Mobfarm:** liefern in die Kiste UNTER der Turtle. Fehlt die Kiste
+  und das Inventar ist voll, meldet sie „Lager voll“ und wehrt trotzdem weiter ab.
+- Saugt nie aus der Kohlekiste oder der Ausgabekiste.
+- Zentrale zeigt „abgeliefert“, „dabei“ und „aufgesammelt“.
+
 # Toast Control 3.9
 
 ## Aufgabe einer Turtle wechseln (z.B. Mine -> Mobs)

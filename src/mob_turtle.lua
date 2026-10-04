@@ -35,7 +35,7 @@ w=W.new({job="mob",cfg=cfg,section=C,stateFile="/toast_mob_state",args={...},cel
     readyText=PATROL and "START: patrouilliert bis Tank leer, tankt, weiter | 1x: eine Tankfuellung"
         or "START: Dauerbetrieb | 1x: bis keine Mobs mehr da",
     extra=function() return {mobMode=C.mode,hits=w and w.st.harvested or 0,lastHit=math.floor(os.clock()-lastHit),
-        targets=w and w.st.targets or 0} end,
+        targets=w and w.st.targets or 0,looted=w and w.st.looted or 0,carried=w and w.items() or 0} end,
     round=function() return round() end,
     idleHome=function() return idleHome() end,
     idleBase=function() return idleBase() end})
@@ -53,12 +53,32 @@ local function strike()
     end
     return hit
 end
+-- Drops/Items einsammeln: vorne, oben und unten (immer alle drei, auch wenn nur
+-- nach vorne angegriffen wird). Mehrmals, weil jedes Mal nur ein Stapel kommt.
 local function collect()
-    for _,d in ipairs(DIRS) do pcall(SUCK[d]) end
+    local got=0
+    local INS={front=turtle.inspect,up=turtle.inspectUp,down=turtle.inspectDown}
+    for _,d in ipairs({"front","up","down"}) do
+        -- nie aus Kisten saugen (Kohlekiste oben, Ausgabekiste unten)
+        local box=w and w.container(INS[d])
+        for _=1,box and 0 or 8 do
+            if w and w.freeSlots()==0 then return got end
+            local ok,r=pcall(SUCK[d])
+            if not ok or not r then break end
+            got=got+1
+        end
+    end
+    if got>0 and w then w.st.looted=(w.st.looted or 0)+got end
+    return got
 end
 local function hasChest() return w.container(turtle.inspectDown) end
 local function stash(force)
-    if not hasChest() or w.items()==0 then return true end
+    if not hasChest() then
+        -- Ohne Kiste unter der Turtle: weiter verteidigen, aber Hinweis wenn voll
+        if w.freeSlots()==0 then w.status("Lager voll","Kiste UNTER die Turtle stellen, dann laedt sie die Drops ab.") end
+        return true
+    end
+    if w.items()==0 then return true end
     if force or w.freeSlots()<=2 or os.clock()-lastUnload>=30 then
         lastUnload=os.clock()
         local before=w.items()
@@ -86,7 +106,11 @@ local function stand()
             sleep(0.2)
         else
             collect()
-            w.status("Wache",C.mode=="farm" and "Warte auf Mobs in der Farm." or "Halte Wache.")
+            if w.freeSlots()==0 and not hasChest() then
+                w.status("Lager voll","Kiste UNTER die Turtle stellen, dann laedt sie die Drops ab.")
+            else
+                w.status("Wache",C.mode=="farm" and "Warte auf Mobs in der Farm." or "Halte Wache.")
+            end
             sleep(0.5)
         end
         local ok,title,detail=stash(false)
@@ -144,6 +168,8 @@ local function patrol()
         end
         if fuelLeft()<homeCost() then break end
         if isDay() then break end
+        -- Inventar fast voll: Beute zur Basis bringen (danach geht es weiter)
+        if w.freeSlots()<=2 then w.status("Rueckkehr","Beute zur Basis bringen.");break end
         local tx,tz
         for _=1,20 do
             tx,tz=math.random(0,C.width-1),math.random(1,C.length)

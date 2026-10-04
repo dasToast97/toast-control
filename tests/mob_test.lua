@@ -124,4 +124,47 @@ check("nachts unterwegs gewesen",(S.dayTargets or 0)>=1,S.dayTargets)
 check("tagsueber an der Basis",S.dayPos and S.dayPos[1]==0 and S.dayPos[2]==0 and S.dayPos[3]==0,S.dayPos and table.concat(S.dayPos,","))
 check("Status Tagpause",S.dayStatus=="Tagpause",S.dayStatus)
 check("naechste Nacht wieder los",(S.lateTargets or 0)>(S.dayTargets or 0),tostring(S.lateTargets).." vs "..tostring(S.dayTargets))
+print("M8 Waechter sammelt herumliegende Items ein, bringt sie zur Basis; voll -> heim")
+S=Sim.new({config=cfg(PCFG),default=false,fuel=500,world=terrain,
+    actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}})
+S.protocol="toast.mob.v1"
+-- Items auf dem Boden (im Luftblock ueber dem Gras) - Turtle sammelt sie mit suck()
+S.ground={}
+for x=0,11 do for z=1,16 do if (x+z)%3==0 then S.ground[S.key(x,0,z)]={name="minecraft:bone",count=1} end end end
+local total0=0;for _ in pairs(S.ground) do total0=total0+1 end
+do
+  local DX,DZ={[0]=0,1,0,-1},{[0]=1,0,-1,0}
+  local function pick(x,y,z)
+    local k=S.key(x,y,z);local it=S.ground[k];if not it then return false end
+    for i=1,16 do local sl=S.inv[i];if sl and sl.name==it.name and sl.count<64 then sl.count=sl.count+1;S.ground[k]=nil;return true end end
+    for i=1,16 do if not S.inv[i] then S.inv[i]={name=it.name,count=1};S.ground[k]=nil;return true end end
+    return false
+  end
+  S.turtle.suck=function() return pick(S.p.x+DX[S.p.dir],S.p.y,S.p.z+DZ[S.p.dir]) end
+  S.turtle.suckDown=function() return pick(S.p.x,S.p.y+1,S.p.z) end
+  local su=S.turtle.suckUp
+  S.turtle.suckUp=function(n) if S.world[S.key(S.p.x,S.p.y-1,S.p.z)]=="minecraft:chest" then return su(n) end;return pick(S.p.x,S.p.y-1,S.p.z) end
+  -- Inventar wird unterwegs voll (z.B. viel Beute)
+  local fw=S.turtle.forward;local n=0
+  S.turtle.forward=function() local ok,w=fw();if ok then n=n+1;if n==25 then for i=1,15 do if not S.inv[i] then S.inv[i]={name="minecraft:rotten_flesh",count=64} end end;S.filledAt=S.moves end end;return ok,w end
+end
+Sim.run(S,3000)
+st=state(S)
+local left=0;for _ in pairs(S.ground) do left=left+1 end
+check("Items eingesammelt",left<total0 and (st.looted or 0)>0,(total0-left).."/"..total0)
+check("Knochen in der Kiste abgeliefert",S.chestNames["minecraft:bone"]==true)
+check("voll -> heim + abgeladen",S.filledAt and S.chestNames["minecraft:rotten_flesh"]==true,tostring(S.filledAt))
+check("nichts aus der Kohlekiste geholt ausser Kohle",S.chestNames["minecraft:coal"]~=true)
+check("zu Hause",S.p.x==0 and S.p.z==0 and S.p.y==0)
+
+print("M9 Wache ohne Kiste: Inventar voll -> klare Meldung, wehrt weiter ab")
+S=Sim.new({config=cfg([[{mode="guard",attack="front",length=12,width=12,side="right",interval=30,fuelTarget=500,radioTimeout=0}]]),
+    default=false,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},{t=6,fn=function(S)S.enemies=3 end}},
+    gear={left="minecraft:diamond_sword",right="computercraft:wireless_modem_advanced"}})
+S.protocol="toast.mob.v1";S.world[S.key(0,1,0)]=false
+for i=1,16 do S.inv[i]={name="minecraft:dirt",count=64} end
+Sim.run(S,30)
+check("wehrt trotzdem ab",S.kills==3,S.kills)
+check("Meldung Lager voll",S.last and S.last.status=="Lager voll",S.last and S.last.status)
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

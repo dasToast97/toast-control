@@ -79,7 +79,9 @@ local JOB={
             wait(r,d);return r end},
     mob={name="Mobs",plural="Mob-Turtles",metric="Drops",unit="Items",once="EINMAL",
         value=function(d) return num(d.total) end,aux={"Treffer",function(d) return num(d.hits) end,""},
-        rows=function(d) local r={{"Art",MOB_MODES[d.mobMode] or "-"},{"Treffer",short(d.hits)},{"Drops",short(d.total).." Items"}}
+        rows=function(d) local r={{"Art",MOB_MODES[d.mobMode] or "-"},{"Treffer",short(d.hits)},{"Drops",short(d.total).." abgeliefert"}}
+            if num(d.carried)>0 then r[#r+1]={"Dabei",short(d.carried).." Items"} end
+            if num(d.looted)>0 then r[#r+1]={"Aufgesammelt",short(d.looted).."x"} end
             if d.lastHit and num(d.hits)>0 then r[#r+1]={"Letzter Mob","vor "..short(d.lastHit).." s"} end
             if d.mobMode=="patrol" then r[#r+1]={"Ziele",short(d.targets).." angefahren"};r[#r+1]={"Tankrunden",short(d.rounds)};wait(r,d) end
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
