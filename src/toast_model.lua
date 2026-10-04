@@ -37,7 +37,7 @@ function M.new(cfg)
     function m.online(id)
         local e=m.entries[id];return e~=nil and os.clock()-e.seen<cfg.network.staleAfter
     end
-    function m.fleet(scope)
+    function m.fleet(scope,lite)
         local ids,entries={},{}
         for id,d in pairs(devices) do if scope==nil or scope=="all" or d.job==scope then ids[#ids+1]=id end end
         table.sort(ids)
@@ -49,7 +49,13 @@ function M.new(cfg)
         for id,n in pairs(m.nodes) do nids[#nids+1]=id end
         table.sort(nids)
         for _,id in ipairs(nids) do local n=m.nodes[id]
-            nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=n.data} end
+            local data=n.data
+            if lite and data and data.stats and n.role=="storage" then
+                -- nur die Kurzwerte; Kisten/Inhalt kommen alle 10 s als "nodestats"
+                local s=data.stats
+                data={toast=data.toast,pos=data.pos,stats={pct=s.pct,count=s.count,types=s.types,full=s.full,warn=s.warn,size=s.size,used=s.used,lite=true}}
+            end
+            nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=data} end
         return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries}}
     end
     local function node(id,info)
@@ -112,10 +118,16 @@ function M.new(cfg)
         return true
     end
     local function key(id,protocol)return protocol..":"..id end
+    -- Flotte fuer Pockets/Infoscreens: ohne die grossen Lagerdaten (kommen extra)
+    function m.fleetMessage()
+        local f=m.fleet("all",true);local labels={}
+        for _,tid in ipairs(f.ids)do labels[tid]=f.entries[tid].label end
+        return {kind="fleet",version=1,controllerId=cfg.controllerId,fleet=f,labels=labels,ack=0,notice=m.notice}
+    end
     function m.reply(id,protocol)
         protocol=protocol or common.remoteProtocol
         local scope="all";for j,p in pairs(common.legacyRemote)do if p==protocol then scope=j end end
-        local f=m.fleet(scope);local labels={}
+        local f=m.fleet(scope,protocol==common.remoteProtocol);local labels={}
         for _,tid in ipairs(f.ids)do labels[tid]=f.entries[tid].label end
         send(id,{kind="fleet",version=protocol==common.remoteProtocol and 1 or 2,
             controllerId=cfg.controllerId,fleet=f,labels=labels,ack=remote[key(id,protocol)] or 0,notice=m.notice},protocol)
@@ -143,13 +155,20 @@ function M.new(cfg)
                 elseif not devices[target] or devices[target].job~=scope then m.reply(id,protocol);return true end
             end
             if m.command(b.action,target) then remote[key(id,protocol)]=b.serial;save() end
+            m.reply(id,protocol);m.markReply(id);return true
         end
-        m.reply(id,protocol);return true
+        if m.wantsReply(id) then m.reply(id,protocol);m.markReply(id) end
+        return true
     end
+    local lastPoll,lastFleet,lastStats,lastReply=-1e9,-1e9,-1e9,{}
     function m.tick()
-        common.refreshModems()
-        for id,d in pairs(devices)do dispatch(id,{kind="poll"},d.job)end
-        if cfg.autoDiscover then for _,p in pairs(common.workerProtocols)do pcall(rednet.broadcast,{kind="poll"},p)end end
+        local now=os.clock()
+        if now-lastPoll>=2 then
+            lastPoll=now
+            common.refreshModems()
+            -- ein Rundruf je Turtle-Art erreicht alle Turtles (statt jede einzeln)
+            for _,p in pairs(common.workerProtocols)do pcall(rednet.broadcast,{kind="poll"},p)end
+        end
         local waiting,expired=0,0
         for id,p in pairs(m.pending)do
             if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1
@@ -157,8 +176,25 @@ function M.new(cfg)
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
         elseif waiting==0 and m.notice:find("gesendet ...",1,true) then m.notice="Befehl bestaetigt" end
-        for id in pairs(pockets)do m.reply(id)end
+        if now-lastFleet>=2 then
+            lastFleet=now
+            local msg
+            for id in pairs(pockets)do
+                msg=msg or m.fleetMessage()
+                send(id,msg,common.remoteProtocol);lastReply[id]=now
+            end
+        end
+        -- Lagerdaten (gross) nur alle 10 s extra
+        if now-lastStats>=10 then
+            lastStats=now
+            local stats,any={},false
+            for id,n in pairs(m.nodes) do if n.role=="storage" and n.data and n.data.stats then stats[id]=n.data.stats;any=true end end
+            if any then for id in pairs(pockets)do send(id,{kind="nodestats",version=1,controllerId=cfg.controllerId,stats=stats},common.remoteProtocol) end end
+        end
     end
+    -- Hello eines Pockets/Infoscreens: nur antworten, wenn es laenger keine Daten bekam
+    function m.wantsReply(id) return os.clock()-(lastReply[id] or -1e9)>=1.5 end
+    function m.markReply(id) lastReply[id]=os.clock() end
     function m.waiting()local n=0;for _ in pairs(m.pending)do n=n+1 end;return n end
     -- ===== Update aller Geraete =====
     -- Rueckmeldung: jedes Geraet meldet nach dem Neustart seine Version (Status,

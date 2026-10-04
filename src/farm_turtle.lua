@@ -446,7 +446,7 @@ local function radioWindow()
     if not GEAR or os.clock() - lastRadio < CL.report then return end
     if GEAR.radio() then
         local t0 = os.clock()
-        sendStatus(); sleep(1.5)
+        sendStatus(); sleep(2.2)
         if run.lastContact >= t0 then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end
     end
     lastRadio = os.clock()
@@ -587,7 +587,8 @@ local function snapshot()
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
-sendStatus = function() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
+local lastSent = -1e9
+sendStatus = function() lastSent = os.clock(); pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
 local function reset()
     run.mode, run.fault, run.lastMode, run.retries, run.retryAt, run.waitUntil = "off", nil, nil, 0, nil, 0
     st.lastMode = nil
@@ -607,7 +608,7 @@ local function listener()
             and type(message) == "table" then
             if message.kind == "poll" then
                 run.lastContact = os.clock()
-                sendStatus()
+                if os.clock() - lastSent > 2.5 then sendStatus() end
             elseif message.kind == "command" and common.serial(message.serial)
                 and ({ start = true, stop = true, once = true, reset = true, update = true })[message.action] then
                 run.lastContact = os.clock()

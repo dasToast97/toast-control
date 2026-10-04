@@ -459,7 +459,8 @@ function W.new(o)
         pcall(common.addPosition,s,cfg,o.job)
         return s
     end
-    sendStatus=function() pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
+    local lastSent=-1e9
+    sendStatus=function() lastSent=os.clock();pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
     w.sendStatus=sendStatus
     local function reset()
         run.mode,run.fault,run.lastMode,run.retries,run.retryAt,run.waitUntil="off",nil,nil,0,nil,0
@@ -475,7 +476,7 @@ function W.new(o)
             elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
-                if b.kind=="poll" then run.lastContact=os.clock();sendStatus()
+                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-lastSent>2.5 then sendStatus() end
                 elseif b.kind=="command" and common.serial(b.serial) and common.actions[b.action] then
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then

@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.12.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.12.1",
+    version="3.13",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1666,7 +1666,7 @@ local function loop()
     rednet.host(common.protocol,"toast-"..cfg.controllerId)
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
-    local frame=os.startTimer(0.25)
+    local frame=os.startTimer(0.5)
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
@@ -1705,10 +1705,10 @@ local function loop()
                 end
             end
             if dirty then draw() end
-            frame=os.startTimer(0.25)
+            frame=os.startTimer(0.5)
         elseif e=="timer" and a==frame then
             if dirty then draw() end
-            frame=os.startTimer(0.25)
+            frame=os.startTimer(0.5)
         elseif e=="peripheral" or e=="peripheral_detach" then
             common.refreshModems()
             local before=screen;bindScreen()
@@ -1784,7 +1784,7 @@ function M.new(cfg)
     function m.online(id)
         local e=m.entries[id];return e~=nil and os.clock()-e.seen<cfg.network.staleAfter
     end
-    function m.fleet(scope)
+    function m.fleet(scope,lite)
         local ids,entries={},{}
         for id,d in pairs(devices) do if scope==nil or scope=="all" or d.job==scope then ids[#ids+1]=id end end
         table.sort(ids)
@@ -1796,7 +1796,13 @@ function M.new(cfg)
         for id,n in pairs(m.nodes) do nids[#nids+1]=id end
         table.sort(nids)
         for _,id in ipairs(nids) do local n=m.nodes[id]
-            nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=n.data} end
+            local data=n.data
+            if lite and data and data.stats and n.role=="storage" then
+                -- nur die Kurzwerte; Kisten/Inhalt kommen alle 10 s als "nodestats"
+                local s=data.stats
+                data={toast=data.toast,pos=data.pos,stats={pct=s.pct,count=s.count,types=s.types,full=s.full,warn=s.warn,size=s.size,used=s.used,lite=true}}
+            end
+            nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=data} end
         return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries}}
     end
     local function node(id,info)
@@ -1859,10 +1865,16 @@ function M.new(cfg)
         return true
     end
     local function key(id,protocol)return protocol..":"..id end
+    -- Flotte fuer Pockets/Infoscreens: ohne die grossen Lagerdaten (kommen extra)
+    function m.fleetMessage()
+        local f=m.fleet("all",true);local labels={}
+        for _,tid in ipairs(f.ids)do labels[tid]=f.entries[tid].label end
+        return {kind="fleet",version=1,controllerId=cfg.controllerId,fleet=f,labels=labels,ack=0,notice=m.notice}
+    end
     function m.reply(id,protocol)
         protocol=protocol or common.remoteProtocol
         local scope="all";for j,p in pairs(common.legacyRemote)do if p==protocol then scope=j end end
-        local f=m.fleet(scope);local labels={}
+        local f=m.fleet(scope,protocol==common.remoteProtocol);local labels={}
         for _,tid in ipairs(f.ids)do labels[tid]=f.entries[tid].label end
         send(id,{kind="fleet",version=protocol==common.remoteProtocol and 1 or 2,
             controllerId=cfg.controllerId,fleet=f,labels=labels,ack=remote[key(id,protocol)] or 0,notice=m.notice},protocol)
@@ -1890,13 +1902,20 @@ function M.new(cfg)
                 elseif not devices[target] or devices[target].job~=scope then m.reply(id,protocol);return true end
             end
             if m.command(b.action,target) then remote[key(id,protocol)]=b.serial;save() end
+            m.reply(id,protocol);m.markReply(id);return true
         end
-        m.reply(id,protocol);return true
+        if m.wantsReply(id) then m.reply(id,protocol);m.markReply(id) end
+        return true
     end
+    local lastPoll,lastFleet,lastStats,lastReply=-1e9,-1e9,-1e9,{}
     function m.tick()
-        common.refreshModems()
-        for id,d in pairs(devices)do dispatch(id,{kind="poll"},d.job)end
-        if cfg.autoDiscover then for _,p in pairs(common.workerProtocols)do pcall(rednet.broadcast,{kind="poll"},p)end end
+        local now=os.clock()
+        if now-lastPoll>=2 then
+            lastPoll=now
+            common.refreshModems()
+            -- ein Rundruf je Turtle-Art erreicht alle Turtles (statt jede einzeln)
+            for _,p in pairs(common.workerProtocols)do pcall(rednet.broadcast,{kind="poll"},p)end
+        end
         local waiting,expired=0,0
         for id,p in pairs(m.pending)do
             if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1
@@ -1904,8 +1923,25 @@ function M.new(cfg)
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
         elseif waiting==0 and m.notice:find("gesendet ...",1,true) then m.notice="Befehl bestaetigt" end
-        for id in pairs(pockets)do m.reply(id)end
+        if now-lastFleet>=2 then
+            lastFleet=now
+            local msg
+            for id in pairs(pockets)do
+                msg=msg or m.fleetMessage()
+                send(id,msg,common.remoteProtocol);lastReply[id]=now
+            end
+        end
+        -- Lagerdaten (gross) nur alle 10 s extra
+        if now-lastStats>=10 then
+            lastStats=now
+            local stats,any={},false
+            for id,n in pairs(m.nodes) do if n.role=="storage" and n.data and n.data.stats then stats[id]=n.data.stats;any=true end end
+            if any then for id in pairs(pockets)do send(id,{kind="nodestats",version=1,controllerId=cfg.controllerId,stats=stats},common.remoteProtocol) end end
+        end
     end
+    -- Hello eines Pockets/Infoscreens: nur antworten, wenn es laenger keine Daten bekam
+    function m.wantsReply(id) return os.clock()-(lastReply[id] or -1e9)>=1.5 end
+    function m.markReply(id) lastReply[id]=os.clock() end
     function m.waiting()local n=0;for _ in pairs(m.pending)do n=n+1 end;return n end
     -- ===== Update aller Geraete =====
     -- Rueckmeldung: jedes Geraet meldet nach dem Neustart seine Version (Status,
@@ -3073,7 +3109,17 @@ local function poll()
     common.refreshModems()
     send({kind="hello",role="pocket",version=1,controllerId=cfg.controllerId,info=common.nodeInfo(cfg,"pocket")})
 end
-local function draw()ui.draw(fleet or {ids={},entries={}},connected(),notice)end
+-- Lagerdaten (Kisten/Inhalt) kommen alle 10 s extra; hier an die Flotte haengen
+local storeStats={}
+local function withStats(f)
+    if f and f.nodes and f.nodes.entries then
+        for id,e in pairs(f.nodes.entries) do
+            if e.role=="storage" and storeStats[id] and e.data then e.data.stats=storeStats[id] end
+        end
+    end
+    return f
+end
+local function draw()ui.draw(withStats(fleet) or {ids={},entries={}},connected(),notice)end
 local function validFleet(f)
     if type(f)~="table" or type(f.ids)~="table" or type(f.entries)~="table" or #f.ids>cfg.network.maxDevices then return false end
     local used={}
@@ -3102,6 +3148,7 @@ local function action(a)
     end
     draw()
 end
+local tick=0
 local function loop()
     poll();draw();local timer=os.startTimer(cfg.network.pollInterval)
     while true do
@@ -3112,12 +3159,17 @@ local function loop()
             if pending and common.number(b.ack)>=pending.message.serial then pending=nil end
             notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");draw()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
+            storeStats=b.stats
+            if ui.filter=="store" then draw() end
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             notice="Update wird installiert ...";draw()
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
         elseif e=="timer" and a==timer then
-            poll()
+            -- Hallo nur alle 2 s (die Zentrale schickt die Daten sowieso regelmaessig)
+            tick=(tick or 0)+1;if tick%2==0 or not connected() then poll() end
             if pending then
                 if not connected() or os.clock()-pending.at>=cfg.network.commandTimeout then pending=nil;notice="Befehl unbestaetigt/verfallen"
                 else send(pending.message)end
@@ -3182,8 +3234,12 @@ local function storeUi(s)
     else s.st.ui.setScreen(s.dev) end
     return s.st.ui
 end
+local storeStats={}
 local function storeFleet()
     local nodes=fleet.nodes or {ids={},entries={}}
+    for id,e in pairs(nodes.entries or {}) do
+        if e.role=="storage" and storeStats[id] and e.data then e.data.stats=storeStats[id] end
+    end
     local ids,entries={},{}
     for _,id in ipairs(nodes.ids or {}) do local e=nodes.entries[id];if e and e.role=="storage" then ids[#ids+1]=id;entries[id]=e end end
     return {ids={},entries={},nodes={ids=ids,entries=entries}}
@@ -3207,6 +3263,7 @@ local function validFleet(f)
     end
     return true
 end
+local tick=0
 local function loop()
     poll();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
@@ -3218,11 +3275,15 @@ local function loop()
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
+            storeStats=b.stats;if STORE then draw() end
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then common.log("Update: "..tostring(why)) end
         elseif e=="timer" and a==timer then
-            poll();draw();timer=os.startTimer(cfg.network.pollInterval)
+            tick=tick+1;if tick%2==0 or not connected() then poll() end
+            draw();timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
             bind();draw()
         elseif STORE and e=="monitor_touch" then
@@ -3695,7 +3756,7 @@ local function radioWindow()
     if not GEAR or os.clock() - lastRadio < CL.report then return end
     if GEAR.radio() then
         local t0 = os.clock()
-        sendStatus(); sleep(1.5)
+        sendStatus(); sleep(2.2)
         if run.lastContact >= t0 then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end
     end
     lastRadio = os.clock()
@@ -3836,7 +3897,8 @@ local function snapshot()
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
-sendStatus = function() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
+local lastSent = -1e9
+sendStatus = function() lastSent = os.clock(); pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
 local function reset()
     run.mode, run.fault, run.lastMode, run.retries, run.retryAt, run.waitUntil = "off", nil, nil, 0, nil, 0
     st.lastMode = nil
@@ -3856,7 +3918,7 @@ local function listener()
             and type(message) == "table" then
             if message.kind == "poll" then
                 run.lastContact = os.clock()
-                sendStatus()
+                if os.clock() - lastSent > 2.5 then sendStatus() end
             elseif message.kind == "command" and common.serial(message.serial)
                 and ({ start = true, stop = true, once = true, reset = true, update = true })[message.action] then
                 run.lastContact = os.clock()
@@ -5097,7 +5159,7 @@ local function radioWindow()
     if not GEAR or os.clock()-lastRadio<CL.report then return end
     if GEAR.radio() then
         local t0=os.clock()
-        sendStatus();sleep(1.5)
+        sendStatus();sleep(2.2)
         if run.lastContact>=t0 then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end
     end
     lastRadio=os.clock()
@@ -5193,7 +5255,8 @@ local function snapshot()
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
-sendStatus=function()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end
+local lastSent=-1e9
+sendStatus=function() lastSent=os.clock();pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol) end
 local function reset()
     run.mode,run.fault,run.lastMode,run.retries,run.retryAt="off",nil,nil,0,nil
     st.lastMode=nil
@@ -5208,7 +5271,9 @@ local function listener()
         elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and homePosition() then error("TOAST_NEUER_AUFTRAG",0)
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
-            if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token;sendStatus()
+            if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
+                -- Status kommt ohnehin alle 2 s; auf den Poll nur antworten, wenn laenger nichts kam
+                if os.clock()-lastSent>2.5 then sendStatus() end
             elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
@@ -5894,7 +5959,8 @@ function W.new(o)
         pcall(common.addPosition,s,cfg,o.job)
         return s
     end
-    sendStatus=function() pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
+    local lastSent=-1e9
+    sendStatus=function() lastSent=os.clock();pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
     w.sendStatus=sendStatus
     local function reset()
         run.mode,run.fault,run.lastMode,run.retries,run.retryAt,run.waitUntil="off",nil,nil,0,nil,0
@@ -5910,7 +5976,7 @@ function W.new(o)
             elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
-                if b.kind=="poll" then run.lastContact=os.clock();sendStatus()
+                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-lastSent>2.5 then sendStatus() end
                 elseif b.kind=="command" and common.serial(b.serial) and common.actions[b.action] then
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
@@ -7166,7 +7232,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.12.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

@@ -40,8 +40,12 @@ local function storeUi(s)
     else s.st.ui.setScreen(s.dev) end
     return s.st.ui
 end
+local storeStats={}
 local function storeFleet()
     local nodes=fleet.nodes or {ids={},entries={}}
+    for id,e in pairs(nodes.entries or {}) do
+        if e.role=="storage" and storeStats[id] and e.data then e.data.stats=storeStats[id] end
+    end
     local ids,entries={},{}
     for _,id in ipairs(nodes.ids or {}) do local e=nodes.entries[id];if e and e.role=="storage" then ids[#ids+1]=id;entries[id]=e end end
     return {ids={},entries={},nodes={ids=ids,entries=entries}}
@@ -65,6 +69,7 @@ local function validFleet(f)
     end
     return true
 end
+local tick=0
 local function loop()
     poll();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
@@ -76,11 +81,15 @@ local function loop()
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
+            storeStats=b.stats;if STORE then draw() end
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then common.log("Update: "..tostring(why)) end
         elseif e=="timer" and a==timer then
-            poll();draw();timer=os.startTimer(cfg.network.pollInterval)
+            tick=tick+1;if tick%2==0 or not connected() then poll() end
+            draw();timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
             bind();draw()
         elseif STORE and e=="monitor_touch" then

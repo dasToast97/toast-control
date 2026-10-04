@@ -1,3 +1,20 @@
+# Toast Control 3.13
+
+## Schneller: viel weniger Funkverkehr
+
+Die Anzeige wurde mit der Zeit immer verzögerter, weil die Zentrale mehr
+Nachrichten bekam und verschickte, als sie verarbeiten konnte (Warteschlange
+lief voll). Jetzt:
+- **Zentrale:** ein Rundruf je Turtle-Art alle 2 s statt jede Turtle einzeln jede
+  Sekunde; Daten an Pockets/Infoscreens alle 2 s (einmal gebaut, nicht pro
+  Gerät); Antwort auf „Hallo“ nur wenn nötig. Die großen Lagerdaten (Kisten,
+  Inhalt) gehen nur noch alle 10 s raus.
+- **Turtles:** Status alle 2 s (statt zusätzlich auf jeden Poll) – ⅓ des Funks.
+- **Pockets/Infoscreens:** melden sich alle 2 s statt jede Sekunde.
+- Zentrale zeichnet höchstens 2x pro Sekunde neu.
+- Test (10 Turtles, 4 Pockets, 60 s): Zentrale schickt **270 statt 1380**
+  Nachrichten.
+
 # Toast Control 3.12.1
 
 - **Mine: Erze auch in der Fahrspur stehen lassen.** Liegt ein geschontes Erz

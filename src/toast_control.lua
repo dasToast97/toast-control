@@ -64,7 +64,7 @@ local function loop()
     rednet.host(common.protocol,"toast-"..cfg.controllerId)
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
-    local frame=os.startTimer(0.25)
+    local frame=os.startTimer(0.5)
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
@@ -103,10 +103,10 @@ local function loop()
                 end
             end
             if dirty then draw() end
-            frame=os.startTimer(0.25)
+            frame=os.startTimer(0.5)
         elseif e=="timer" and a==frame then
             if dirty then draw() end
-            frame=os.startTimer(0.25)
+            frame=os.startTimer(0.5)
         elseif e=="peripheral" or e=="peripheral_detach" then
             common.refreshModems()
             local before=screen;bindScreen()

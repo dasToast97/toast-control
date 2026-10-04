@@ -13,7 +13,17 @@ local function poll()
     common.refreshModems()
     send({kind="hello",role="pocket",version=1,controllerId=cfg.controllerId,info=common.nodeInfo(cfg,"pocket")})
 end
-local function draw()ui.draw(fleet or {ids={},entries={}},connected(),notice)end
+-- Lagerdaten (Kisten/Inhalt) kommen alle 10 s extra; hier an die Flotte haengen
+local storeStats={}
+local function withStats(f)
+    if f and f.nodes and f.nodes.entries then
+        for id,e in pairs(f.nodes.entries) do
+            if e.role=="storage" and storeStats[id] and e.data then e.data.stats=storeStats[id] end
+        end
+    end
+    return f
+end
+local function draw()ui.draw(withStats(fleet) or {ids={},entries={}},connected(),notice)end
 local function validFleet(f)
     if type(f)~="table" or type(f.ids)~="table" or type(f.entries)~="table" or #f.ids>cfg.network.maxDevices then return false end
     local used={}
@@ -42,6 +52,7 @@ local function action(a)
     end
     draw()
 end
+local tick=0
 local function loop()
     poll();draw();local timer=os.startTimer(cfg.network.pollInterval)
     while true do
@@ -52,12 +63,17 @@ local function loop()
             if pending and common.number(b.ack)>=pending.message.serial then pending=nil end
             notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");draw()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
+            storeStats=b.stats
+            if ui.filter=="store" then draw() end
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             notice="Update wird installiert ...";draw()
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
         elseif e=="timer" and a==timer then
-            poll()
+            -- Hallo nur alle 2 s (die Zentrale schickt die Daten sowieso regelmaessig)
+            tick=(tick or 0)+1;if tick%2==0 or not connected() then poll() end
             if pending then
                 if not connected() or os.clock()-pending.at>=cfg.network.commandTimeout then pending=nil;notice="Befehl unbestaetigt/verfallen"
                 else send(pending.message)end

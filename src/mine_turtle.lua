@@ -1118,7 +1118,7 @@ local function radioWindow()
     if not GEAR or os.clock()-lastRadio<CL.report then return end
     if GEAR.radio() then
         local t0=os.clock()
-        sendStatus();sleep(1.5)
+        sendStatus();sleep(2.2)
         if run.lastContact>=t0 then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end
     end
     lastRadio=os.clock()
@@ -1214,7 +1214,8 @@ local function snapshot()
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
-sendStatus=function()pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol)end
+local lastSent=-1e9
+sendStatus=function() lastSent=os.clock();pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol) end
 local function reset()
     run.mode,run.fault,run.lastMode,run.retries,run.retryAt="off",nil,nil,0,nil
     st.lastMode=nil
@@ -1229,7 +1230,9 @@ local function listener()
         elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and homePosition() then error("TOAST_NEUER_AUFTRAG",0)
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
-            if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token;sendStatus()
+            if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
+                -- Status kommt ohnehin alle 2 s; auf den Poll nur antworten, wenn laenger nichts kam
+                if os.clock()-lastSent>2.5 then sendStatus() end
             elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
