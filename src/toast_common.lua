@@ -1,5 +1,5 @@
 local M={
-    version="3.11",
+    version="3.12",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -50,7 +50,7 @@ M.DEFAULTS={
     base={set=false,x=0,y=64,z=0,facing="north",dimension="auto"},
     gps={auto=true,x=0,y=64,z=0,host=true,set=false},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,maxInterval=1200,seedReserve=0,radioTimeout=60,water={}},
-    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,drain=false,seal="off",keepOres="",radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
     tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
         fuelTarget=2000,radioTimeout=60},
@@ -148,6 +148,9 @@ function M.configText(c)
             {"useCoal","true = gefundene Kohle direkt als Fuel"},
             {"placeChests","true = Kisten mitnehmen, unterwegs abladen"},
             {"torches","Fackel alle x Bloecke (0 = aus, ab Hoehe 3)"},
+            {"drain","true = Wasser/Lava im Gang entfernen"},
+            {"seal","\"off\", \"liquids\" Wasser/Lava an der Wand zubauen, \"all\" auch Loecher"},
+            {"keepOres","Erze stehen lassen: \"\", \"all\" oder \"diamond,emerald\""},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)

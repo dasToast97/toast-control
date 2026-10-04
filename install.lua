@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.11 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.12 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.11",
+    version="3.12",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -193,7 +193,7 @@ M.DEFAULTS={
     base={set=false,x=0,y=64,z=0,facing="north",dimension="auto"},
     gps={auto=true,x=0,y=64,z=0,host=true,set=false},
     farm={length=9,width=9,side="right",crop="wheat",interval=60,maxInterval=1200,seedReserve=0,radioTimeout=60,water={}},
-    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
+    mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,drain=false,seal="off",keepOres="",radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
     tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
         fuelTarget=2000,radioTimeout=60},
@@ -291,6 +291,9 @@ function M.configText(c)
             {"useCoal","true = gefundene Kohle direkt als Fuel"},
             {"placeChests","true = Kisten mitnehmen, unterwegs abladen"},
             {"torches","Fackel alle x Bloecke (0 = aus, ab Hoehe 3)"},
+            {"drain","true = Wasser/Lava im Gang entfernen"},
+            {"seal","\"off\", \"liquids\" Wasser/Lava an der Wand zubauen, \"all\" auch Loecher"},
+            {"keepOres","Erze stehen lassen: \"\", \"all\" oder \"diamond,emerald\""},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},{"digRetries","Versuche bei Kies/Sand"},
             {"protectedBlocks","diese Bloecke nie abbauen"}},c.mine)
@@ -1037,7 +1040,7 @@ function S.new(common)
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
             ..(m.sideDig and m.gap==0 and " +seitl" or "")..(m.useCoal~=false and " +Kohle" or "")
-            ..(m.placeChests and " +Kisten" or "")..((m.torches or 0)>0 and (" +Fackel/"..m.torches) or "")
+            ..(m.placeChests and " +Kisten" or "")..(m.drain and " +trocken" or "")..((m.seal or "off")~="off" and " +dicht" or "")..((m.keepOres or "")~="" and " +Erze bleiben" or "")..((m.torches or 0)>0 and (" +Fackel/"..m.torches) or "")
     end
     local function farmText(f)
         return f.length.."x"..f.width.." "..sideName(f.side).." "..(common.CROP_NAMES[f.crop] or f.crop)
@@ -1088,6 +1091,21 @@ function S.new(common)
         else
             hint("Fackeln: erst ab Ganghoehe 3.");m.torches=0
         end
+        header("Mine: Wasser, Lava, Erze")
+        hint("Wasser/Lava im Gang entfernen (Block")
+        hint("rein, wieder abbauen) - z.B. unter Wasser")
+        m.drain=yesno("Gang trockenlegen?",m.drain==true)
+        hint("Waende an der Fahrspur zubauen:")
+        hint("1 aus  2 Wasser/Lava  3 alles (auch Loecher)")
+        local cs=({off=1,liquids=2,all=3})[m.seal or "off"] or 1
+        m.seal=({"off","liquids","all"})[ask("Waende",cs,1,3)]
+        hint("Erze stehen lassen (oben/unten/seitlich;")
+        hint("in der Fahrspur muss sie durch).")
+        hint("leer = alle abbauen, all = alle Erze,")
+        hint("oder z.B. diamond,emerald")
+        write(cut("Erze ["..((m.keepOres or "")=="" and "-" or m.keepOres).."]: "))
+        local v=read()
+        if v=="-" then m.keepOres="" elseif v~="" then m.keepOres=v:lower():gsub("%s","") end
     end
     local function editFarm(c)
         local f=c.farm
@@ -2040,6 +2058,10 @@ local JOB={
                 end
             end
             if num(d.torches)>0 then r[#r+1]={"Fackeln",short(d.torchesPlaced).." gesetzt, "..short(d.torchesLeft).." dabei"} end
+            if num(d.keptOres)>0 then r[#r+1]={"Erze stehen",short(d.keptOres)} end
+            if num(d.sealed)>0 then r[#r+1]={"Zugebaut",short(d.sealed).." Stellen"} end
+            if num(d.drained)>0 then r[#r+1]={"Trockengelegt",short(d.drained)} end
+            if d.noFill then r[#r+1]={"Fuellmaterial","FEHLT (Bruchstein)"} end
             return r end},
     tree={name="Holz",plural="Holzfarmen",metric="Holz",unit="Staemme",once="1 Runde",
         value=function(d) return num(d.total) end,aux={"Gefaellt",function(d) return num(d.harvested) end," Baeume"},
@@ -4284,14 +4306,53 @@ end
 -- Mit Chunkloader: Modem statt Spitzhacke, sobald die Turtle nur faehrt (2 Schritte
 -- ohne Abbau). Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
 local digCount,freeMoves=0,0
-local function clear(inspect,dig,interruptible)
+-- ===== Wasser/Lava und Erze (wie beim Aushub) =====
+-- mine.drain: Wasser/Lava im Gang mit einem Block fuellen und wieder abbauen.
+-- mine.seal: "liquids" = Wasser/Lava an der Gangwand zubauen, "all" = auch Loecher.
+-- mine.keepOres: "", "all" oder "diamond,emerald": diese Erze oben/unten/seitlich
+--   stehen lassen (in der Fahrspur selbst muss die Turtle durch).
+local FILL={}
+for _,n in ipairs({"cobblestone","cobbled_deepslate","stone","deepslate","dirt","netherrack","andesite","diorite",
+    "granite","tuff","calcite","blackstone","basalt","smooth_basalt","end_stone"}) do FILL["minecraft:"..n]=true end
+local DRAIN,SEAL=C.drain==true,C.seal or "off"
+local KEEPALL,KEEPORES=false,{}
+do local ko=tostring(C.keepOres or ""):lower()
+    if ko=="all" or ko=="alle" then KEEPALL=true else for w in ko:gmatch("[^,;%s]+") do KEEPORES[#KEEPORES+1]=w end end end
+local function keptOre(n)
+    if not (n:find("_ore",1,true) or n=="minecraft:ancient_debris") then return false end
+    if KEEPALL then return true end
+    for _,k in ipairs(KEEPORES) do if n:find(k,1,true) then return true end end
+    return false
+end
+local PLACEOF={[turtle.inspect]=turtle.place,[turtle.inspectUp]=turtle.placeUp,[turtle.inspectDown]=turtle.placeDown}
+local function placeFill(place)
+    for i=1,16 do
+        local it=turtle.getItemDetail(i)
+        if it and FILL[it.name] then
+            turtle.select(i);local ok=place();turtle.select(1)
+            if ok then st.noFill=nil end
+            return ok
+        end
+    end
+    st.noFill=true
+    return false
+end
+local function clear(inspect,dig,interruptible,digOnly)
     -- Rueckweg (nicht unterbrechbar): immer freiraeumen, auch mit vollem Inventar
     -- (Block faellt dann als Item auf den Boden) und laenger auf Kies/Sand warten.
     local tries=interruptible and C.digRetries or math.max(64,C.digRetries)
     for _=1,tries do
         if interruptible and not active() then return false,"stopped" end
         local exists,b=inspect()
-        if not exists or liquid[b.name] then return true end
+        if not exists then return true end
+        if liquid[b.name] then
+            -- Wasser/Lava im Gang: Block rein, im naechsten Durchlauf wieder abbauen
+            if not (DRAIN and PLACEOF[inspect] and placeFill(PLACEOF[inspect])) then return true end
+            st.drained=(st.drained or 0)+1
+            exists,b=inspect()
+            if not exists then return true end
+        end
+        if digOnly and keptOre(b.name) then st.keptOres=(st.keptOres or 0)+1;return true end
         local reason=blockReason(b)
         if reason and hard[b.name] and not interruptible then
             sleep(2)                    -- andere Turtle im Weg: abwarten, sie faehrt weiter
@@ -4626,6 +4687,30 @@ local function move(kind,interruptible)
     end
     return false,"Bewegung blockiert: "..tostring(last)
 end
+-- Gehoert die Stelle zur geplanten Mine?
+local function inPlan(x,y,z)
+    local r=-y
+    if z<1 or z>L or r<0 or r>=H or x<0 then return false end
+    if SIDE then return x<W end
+    return x<width and x%(G+1)==0
+end
+-- Waende an der Turtle zubauen (Wasser/Lava, bei "all" auch Luft)
+local function sealHere()
+    if SEAL~="liquids" and SEAL~="all" then return end
+    local x,y,z=st.x,st.y,st.z
+    local function outside(nx,ny,nz) return not (nx==0 and ny==0 and nz==0) and not inPlan(nx,ny,nz) and not blockDug(nx,ny,nz) end
+    local function check(inspect,place)
+        local e,b=inspect()
+        if (not e and SEAL=="all") or (e and liquid[b.name]) then
+            if placeFill(place) then st.sealed=(st.sealed or 0)+1 end
+        end
+    end
+    if outside(x,y-1,z) then check(turtle.inspectUp,turtle.placeUp) end
+    if outside(x,y+1,z) then check(turtle.inspectDown,turtle.placeDown) end
+    for d=0,3 do
+        if outside(x+DX[d],y,z+DZ[d]) and face(d) then check(turtle.inspect,turtle.place) end
+    end
+end
 local function lineX(x,i)
     while st.x~=x do
         local ok,why=face(st.x<x and 1 or 3);if not ok then return false,why end
@@ -4713,14 +4798,23 @@ local TORCHES={['minecraft:torch']=true}
 local function keepItem(name)
     return TOOLS[name] or TC.MODEM_ITEMS[name] or (C.placeChests and containers[name]) or ((C.torches or 0)>0 and TORCHES[name])
 end
+-- Fuellbloecke (Bruchstein usw.) fuer Abdichten/Trockenlegen: einen Stapel behalten
+local function keepSlot(item,kept)
+    if keepItem(item.name) then return true end
+    if (DRAIN or SEAL=="liquids" or SEAL=="all") and FILL[item.name] and (kept.fill or 0)<64 then
+        kept.fill=(kept.fill or 0)+item.count;return true
+    end
+    return false
+end
 local function countItems(set) local n=0;for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then n=n+it.count end end;return n end
 local function findItem(set) for i=1,16 do local it=turtle.getItemDetail(i);if it and set[it.name] then return i end end end
 local function unload()
     if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
     burnCoal()      -- uebrige Kohle zuerst in den Tank (falls eingeschaltet)
+    local kept={}
     for i=1,16 do
         local item=turtle.getItemDetail(i)
-        if item and not keepItem(item.name) then
+        if item and not keepSlot(item,kept) then
             if not container(turtle.inspectDown) then return false,"Ausgabekiste fehlt" end
             turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
             local delivered=before-turtle.getItemCount(i)
@@ -4830,9 +4924,10 @@ local function dumpHere()
     if not slot then vertical(y0,false);return false end
     turtle.select(slot)
     if not turtle.placeDown() then turtle.select(1);vertical(y0,false);return false end
+    local kept={}
     for i=1,16 do
         local item=turtle.getItemDetail(i)
-        if item and not keepItem(item.name) then
+        if item and not keepSlot(item,kept) then
             turtle.select(i);local before=turtle.getItemCount(i);turtle.dropDown()
             st.total=(st.total or 0)+before-turtle.getItemCount(i)
         end
@@ -4941,8 +5036,9 @@ local function work()
                         if st.next>1 then px,py,pz=step(st.next-1) end
                         if px and st.x==px and st.y==py and st.z==pz then ok,why=direct(x,y,z,true)
                         else ok,why=routeTo(x,y,z,true) end
-                        if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true) end
-                        if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true) end
+                        if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true,true) end
+                        if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true,true) end
+                        if ok then sealHere() end
                         if ok then placeTorch() end
                         -- Spurmodus: links/rechts durch Drehen mitabbauen (kostet kein Fuel).
                         -- Schon freie Seiten werden uebersprungen (spart Zeit).
@@ -4953,7 +5049,7 @@ local function work()
                             for _,d in ipairs(sides) do
                                 if ok and active() then
                                     ok,why=face(d)
-                                    if ok then ok,why=clear(turtle.inspect,turtle.dig,true) end
+                                    if ok then ok,why=clear(turtle.inspect,turtle.dig,true,true) end
                                 end
                             end
                         end
@@ -4983,7 +5079,7 @@ local function snapshot()
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
         x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
         placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
-        chestSpots=st.chestSpots,
+        chestSpots=st.chestSpots,keptOres=st.keptOres or 0,sealed=st.sealed or 0,drained=st.drained or 0,noFill=st.noFill,
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
@@ -5076,6 +5172,9 @@ function M.load(c)
     assert(f.useCoal==nil or type(f.useCoal)=="boolean", "useCoal: true oder false.")
     assert(f.placeChests==nil or type(f.placeChests)=="boolean", "placeChests: true oder false.")
     assert(f.torches==nil or integer(f.torches,0,64), "torches: 0 (aus) bis 64.")
+    assert(f.drain==nil or type(f.drain)=="boolean", "drain: true oder false.")
+    assert(f.seal==nil or f.seal=="off" or f.seal=="liquids" or f.seal=="all", "seal: off, liquids oder all.")
+    assert(f.keepOres==nil or type(f.keepOres)=="string", "keepOres: Text.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(integer(f.freeSlots,2,8), "freeSlots: 2 bis 8.")
     assert(integer(f.digRetries,1,64), "digRetries: 1 bis 64.")
@@ -6956,7 +7055,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.11 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.12 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

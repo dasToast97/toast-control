@@ -82,6 +82,10 @@ local JOB={
                 end
             end
             if num(d.torches)>0 then r[#r+1]={"Fackeln",short(d.torchesPlaced).." gesetzt, "..short(d.torchesLeft).." dabei"} end
+            if num(d.keptOres)>0 then r[#r+1]={"Erze stehen",short(d.keptOres)} end
+            if num(d.sealed)>0 then r[#r+1]={"Zugebaut",short(d.sealed).." Stellen"} end
+            if num(d.drained)>0 then r[#r+1]={"Trockengelegt",short(d.drained)} end
+            if d.noFill then r[#r+1]={"Fuellmaterial","FEHLT (Bruchstein)"} end
             return r end},
     tree={name="Holz",plural="Holzfarmen",metric="Holz",unit="Staemme",once="1 Runde",
         value=function(d) return num(d.total) end,aux={"Gefaellt",function(d) return num(d.harvested) end," Baeume"},

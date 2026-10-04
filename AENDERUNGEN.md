@@ -1,3 +1,20 @@
+# Toast Control 3.12
+
+## Mine: Trockenlegen, Wände zubauen, Erze stehen lassen
+
+Neu im Menü Mine (Seite „Mine: Wasser, Lava, Erze“):
+- **Gang trockenlegen:** Wasser/Lava im Gang wird mit einem Block gefüllt und
+  wieder abgebaut (Quelle weg) – z.B. Minen unter Wasser oder durch Lavaseen.
+- **Wände zubauen:** „Wasser/Lava“ oder „alles“ (auch Höhlen/Löcher) an den
+  Wänden, am Boden und an der Decke der Fahrspur. Nimmt Bruchstein & Co. aus
+  dem Abbau (ein Stapel wird beim Abladen behalten).
+- **Erze stehen lassen:** alle oder bestimmte (z.B. `diamond,emerald`) – gilt für
+  die Reihen über/unter der Fahrspur und seitlich. Erze direkt in der Fahrspur
+  muss die Turtle abbauen, um weiterzukommen.
+- Zentrale zeigt „Erze stehen“, „Zugebaut“, „Trockengelegt“, fehlendes Füllmaterial.
+- Hinweis: Zubauen dreht die Turtle an jedem Feld nach links/rechts (kein Fuel,
+  etwas langsamer).
+
 # Toast Control 3.11
 
 ## Farm: Spar-Pause (viel weniger Fuel)

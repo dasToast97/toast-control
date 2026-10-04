@@ -53,7 +53,7 @@ function S.new(common)
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
             ..(m.sideDig and m.gap==0 and " +seitl" or "")..(m.useCoal~=false and " +Kohle" or "")
-            ..(m.placeChests and " +Kisten" or "")..((m.torches or 0)>0 and (" +Fackel/"..m.torches) or "")
+            ..(m.placeChests and " +Kisten" or "")..(m.drain and " +trocken" or "")..((m.seal or "off")~="off" and " +dicht" or "")..((m.keepOres or "")~="" and " +Erze bleiben" or "")..((m.torches or 0)>0 and (" +Fackel/"..m.torches) or "")
     end
     local function farmText(f)
         return f.length.."x"..f.width.." "..sideName(f.side).." "..(common.CROP_NAMES[f.crop] or f.crop)
@@ -104,6 +104,21 @@ function S.new(common)
         else
             hint("Fackeln: erst ab Ganghoehe 3.");m.torches=0
         end
+        header("Mine: Wasser, Lava, Erze")
+        hint("Wasser/Lava im Gang entfernen (Block")
+        hint("rein, wieder abbauen) - z.B. unter Wasser")
+        m.drain=yesno("Gang trockenlegen?",m.drain==true)
+        hint("Waende an der Fahrspur zubauen:")
+        hint("1 aus  2 Wasser/Lava  3 alles (auch Loecher)")
+        local cs=({off=1,liquids=2,all=3})[m.seal or "off"] or 1
+        m.seal=({"off","liquids","all"})[ask("Waende",cs,1,3)]
+        hint("Erze stehen lassen (oben/unten/seitlich;")
+        hint("in der Fahrspur muss sie durch).")
+        hint("leer = alle abbauen, all = alle Erze,")
+        hint("oder z.B. diamond,emerald")
+        write(cut("Erze ["..((m.keepOres or "")=="" and "-" or m.keepOres).."]: "))
+        local v=read()
+        if v=="-" then m.keepOres="" elseif v~="" then m.keepOres=v:lower():gsub("%s","") end
     end
     local function editFarm(c)
         local f=c.farm

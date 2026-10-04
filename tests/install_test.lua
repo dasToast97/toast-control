@@ -93,7 +93,7 @@ check("Feld links abgeerntet, Wasser uebersprungen",fs_.rounds==1 and left==0 an
 check("Name in Statusmeldung",S.last and S.last.label=="Karotten Sued")
 
 print("G Minenmasse aendern -> neuer Auftrag")
-S=Sim.new({config=MINECFG,input={"1","j","3","50","3","3","2","r","","","","","j","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","j","3","50","3","3","2","r","","","","","","","","j","n","n"}});S.files={}
 S.files["/toast.config.lua"]=MINECFG
 S.files["/toast_mining_state"]='{x=0,y=0,z=0,dir=0,next=5,total=5,harvested=5,commandSerial=1,layout="strip2:4:2:2:1"}'
 ok,err=install(S,true,7)
@@ -121,13 +121,13 @@ local shown=false;for _,l in ipairs(S.log)do if l:find("47185 Fuel/h",1,true) th
 check("Kosten angezeigt",shown)
 
 print("L Abstand 0 -> seitlich mitabbauen")
-S=Sim.new({config=MINECFG,input={"1","j","3","40","6","8","0","r","j","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
+S=Sim.new({config=MINECFG,input={"1","j","3","40","6","8","0","r","j","","","","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
 ok,err=install(S,true,7)
 local lm=ok and cfgOf(S).mine
 check("sideDig gespeichert",lm and lm.gap==0 and lm.sideDig==true and lm.tunnels==8,err)
 
 print("M Ungueltige Eingabe wird abgefangen")
-S=Sim.new({config=MINECFG,input={"1","j","3","abc","5000","40","","","","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
+S=Sim.new({config=MINECFG,input={"1","j","3","abc","5000","40","","","","","","","","","","","n","n"}});S.files={["/toast.config.lua"]=MINECFG}
 ok,err=install(S,true,7)
 check("Laenge 40 trotz Falscheingaben",ok and cfgOf(S).mine.length==40,err)
 
@@ -229,7 +229,7 @@ S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files={["/toast.config.lua
 ok,err=install(S,true,7)
 check("Vorbereitung ok",ok,err)
 S.files["/toast_mining_state"]="{x=0,y=0,z=0,dir=0,next=99,total=5,harvested=5}"
-S.input={"3","3","9","","","","","","","","j","j","n"}
+S.input={"3","3","9","","","","","","","","","","","j","j","n"}
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("neue Laenge 9 gespeichert",kc and kc.mine.length==9,err)
