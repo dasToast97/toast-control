@@ -10,11 +10,21 @@ local WORK={["Abbau"]="Baut ab",["Ernte"]="Erntet",["Pflanzen"]="Pflanzt",["Feld
     ["Update"]="Update",["Kiste setzen"]="Kiste"}
 -- Nur echte Probleme orange; alles andere ist normale Arbeit
 local WARN={"fehlt","voll","blockiert","fehlgeschlagen","unklar","Kein","beendet","Gelaende","Problem","nicht"}
+-- Nachschub fehlt (Lager voll, Treibstoff, Saatgut ...): kein Fehler, nur Pause
+local PAUSE={"voll","Treibstoff","Fuel","Kohle","Saatgut","Fuellmaterial","Wandblock","Ausgabekiste","Lager fehlt"}
+local function isPause(t)
+    t=tostring(t or "")
+    for _,k in ipairs(PAUSE) do if t:find(k,1,true) then return true end end
+    return false
+end
+M.isPause=isPause
 function M.state(e,link)
     local d=e and e.data
     if not link or not e or not e.online or not d then return "Offline","off" end
     if d.recovery then return "Pos. ?","fault" end
+    if d.fault and isPause(d.fault) then return "Pause","pause" end
     if d.fault or d.status=="Rueckweg blockiert" then return "Fehler","fault" end
+    if isPause(d.status) then return "Pause","pause" end
     local s=tostring(d.status or "")
     if WORK[s] then return WORK[s],"work" end
     if s=="Rueckkehr" then return "Heimweg","move" end
@@ -27,7 +37,7 @@ function M.state(e,link)
     return (s:match("^(%S+)") or s):sub(1,8),"work"
 end
 local COLOR={work=colors.lime,move=colors.lightBlue,wait=colors.cyan,done=colors.green,
-    idle=colors.lightGray,warn=colors.orange,fault=colors.red,off=colors.gray}
+    idle=colors.lightGray,warn=colors.orange,fault=colors.red,off=colors.gray,pause=colors.orange}
 M.COLOR=COLOR
 local function num(n) return common.number(n) end
 local function short(n)
@@ -226,7 +236,7 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     -- Zustand als grosses Band
     P.fill(3,COLOR[kind]);P.fill(4,COLOR[kind])
     P.text(2,3,label,colors.black,COLOR[kind])
-    local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
+    local why=(kind=="fault" or kind=="warn" or kind=="pause") and (d.fault or d.status) or nil
     if why then P.text(2,4,tostring(why),colors.black,COLOR[kind]) end
     local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
     local y=6
@@ -405,7 +415,7 @@ function M.drawInfo(screen,fleet,link,st,show)
             local l=list[(st.page-1)*avail+i];if not l then break end
             local d=l.e.data or {}
             local name=l.e.label~="" and l.e.label or (JOB[l.job].name.." #"..l.id)
-            P.text(1,y,"\7",COLOR[l.kind])
+            P.text(1,y,l.kind=="pause" and "!" or "\7",COLOR[l.kind])
             local stx=w-8
             local val=""
             if l.kind~="off" then val=short(JOB[l.job].value(d)) end
@@ -538,7 +548,7 @@ function M.new(screen,cfg)
             end
         end
         -- Probleme zuerst, dann aktive, dann der Rest (sonst stabile Reihenfolge)
-        local rank,pos={fault=1,warn=2,work=3,move=3,wait=3,done=4,idle=4,off=5},{}
+        local rank,pos={fault=1,warn=2,pause=2,work=3,move=3,wait=3,done=4,idle=4,off=5},{}
         for i,id in ipairs(ids) do local _,k=M.state(entries[id] or {},link);pos[id]=(rank[k] or 4)*10000+i end
         table.sort(ids,function(a,b) return pos[a]<pos[b] end)
         if ui.filter~="net" and ui.filter~="store" then
@@ -631,6 +641,7 @@ function M.new(screen,cfg)
                 if link and e.online and e.data and not d.recovery and not active then canStart=true end
                 if link and e.online and active then canStop=true;running=running+1 end
                 if link and (k=="fault" or k=="warn") then canStop=true;faultsT=faultsT+1 end
+                if link and k=="pause" then canStop=true end
             end
         end
         ui.state={canStart=canStart,canStop=canStop,faults=faultsT,running=running}
@@ -652,7 +663,7 @@ function M.new(screen,cfg)
             local name=(sel.label and sel.label~="" and sel.label or JOB[jobOf(sel)].name).." #"..ui.selected
             pill(1,3,math.min(w,#name+(w>=30 and 14 or 4)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
             fill(4,COLOR[kind])
-            local why=(kind=="fault" or kind=="warn") and (d.fault or d.status) or nil
+            local why=(kind=="fault" or kind=="warn" or kind=="pause") and (d.fault or d.status) or nil
             text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
             -- Detailtext umbrechen (max. 2 Zeilen)
             local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
@@ -728,7 +739,7 @@ function M.new(screen,cfg)
                 local bg=mark and colors.gray or colors.black
                 local sc=(mark and kind=="off") and colors.lightGray or COLOR[kind]
                 text(1,yy,string.rep(" ",w),colors.white,bg)
-                text(1,yy,mark and "\16" or "\7",mark and colors.white or sc,bg)
+                text(1,yy,mark and "\16" or (kind=="pause" and "!" or "\7"),mark and colors.white or sc,bg)
                 text(3,yy,name:sub(1,nameW),kind=="off" and (mark and colors.lightGray or colors.gray) or colors.white,bg)
                 if block>0 and kind~="off" then
                     local x0=w-stW-block
