@@ -108,5 +108,28 @@ print(("    %d Erze gesetzt, %d stehen noch, %d notgedrungen abgebaut"):format(o
 check("fertig + zu Hause",st.next and st.next>3*15 and S.p.x==0 and S.p.z==0 and S.p.y==0 and not (S.last and S.last.fault),tostring(st.next).." "..tostring(S.last and S.last.fault).." "..tail(S))
 check("Zaehlung stimmt",left+(st.oresMined or 0)==ores,left.."+"..tostring(st.oresMined).." vs "..ores)
 
+print("X8 Kohle-Adern hintereinander in der Fahrspur: alle stehen lassen, Rest komplett frei")
+local VEINS={
+    {"2 hintereinander",{{0,-1,4},{0,-1,5}}},
+    {"3 hintereinander",{{0,-1,3},{0,-1,4},{0,-1,5}}},
+    {"2 hintereinander + oben",{{0,-1,4},{0,-1,5},{0,-2,4},{0,-2,5}}},
+    {"2 hintereinander + unten + Seite",{{0,-1,4},{0,-1,5},{0,0,5},{1,-1,4}}},
+    {"2 Paare mit Luecke",{{0,-1,3},{0,-1,4},{0,-1,6},{0,-1,7}}},
+}
+for _,v in ipairs(VEINS) do
+    S=Sim.new({config=(cfg('keepOres="all",useCoal=true'):gsub("length=6","length=10")),actions={{t=2,fn=function(S)Sim.cmd(S,"once",12)end}}})
+    S.protocol="toast.mine.v1"
+    local ore={}
+    for _,p in ipairs(v[2]) do S.world[S.key(p[1],p[2],p[3])]="minecraft:coal_ore";ore[S.key(p[1],p[2],p[3])]=true end
+    Sim.run(S,900)
+    st=load("return "..S.files["/toast_mining_state"])()
+    local left,rest=0,0
+    for _,p in ipairs(v[2]) do if S.world[S.key(p[1],p[2],p[3])]=="minecraft:coal_ore" then left=left+1 end end
+    for z=1,10 do for y=0,-2,-1 do if not ore[S.key(0,y,z)] and S.world[S.key(0,y,z)]~=false then rest=rest+1 end end end
+    check(v[1]..": Kohle steht ("..left.."/"..#v[2]..")",left==#v[2],left)
+    check(v[1]..": Gang sonst frei, fertig, zu Hause",rest==0 and st.next and st.next>10 and S.p.x==0 and S.p.y==0 and S.p.z==0,
+        rest.." "..tostring(st.next).." "..tail(S))
+end
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end

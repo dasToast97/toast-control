@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.13.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.13.4",
+    version="3.13.5",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -4849,70 +4849,99 @@ local function seq(...)
     for _,f in ipairs({...}) do local ok,why=f();if not ok then return false,why end end
     return true
 end
--- Erz direkt vor der Turtle im Gang (Fahrt entlang z): ueber die Reihe darueber
--- und/oder darunter drumherum. Endet 2 Felder weiter; die Felder ueber/unter
--- dem Erz werden mit abgebaut, das Erz bleibt stehen.
-local function detour(dz,i)
+-- Erz direkt vor der Turtle im Gang (Fahrt entlang z): ueber die Reihe darueber,
+-- darunter oder seitlich drumherum. Liegen mehrere Erze hintereinander, faehrt
+-- sie so weit, bis wieder ein freies Feld im Gang kommt (hoechstens maxSteps
+-- Felder weit). Die Felder ueber/unter den Erzen werden mit abgebaut, die Erze
+-- bleiben stehen. Rueckgabe: ok, Anzahl Felder.
+local function detour(dz,i,maxSteps)
     local x,y,z=st.x,st.y,st.z
-    local tz,nz=z+dz,z+2*dz
-    if not inPlan(x,y,nz) then return false,"rand" end
+    maxSteps=math.min(maxSteps or 2,12)
+    if maxSteps<2 or not inPlan(x,y,z+2*dz) then return false,"rand" end
     local fwd,back=dz>0 and 0 or 2,dz>0 and 2 or 0
     local function oreAt(insp) local e,bl=insp();return e and keptOre(bl.name) end
-    local up=inPlan(x,y-1,z) and inPlan(x,y-1,tz) and inPlan(x,y-1,nz)
-    local dn=inPlan(x,y+1,z) and inPlan(x,y+1,tz) and inPlan(x,y+1,nz)
+    local function row(dy) for k=0,2 do if not inPlan(x,y+dy,z+k*dz) then return false end end;return true end
+    local up,dn=row(-1),row(1)
     status("Erz umgehen","Erz im Gang bleibt stehen, Turtle faehrt drumherum.")
-    -- Weg: raus (hoch/runter/seitlich), 2 Felder vor, wieder rein. Jedes Feld vorher
-    -- pruefen; ist eins Erz, zurueck an den Anfang und den naechsten Weg probieren.
-    local function try(out,inn,outInsp)
+    -- Weg: raus (hoch/runter/seitlich), vor bis neben ein freies Gangfeld, wieder rein.
+    -- Vorher jedes Feld pruefen; geht es nicht weiter: zurueck an den Anfang.
+    -- landInsp prueft das Gangfeld neben der Turtle (ist es Erz, weiterfahren).
+    local function try(out,inn,outInsp,landInsp)
         if outInsp and oreAt(outInsp) then return false,"blocked" end
         local ok,why=out();if not ok then return false,why end
-        ok,why=face(fwd);if not ok then return false,why end
-        if oreAt(turtle.inspect) then
-            ok,why=inn();if not ok then return false,why end
+        local steps=0
+        local function abort()
+            local okb,whyb=face(back);if not okb then return false,whyb end
+            for _=1,steps do okb,whyb=move("forward",i);if not okb then return false,whyb end end
+            okb,whyb=inn();if not okb then return false,whyb end
             return false,"blocked"
         end
-        ok,why=move("forward",i);if not ok then return false,why end
-        if oreAt(turtle.inspect) then
-            ok,why=seq(function()return face(back)end,function()return move("forward",i)end,inn)
-            if not ok then return false,why end
-            return false,"blocked"
+        while true do
+            ok,why=face(fwd);if not ok then return false,why end
+            if steps>=maxSteps or not inPlan(x,y,z+(steps+1)*dz) or oreAt(turtle.inspect) then return abort() end
+            ok,why=move("forward",i);if not ok then return false,why end
+            steps=steps+1
+            if steps>=2 then
+                local ore;ore,why=landInsp();if ore==nil then return false,why end
+                if not ore then break end
+            end
         end
-        ok,why=move("forward",i);if not ok then return false,why end
-        return inn()
+        ok,why=inn();if not ok then return false,why end
+        return true,steps
     end
-    local function side(d)
-        return function() local ok,why=face(d);if not ok then return false,why end;return move("forward",i) end,
-            function() local ok,why=face((d+2)%4);if not ok then return false,why end;return move("forward",i) end
-    end
+    local function look(insp) return function() return oreAt(insp)==true end end
     local ways={}
-    if up then ways[#ways+1]={function()return move("up",i)end,function()return move("down",i)end,turtle.inspectUp} end
-    if dn then ways[#ways+1]={function()return move("down",i)end,function()return move("up",i)end,turtle.inspectDown} end
+    if up then ways[#ways+1]={function()return move("up",i)end,function()return move("down",i)end,turtle.inspectUp,look(turtle.inspectDown),row=-1} end
+    if dn then ways[#ways+1]={function()return move("down",i)end,function()return move("up",i)end,turtle.inspectDown,look(turtle.inspectUp),row=1} end
     for _,d in ipairs({1,3}) do
-        local o,n=side(d)
+        local inward=(d+2)%4
         ways[#ways+1]={function() local ok,why=face(d);if not ok then return false,why end
-            if oreAt(turtle.inspect) then return false,"blocked" end;return move("forward",i) end,n,nil}
+                if oreAt(turtle.inspect) then return false,"blocked" end;return move("forward",i) end,
+            function() local ok,why=face(inward);if not ok then return false,why end;return move("forward",i) end,
+            nil,
+            function() local ok,why=face(inward);if not ok then return nil,why end;return oreAt(turtle.inspect)==true end}
     end
-    local ok,why
+    local ok,why,steps,used
     for _,wy in ipairs(ways) do
-        ok,why=try(wy[1],wy[2],wy[3])
-        if ok or why~="blocked" then break end
+        ok,why=try(wy[1],wy[2],wy[3],wy[4])
+        if ok then steps,used=why,wy.row;break end
+        if why~="blocked" then break end
         local okf=face(fwd);if not okf then return false,"Drehen" end
     end
     if not ok and why=="blocked" then return false,"rand" end
     if not ok then return false,why end
-    -- Felder ueber/unter dem Erz (gehoeren zum Gang) freilegen, soweit erreichbar
-    if up and st.y==y and not oreAt(turtle.inspectUp) then
-        ok,why=seq(function()return move("up",i)end,function()return face(back)end,
-            function()return clear(turtle.inspect,turtle.dig,i,true)end,function()return move("down",i)end)
+    -- Felder ueber/unter den Erzen (gehoeren zum Gang) freilegen, soweit erreichbar:
+    -- in die Reihe, zurueck ueber die Erze, Felder abbauen, wieder zurueck.
+    local function sweep(go,ret,insp)
+        if oreAt(insp) then return true end
+        local ok2,why2=go();if not ok2 then return false,why2 end
+        local walked=0
+        for k=1,steps-1 do
+            ok2,why2=face(back);if not ok2 then return false,why2 end
+            ok2,why2=clear(turtle.inspect,turtle.dig,i,true);if not ok2 then return false,why2 end
+            if k<steps-1 then
+                if turtle.detect() then break end          -- Erz steht da: nicht weiter
+                ok2,why2=move("forward",i);if not ok2 then return false,why2 end
+                walked=walked+1
+            end
+        end
+        if walked>0 then
+            ok2,why2=face(fwd);if not ok2 then return false,why2 end
+            for _=1,walked do ok2,why2=move("forward",i);if not ok2 then return false,why2 end end
+        end
+        return ret()
+    end
+    if up and used~=-1 and st.y==y then
+        ok,why=sweep(function()return move("up",i)end,function()return move("down",i)end,turtle.inspectUp)
         if not ok then return false,why end
     end
-    if dn and st.y==y and not oreAt(turtle.inspectDown) then
-        ok,why=seq(function()return move("down",i)end,function()return face(back)end,
-            function()return clear(turtle.inspect,turtle.dig,i,true)end,function()return move("up",i)end)
+    if dn and used~=1 and st.y==y then
+        ok,why=sweep(function()return move("down",i)end,function()return move("up",i)end,turtle.inspectDown)
         if not ok then return false,why end
     end
-    st.keptOres=(st.keptOres or 0)+1;save()
-    return face(fwd)
+    st.keptOres=(st.keptOres or 0)+steps-1;save()
+    ok,why=face(fwd);if not ok then return false,why end
+    return true,steps
 end
 local function lineX(x,i)
     while st.x~=x do
@@ -4928,7 +4957,7 @@ local function lineZ(z,i)
         ok,why=move("forward",i)
         if not ok and why=="ore" then
             if st.z+dz==z then return false,"ore" end          -- das Ziel selbst ist Erz
-            ok,why=detour(dz,i)
+            ok,why=detour(dz,i,math.abs(z-st.z))
             if not ok and why=="rand" then ok,why=forced("forward",i) end
         end
         if not ok then return false,why end
@@ -5253,11 +5282,18 @@ local function work()
                             local nx,ny,nz
                             if st.next<cells then nx,ny,nz=step(st.next+1) end
                             if dz~=0 and nx==st.x and ny==st.y and nz==st.z+2*dz and st.x==x and st.y==y then
-                                ok,why=detour(dz,true)
-                                if ok then
-                                    st.next=st.next+1;save()
-                                    x,y,z,up,down,left,right=step(st.next)
+                                -- wie viele Schritte liegen weiter geradeaus? (mehrere Erze hintereinander)
+                                local reach,sz=2,st.z
+                                while reach<12 and st.next+reach<=cells do
+                                    local ax,ay,az=step(st.next+reach)
+                                    if ax==st.x and ay==st.y and az==sz+(reach+1)*dz then reach=reach+1 else break end
                                 end
+                                local steps
+                                ok,steps=detour(dz,true,reach)
+                                if ok then
+                                    st.next=st.next+steps-1;save()
+                                    x,y,z,up,down,left,right=step(st.next)
+                                else why=steps end
                             else
                                 -- Erz irgendwo auf dem Weg (Wendepunkt): anders herum versuchen
                                 ok,why=direct(x,y,z,true)
@@ -7303,7 +7339,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.13.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

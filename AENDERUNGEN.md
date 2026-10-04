@@ -1,3 +1,11 @@
+# Toast Control 3.13.5
+
+- **Mining: mehrere Erze hintereinander in der Fahrspur:** Die Turtle umfuhr bisher
+  immer genau ein Feld. Lag direkt dahinter noch ein Erz (z.B. 2 Kohle am Stück),
+  baute sie beide doch ab. Jetzt fährt sie oben/unten/seitlich so weit weiter, bis
+  wieder ein freies Feld im Gang kommt (bis 12 Felder), und legt die Felder über
+  bzw. unter den Erzen trotzdem frei.
+
 # Toast Control 3.13.4
 
 - **Lager bleibt online:** Beim Auslesen der Kisten ging das Lebenszeichen an die
