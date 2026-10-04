@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.9.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.9.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -132,7 +132,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.9.1",
+    version="3.9.2",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -5374,6 +5374,10 @@ function W.new(o)
         local T={}
         local CLIMB=opt.climb or 8
         local mopt={attack=opt.attack~=false,dig=opt.canDig~=nil,canDig=opt.canDig}
+        -- Gefahr (Standard: Lava): nie hineinfahren, auch nicht von oben hinein
+        local avoid=opt.avoid or function(n) return n:find("lava",1,true)~=nil end
+        local function danger(inspect) local ok,b=inspect();return ok and type(b)=="table" and avoid(b.name or "") end
+        T.danger=danger
         local TRAILMAX=800
         st.trail=type(st.trail)=="table" and st.trail or nil
         local idx={}
@@ -5404,6 +5408,7 @@ function W.new(o)
         function T.hug()
             local n=0
             while st.y>-CLIMB and n<CLIMB+16 do
+                if danger(turtle.inspectDown) then break end
                 if turtle.detectDown() then
                     local _,b=turtle.inspectDown()
                     if not (opt.canDig and b and opt.canDig(b.name) and (not opt.hugThrough or opt.hugThrough(b.name))) then break end
@@ -5415,6 +5420,7 @@ function W.new(o)
         -- Ein Schritt nach vorne; fester Block -> hochklettern (nie abbauen)
         function T.step()
             if opt.before then opt.before() end
+            if danger(turtle.inspect) then return false,"Lava" end
             local ok,why=T.mv("forward")
             if ok then return true end
             if not tostring(why):find("blockiert",1,true) then return false,why end
@@ -5426,6 +5432,7 @@ function W.new(o)
                 if not T.mv("up") then break end
             end
             if turtle.detect() then return false,"zu hoch" end
+            if danger(turtle.inspect) then return false,"Lava" end
             return T.mv("forward")
         end
         local DIRV={[0]={0,1},{1,0},{0,-1},{-1,0}}
@@ -5433,7 +5440,7 @@ function W.new(o)
         local wall,unreach={},{}
         local function ckey(x,z) return x..":"..z end
         T.wall,T.unreach,T.ckey=wall,unreach,ckey
-        local function blocked(why) return why=="zu hoch" or tostring(why):find("blockiert",1,true)~=nil end
+        local function blocked(why) return why=="zu hoch" or why=="Lava" or tostring(why):find("blockiert",1,true)~=nil end
         -- Zu (tx,tz) laufen. ground: dem Boden folgen. watchFuel: bei knappem Fuel abbrechen.
         -- opt.facing(dir) wird nach jedem Drehen aufgerufen (z.B. Baum vor der Nase faellen).
         function T.nav(tx,tz,ground,watchFuel)
@@ -5466,11 +5473,13 @@ function W.new(o)
                         local okm,whym=T.step()
                         if okm then moved=true;break end
                         if not blocked(whym) then return false,whym end
-                        if whym=="zu hoch" then wall[ckey(nx,nz)]=true end
+                        if whym=="zu hoch" or whym=="Lava" then wall[ckey(nx,nz)]=true end
                     end
                 end
                 if not moved then return false,"kein Weg" end
                 if ground then T.hug() end
+                -- ueber Lava gelandet (Senke voller Lava): Feld merken und meiden
+                if danger(turtle.inspectDown) then wall[ckey(st.x,st.z)]=true end
             end
             return true
         end
@@ -6845,7 +6854,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.9.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.9.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

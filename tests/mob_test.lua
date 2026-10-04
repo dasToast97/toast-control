@@ -167,4 +167,29 @@ Sim.run(S,30)
 check("wehrt trotzdem ab",S.kills==3,S.kills)
 check("Meldung Lager voll",S.last and S.last.status=="Lager voll",S.last and S.last.status)
 
+print("M10 Waechter faehrt nie in Lava (Lavasee im Gebiet)")
+local function lavaWorld(S)
+    terrain(S)
+    for x=6,9 do for z=6,10 do S.world[S.key(x,1,z)]="minecraft:lava";S.world[S.key(x,2,z)]="minecraft:lava" end end
+end
+S=Sim.new({config=cfg(PCFG),default=false,fuel=500,world=lavaWorld,
+    actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}})
+S.protocol="toast.mob.v1"
+do
+  local dd=S.turtle.detectDown
+  S.turtle.detectDown=function() local b=S.block(S.p.x,S.p.y+1,S.p.z);if b and b:find("lava",1,true) then return false end;return dd() end
+  S.inLava=0;S.overLava=0
+  for _,n in ipairs({"forward","up","down"}) do
+    local f=S.turtle[n]
+    S.turtle[n]=function() local ok,w=f();if ok then
+        local here=S.world[S.key(S.p.x,S.p.y,S.p.z)];if here and here:find("lava",1,true) then S.inLava=S.inLava+1 end end;return ok,w end
+  end
+end
+Sim.run(S,3000)
+st=state(S)
+check("Runde fertig",st.rounds==1,tail(S))
+check("nie in Lava gefahren",S.inLava==0,S.inLava)
+check("trotzdem viel unterwegs",(st.targets or 0)>=5,st.targets)
+check("zu Hause",S.p.x==0 and S.p.z==0 and S.p.y==0)
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

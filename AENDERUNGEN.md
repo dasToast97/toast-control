@@ -1,3 +1,9 @@
+# Toast Control 3.9.2
+
+- **Wächter und Holzfäller fahren nicht mehr in Lava.** Lava vor der Turtle
+  gilt als Hindernis, in Lava-Senken steigt sie nicht ab, und Stellen über Lava
+  werden als Ziel gemieden. Unterwegs patrouilliert sie normal weiter.
+
 # Toast Control 3.9.1
 
 ## Mobs: Beute einsammeln und abliefern
