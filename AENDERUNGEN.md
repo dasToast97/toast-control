@@ -1,3 +1,17 @@
+# Toast Control 3.13.3
+
+- **Abladekisten der Mine über eigenen Knopf:** In den Details einer Mining-Turtle
+  steht oben rechts **„Kisten (n)“**. Antippen zeigt alle gesetzten Kisten als
+  scrollbare Liste (Pfeile rechts, Mausrad, ↑↓ oder Bild↑↓, Taste K):
+  ```
+  Kiste 1
+  X:100 Y:63 Z:-28
+  Kiste 2
+  ...
+  ```
+  „Infos (n)“ bzw. Zurück wechselt wieder. Die Kisten stehen nicht mehr in den
+  normalen Infozeilen.
+
 # Toast Control 3.13.2
 
 - **Eigene Version überall sichtbar:** Zentrale und Pocket unten rechts

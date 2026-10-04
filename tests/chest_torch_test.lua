@@ -59,8 +59,8 @@ do
   for _,n in ipairs({"toast_ui.lua"})do S.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a")end
   local UI=G.dofile("/toast/toast_ui.lua")
   local rows=UI.JOB.mining.rows(msg)
-  local found=false;for _,r in ipairs(rows) do if r[1]=="Kiste 1" and r[2]=="X100 Y63 Z-28" then found=true end end
-  check("Anzeige Zentrale/Pocket/Infoscreen: Zeile 'Kiste 1'",found)
+  local found=false;for _,r in ipairs(rows) do if r[1]=="Kiste 1" then found=true end end
+  check("Kisten nicht mehr in den Infozeilen (eigener Knopf)",not found)
 end
 
 print("K2 Ohne Kisten im Inventar: normal heimfahren")

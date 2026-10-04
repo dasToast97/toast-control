@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.13.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.13.2",
+    version="3.13.3",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -2095,14 +2095,7 @@ local JOB={
             {"Abgebaut",short(d.harvested).." Bloecke"},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
             if d.useCoal then r[#r+1]={"Kohle",short(d.coal).." verbrannt"} end
             if d.placeChests then r[#r+1]={"Kisten",short(d.chestsPlaced).." gesetzt, "..short(d.chestsLeft).." dabei"} end
-            -- Wo liegen die Abladekisten?
-            if type(d.chestList)=="table" then
-                for _,k in ipairs(d.chestList) do
-                    local p=type(k.pos)=="table" and ("X"..num(k.pos.x).." Y"..num(k.pos.y).." Z"..num(k.pos.z))
-                        or (type(k.rel)=="table" and M.posText({rel=k.rel})) or "?"
-                    r[#r+1]={"Kiste "..tostring(k.n),p}
-                end
-            end
+
             if num(d.torches)>0 then r[#r+1]={"Fackeln",short(d.torchesPlaced).." gesetzt, "..short(d.torchesLeft).." dabei"} end
             if num(d.keptOres)>0 then r[#r+1]={"Erze stehen",short(d.keptOres)..(num(d.oresMined)>0 and (", "..short(d.oresMined).." am Rand abgebaut") or "")} end
             if num(d.sealed)>0 then r[#r+1]={"Zugebaut",short(d.sealed).." Stellen"} end
@@ -2678,7 +2671,35 @@ function M.new(screen,cfg)
             local d=sel.data or {}
             local label,kind=M.state(sel,link)
             local name=(sel.label and sel.label~="" and sel.label or JOB[jobOf(sel)].name).." #"..ui.selected
-            pill(1,3,math.min(w,#name+(w>=30 and 14 or 4)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
+            local chests=type(d.chestList)=="table" and #d.chestList or 0
+            if chests==0 then ui.chestView=nil end
+            local kl=chests>0 and ((ui.chestView and "Infos" or "Kisten").." ("..chests..")") or nil
+            local nameW=math.min(w-(kl and #kl+3 or 0),#name+(w>=30 and 14 or 4))
+            pill(1,3,nameW,(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
+            if kl then pill(w-#kl-1,3,#kl+2,kl,"chests",ui.chestView and colors.lightBlue or colors.gray,true,ui.chestView and colors.black or colors.white) end
+            if ui.chestView then
+                -- Liste der gesetzten Abladekisten (scrollbar)
+                local lines={}
+                for _,k in ipairs(d.chestList) do
+                    lines[#lines+1]={"Kiste "..tostring(k.n),colors.yellow}
+                    local p=type(k.pos)=="table" and ("X:"..num(k.pos.x).." Y:"..num(k.pos.y).." Z:"..num(k.pos.z))
+                        or (type(k.rel)=="table" and M.posText({rel=k.rel})) or "Position unbekannt"
+                    lines[#lines+1]={p,colors.white}
+                end
+                local top=4
+                local avail=math.max(2,foot-1-top);avail=avail-avail%2      -- immer ganze Kisten (2 Zeilen)
+                ui.chestMax=math.max(0,#lines-avail)
+                ui.chestScroll=math.max(0,math.min(ui.chestScroll or 0,ui.chestMax))
+                if ui.chestScroll%2==1 then ui.chestScroll=ui.chestScroll-1 end
+                for i=1,avail do
+                    local l=lines[ui.chestScroll+i];if not l then break end
+                    text(1,top+i-1,l[1]:sub(1,w-2),l[2])
+                end
+                if ui.chestMax>0 then
+                    pill(w,top,1,"\24","cup",colors.gray,ui.chestScroll>0,colors.white)
+                    pill(w,top+avail-1,1,"\25","cdown",colors.gray,ui.chestScroll<ui.chestMax,colors.white)
+                end
+            else
             fill(4,COLOR[kind])
             local why=(kind=="fault" or kind=="warn" or kind=="pause") and (d.fault or d.status) or nil
             text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
@@ -2701,6 +2722,7 @@ function M.new(screen,cfg)
             for _,r in ipairs(rows) do
                 if y>=foot-1 then break end
                 text(1,y,r[1],colors.lightGray);text(13,y,r[2],colors.white);y=y+1
+            end
             end
         else
         -- ===== Uebersicht =====
@@ -3035,6 +3057,11 @@ function M.new(screen,cfg)
         if not a then return end
         if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
+        elseif a=="chests" then ui.chestView=not ui.chestView;ui.chestScroll=0;return
+        elseif a=="cup" or a=="cdown" or (ui.chestView and ui.selected and (a=="up" or a=="down" or a=="pageprev" or a=="pagenext")) then
+            local d=(a=="cup" or a=="up" or a=="pageprev") and -2 or 2
+            if a=="pageprev" or a=="pagenext" then d=d*4 end
+            ui.chestScroll=math.max(0,math.min(ui.chestMax or 0,(ui.chestScroll or 0)+d));return
         elseif a:match("^sview:") then ui.storeView=a:sub(7);ui.storeItem=nil;ui.page=1;return
         elseif a:match("^sitem:") then ui.storeItem=a:sub(7);ui.page=1;return
         elseif a=="sback" then ui.storeItem=nil;return
@@ -3046,8 +3073,10 @@ function M.new(screen,cfg)
             return
         elseif a=="help" then ui.help=not ui.help
         elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
-        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected
-        elseif a=="group" then ui.cursor=ui.selected or ui.cursor;ui.selected=nil;ui.followCursor=true
+        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected;ui.chestView=nil
+        elseif a=="group" then
+            if ui.chestView then ui.chestView=nil;return end
+            ui.cursor=ui.selected or ui.cursor;ui.selected=nil;ui.followCursor=true
         elseif a=="pageprev" then ui.page=math.max(1,ui.page-1)
         elseif a=="pagenext" then ui.page=math.min((ui.filter=="store" and ui.storePages) or ui.pages or 1,ui.page+1)
         elseif a=="tabprev" or a=="tabnext" then
@@ -3112,7 +3141,7 @@ function M.new(screen,cfg)
             if b.enabled and y==b.y and x>=b.x and x<b.x+b.w then return b.action end
         end
     end
-    ui.keys={["0"]="group",["1"]="start",["2"]="stop",["3"]="once",["4"]="reset",
+    ui.keys={k="chests",["0"]="group",["1"]="start",["2"]="stop",["3"]="once",["4"]="reset",
         s="start",x="stop",e="once",r="reset",h="help",["?"]="help",u="update",
         a="filter:all",f="filter:farm",m="filter:mining"}
     return ui
@@ -7258,7 +7287,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.13.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
