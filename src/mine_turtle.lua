@@ -8,6 +8,7 @@ local cfg=common.load();assert(cfg.role=="turtle","Mining Turtle erforderlich.")
 local TC=dofile("/toast_common.lua")
 local CL=TC.chunkConfig(cfg.chunkload)
 local GEAR
+local lastRadio=os.clock()    -- letztes Funkfenster (Chunkloader)
 if CL.enabled then
     local why
     GEAR,why=TC.gear(CL,{['minecraft:diamond_pickaxe']=true,['minecraft:netherite_pickaxe']=true})
@@ -323,6 +324,9 @@ local function blockReason(b)
     if unbreakable[b.name] then return "Nicht abbaubar: "..b.name end
     if protected[b.name] or hard[b.name] then return "Geschuetzter Block: "..b.name end
 end
+-- Mit Chunkloader: Modem statt Spitzhacke, sobald die Turtle nur faehrt (2 Schritte
+-- ohne Abbau). Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
+local digCount,freeMoves=0,0
 local function clear(inspect,dig,interruptible)
     -- Rueckweg (nicht unterbrechbar): immer freiraeumen, auch mit vollem Inventar
     -- (Block faellt dann als Item auf den Boden) und laenger auf Kies/Sand warten.
@@ -346,7 +350,7 @@ local function clear(inspect,dig,interruptible)
                 if tostring(why):find("No tool",1,true) then return false,NO_TOOL end
                 return false,"Nicht abbaubar: "..b.name.." / "..tostring(why)
             end
-            st.harvested=(st.harvested or 0)+1;save()
+            st.harvested=(st.harvested or 0)+1;digCount=digCount+1;save()
             if C.useCoal and b.name:find("coal_ore",1,true) then sleep(0.1);burnCoal() end
             sleep(0.1)
         end
@@ -652,7 +656,10 @@ local function move(kind,interruptible)
     local last
     -- Mobs/Spieler im Weg: angreifen, kurz warten, erneut versuchen.
     for attempt=1,R.moveRetries do
+        local before=digCount
         local ok,why=clear(inspect,dig,interruptible);if not ok then return false,why end
+        if digCount==before then freeMoves=freeMoves+1 else freeMoves=0 end
+        if GEAR and freeMoves>=2 and GEAR.radio() then lastRadio=os.clock() end
         if interruptible and not active() then return false,"stopped" end
         ok,why=action(kind,fn,update)
         if ok then return true end
@@ -929,7 +936,7 @@ local function idle()
     chunkTick()
 end
 local sendStatus
-local lastRadio=os.clock()
+lastRadio=os.clock()
 -- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
 -- Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
 local function radioWindow()

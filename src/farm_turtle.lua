@@ -48,6 +48,7 @@ end
 local TC = dofile("/toast_common.lua")
 local CL = TC.chunkConfig(config.chunkload)
 local GEAR
+local lastRadio=os.clock()    -- letztes Funkfenster (Chunkloader)
 if CL.enabled then
     local why
     GEAR, why = TC.gear(CL, TOOLS)
@@ -247,8 +248,13 @@ local function face(dir)
     return true
 end
 local DX, DZ = { [0] = 0, 1, 0, -1 }, { [0] = 1, 0, -1, 0 }
+-- Mit Chunkloader: Modem statt Werkzeug, solange nicht geerntet wird
+-- (2 Schritte ohne Ernte). Das Werkzeug kommt beim naechsten Ernten zurueck.
+local freeMoves = 0
 local function forward()
     local last
+    freeMoves = freeMoves + 1
+    if GEAR and freeMoves >= 2 and GEAR.radio() then lastRadio = os.clock() end
     -- Tiere/Spieler im Weg: angreifen, kurz warten, erneut versuchen.
     for attempt = 1, R.moveRetries do
         local ok, why = action("move", turtle.forward, function()
@@ -417,6 +423,7 @@ local function visit(x, z)
             return false, tostring(why):find("No tool", 1, true) and NO_TOOL or "Pflanze nicht abbaubar"
         end
         st.harvested, run.roundPlants = (st.harvested or 0) + 1, run.roundPlants + 1
+        freeMoves = 0
     else
         status("Pflanzen", "Leere Ackerstellen werden bepflanzt.")
     end
@@ -432,7 +439,7 @@ local function visit(x, z)
     return true
 end
 local sendStatus
-local lastRadio = os.clock()
+lastRadio=os.clock()
 -- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
 -- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
 local function radioWindow()

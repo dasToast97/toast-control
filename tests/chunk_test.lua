@@ -55,6 +55,30 @@ local lost=false;for _,m in ipairs(S.sent) do if type(m.msg)=="table" and tostri
 check("Mine trotz langer Schritte fertig",st.next==61 and S.last and not S.last.fault,st.next.." "..tostring(S.last and S.last.fault))
 check("nie \"Funkverbindung verloren\"",not lost)
 
+print("C1c Fahren ohne Abbau (Heimweg) -> Modem angelegt, Zentrale erreicht die Turtle")
+S=Sim.new({config=cfg("mining",CL1),fuel=6000,gear={left="ccchunkloader:chunkloader",right="minecraft:diamond_pickaxe"},
+  actions={{t=3,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.inv[16]={name="computercraft:wireless_modem_advanced",count=1};S.protocol="toast.mine.v1"
+-- Inventar wird mitten im Gang voll: Weg zur Basis ohne Abbau
+local function fillUp(S) if S.farAt or S.p.z<20 then return end;S.farAt=S.p.z;for i=1,15 do if not S.inv[i] then S.inv[i]={name="minecraft:dirt",count=64} end end end
+local movesFree,movesModem=0,0
+do
+  local orig=Sim.env
+  Sim.env=function(S2) local G=orig(S2)
+    local fw=G.turtle.forward;local lastDig=0;local moves=0
+    local dg=G.turtle.dig
+    G.turtle.dig=function(...) local a,b=dg(...);if a then lastDig=moves end;return a,b end
+    G.turtle.forward=function(...) local ok,w=fw(...);if ok then moves=moves+1;fillUp(S2)
+        if moves-lastDig>=4 then movesFree=movesFree+1;if S2.modemSide() then movesModem=movesModem+1 end end end;return ok,w end
+    return G end
+  Sim.run(S,3000)
+  Sim.env=orig
+end
+st=load("return "..S.files["/toast_mining_state"])()
+check("Mine fertig",st.next==61 and S.last and not S.last.fault,st.next)
+print("    (Inventar voll bei z="..tostring(S.farAt)..")")
+check("beim reinen Fahren fast immer Modem dran",movesFree>10 and movesModem>=movesFree*0.9,movesModem.."/"..movesFree)
+
 print("C2 STOP waehrend der Arbeit kommt trotz Modem-Tausch an")
 S=Sim.new({config=cfg("mining",CL1),fuel=6000,gear={left="ccchunkloader:chunkloader",right="minecraft:diamond_pickaxe"},
   actions={{t=3,fn=function(S)Sim.cmd(S,"start",10)end},{t=25,fn=function(S)Sim.cmd(S,"stop",11)end}}})

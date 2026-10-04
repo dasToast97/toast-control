@@ -1,3 +1,11 @@
+# Toast Control 3.8.2
+
+- **Chunkloader-Turtles haben das Modem an, sobald sie nicht abbauen.** Nach zwei
+  Schritten ohne Abbau (z.B. Heimweg, Fahrt durch fertige Gänge, Feld ohne reife
+  Pflanzen) wird das Endermodem angelegt; die Spitzhacke/Hacke kommt erst beim
+  nächsten Abbau automatisch zurück. Die Zentrale sieht die Turtle dadurch auch
+  auf langen Wegen durchgehend (Mine und Farm).
+
 # Toast Control 3.8.1
 
 - **Fehler behoben: falsches „Funkverbindung verloren“ mit Chunkloader.**
