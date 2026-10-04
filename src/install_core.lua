@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.8.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.9 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -233,11 +233,10 @@ elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="t
 elseif role=="info" then names[#names+1]="toast_info.lua";names[#names+1]="toast_ui.lua"
 elseif role=="gps" then names[#names+1]="toast_gps.lua"
 elseif role=="storage" then names[#names+1]="toast_storage.lua";names[#names+1]="toast_ui.lua"
-elseif role=="turtle" and (job=="tree" or job=="mob" or job=="dig") then
-    names[#names+1]=job.."_turtle.lua";names[#names+1]="toast_worker.lua"
 elseif role=="turtle" then
-    local prefix=job=="farm" and "farm" or "mine"
-    names[#names+1]=prefix.."_turtle.lua";names[#names+1]=prefix.."_common.lua"
+    -- Alle Turtle-Programme: Aufgabe spaeter ohne Neuinstallation wechselbar
+    for _,n in ipairs({"farm_turtle.lua","farm_common.lua","mine_turtle.lua","mine_common.lua",
+        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
 else names[#names+1]="repeater.lua" end
 for _,name in ipairs(names)do assert(code[name] and load(code[name],"@"..name),"Installer beschaedigt: "..name) end
 if role=="turtle" and (job=="farm" or job=="mining") then

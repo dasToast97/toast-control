@@ -28,6 +28,22 @@ check("neuer Auftrag komplett abgebaut",st.next and st.next>7 and S.last and S.l
 check("gaenge bis z=7 frei",S.world[S.key(0,0,7)]==false,tostring(S.world[S.key(0,0,7)]))
 check("Position: an der Basis",S.last and S.last.rel and S.last.rel.fwd==0)
 
+print("N2 Aufgabe wechseln: Mine -> Mobs (an der Turtle N, Menue Aufgabe)")
+S=Sim.new({config=CFG,actions={
+    {t=3,fn=function(S)
+        S.hadState=S.files["/toast_mining_state"]~=nil
+        S.input={"7","4","","j"}
+        table.insert(S.queue,table.pack("char","n")) end}}})
+S.files["/toast/toast_setup.lua"]=io.open("/home/claude/toast/toast_setup.lua"):read("a")
+S.protocol="toast.mine.v1"
+Sim.run(S,40)
+local cfg2=load(S.files["/toast.config.lua"])()
+local mobMsg=false;for _,m in ipairs(S.sent) do if m.p=="toast.mob.v1" and m.msg.kind=="status" then mobMsg=true end end
+check("Config: job = mob",cfg2.job=="mob",cfg2.job)
+check("alter Minen-Fortschritt geloescht",S.files["/toast_mining_state"]==nil and S.hadState)
+check("laeuft jetzt als Mob-Turtle (meldet sich auf Mob-Funk)",mobMsg,tail(S))
+check("Name bleibt",cfg2.name=="Mine A")
+
 print("P1 Positionsrechnung")
 local G=Sim.env(S)
 local common=G.dofile("/toast/toast_common.lua")

@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.8.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.9 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -73,7 +73,10 @@ local function configure(newJob)
         if ok then break end
         printError(tostring(why));sleep(2)
     end
-    if newJob then ui.newJob(job)
+    if role=="turtle" and c.job~=job then
+        -- Aufgabe gewechselt (z.B. Mine -> Mobs)
+        if not ui.switchJob(job,c.job) then print("Aufgabe nicht gewechselt.");return false end
+    elseif newJob then ui.newJob(job)
     elseif before~=ui.layoutKey(c,job) then ui.confirmReset(job) end
     c.role=role;c.label=nil
     local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f.close()
@@ -129,7 +132,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.8.2",
+    version="3.9",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1374,6 +1377,25 @@ function S.new(common)
             fg(colors.orange);print("  Das ist die eigene ID.");fg(colors.white)
         end
     end
+    -- Aufgabe wechseln (z.B. Mine -> Mobs). Alle Programme sind schon installiert.
+    local function editJob(c,info)
+        header("Aufgabe wechseln")
+        hint("Jetzt: "..(common.JOB_NAMES[c.job] or "?"))
+        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke"}
+        for i,j in ipairs(common.JOBS) do
+            fg(colors.yellow);write(i.." ");fg(colors.white);print(cut(string.format("%-7s",common.JOB_NAMES[j]).." ("..TOOL[j]..")"))
+        end
+        local cur=1;for i,j in ipairs(common.JOBS) do if j==c.job then cur=i end end
+        local n=ask("Aufgabe",cur,1,#common.JOBS)
+        local new=common.JOBS[n]
+        if new~=c.job then
+            c.job=new;info.job=new
+            hint("Passendes Werkzeug ("..TOOL[new]..") in die")
+            hint("Turtle legen. Jetzt die Werte unter")
+            hint("'"..common.JOB_NAMES[new].."' pruefen.")
+            sleep(1.5)
+        end
+    end
     local function items(c,info)
         local role,job=info.role,info.job
         local list={{"Name",function() return c.name~="" and c.name or "-" end,function()
@@ -1404,6 +1426,10 @@ function S.new(common)
             list[#list+1]={"Basis",function() return baseText(c.base) end,function() editBase(c) end}
             list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
+            -- am Ende, damit die Nummern der anderen Punkte gleich bleiben
+            if not info.installer then
+                list[#list+1]={"Aufgabe",function() return common.JOB_NAMES[c.job] or "?" end,function() editJob(c,info) end}
+            end
         end
         if role=="storage" then
             list[#list+1]={"Lager",function() local s=c.storage
@@ -1443,9 +1469,9 @@ function S.new(common)
     end
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
-        local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
-            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[info.role].." #"..os.getComputerID())
         while true do
+            local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
+                or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[info.role].." #"..os.getComputerID())
             local list=items(c,info)
             header(what)
             print("")
@@ -1489,6 +1515,23 @@ function S.new(common)
             return true
         end
         printError("Erst an die Basis stellen, dann: toast.lua neu")
+        sleep(2)
+        return false
+    end
+    -- Aufgabe gewechselt: Fortschritt beider Aufgaben loeschen (Turtle an der Basis)
+    function M.switchJob(old,new)
+        header("Aufgabe wechseln")
+        print((common.JOB_NAMES[old] or "?").." -> "..(common.JOB_NAMES[new] or "?"))
+        print("Die Turtle muss an ihrer Basis stehen")
+        print("(Kisten unten/oben, Blick nach vorne).")
+        if yesno("Steht sie an der Basis?",true) then
+            for _,j in ipairs({old,new}) do
+                local file=M.STATE_FILES[j]
+                if file then for _,p in ipairs({file,file..".tmp"}) do if fs.exists(p) then fs.delete(p) end end end
+            end
+            return true
+        end
+        printError("Erst an die Basis stellen, dann nochmal.")
         sleep(2)
         return false
     end
@@ -6774,7 +6817,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.8.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.9 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -7009,11 +7052,10 @@ elseif role=="pocket" then names[#names+1]="toast_pocket.lua";names[#names+1]="t
 elseif role=="info" then names[#names+1]="toast_info.lua";names[#names+1]="toast_ui.lua"
 elseif role=="gps" then names[#names+1]="toast_gps.lua"
 elseif role=="storage" then names[#names+1]="toast_storage.lua";names[#names+1]="toast_ui.lua"
-elseif role=="turtle" and (job=="tree" or job=="mob" or job=="dig") then
-    names[#names+1]=job.."_turtle.lua";names[#names+1]="toast_worker.lua"
 elseif role=="turtle" then
-    local prefix=job=="farm" and "farm" or "mine"
-    names[#names+1]=prefix.."_turtle.lua";names[#names+1]=prefix.."_common.lua"
+    -- Alle Turtle-Programme: Aufgabe spaeter ohne Neuinstallation wechselbar
+    for _,n in ipairs({"farm_turtle.lua","farm_common.lua","mine_turtle.lua","mine_common.lua",
+        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
 else names[#names+1]="repeater.lua" end
 for _,name in ipairs(names)do assert(code[name] and load(code[name],"@"..name),"Installer beschaedigt: "..name) end
 if role=="turtle" and (job=="farm" or job=="mining") then

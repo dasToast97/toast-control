@@ -415,6 +415,25 @@ function S.new(common)
             fg(colors.orange);print("  Das ist die eigene ID.");fg(colors.white)
         end
     end
+    -- Aufgabe wechseln (z.B. Mine -> Mobs). Alle Programme sind schon installiert.
+    local function editJob(c,info)
+        header("Aufgabe wechseln")
+        hint("Jetzt: "..(common.JOB_NAMES[c.job] or "?"))
+        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke"}
+        for i,j in ipairs(common.JOBS) do
+            fg(colors.yellow);write(i.." ");fg(colors.white);print(cut(string.format("%-7s",common.JOB_NAMES[j]).." ("..TOOL[j]..")"))
+        end
+        local cur=1;for i,j in ipairs(common.JOBS) do if j==c.job then cur=i end end
+        local n=ask("Aufgabe",cur,1,#common.JOBS)
+        local new=common.JOBS[n]
+        if new~=c.job then
+            c.job=new;info.job=new
+            hint("Passendes Werkzeug ("..TOOL[new]..") in die")
+            hint("Turtle legen. Jetzt die Werte unter")
+            hint("'"..common.JOB_NAMES[new].."' pruefen.")
+            sleep(1.5)
+        end
+    end
     local function items(c,info)
         local role,job=info.role,info.job
         local list={{"Name",function() return c.name~="" and c.name or "-" end,function()
@@ -445,6 +464,10 @@ function S.new(common)
             list[#list+1]={"Basis",function() return baseText(c.base) end,function() editBase(c) end}
             list[#list+1]={"Funk",function() return radioText(c[common.JOB_SECTION[job] or "mine"].radioTimeout) end,
                 function() editRadio(c,job) end}
+            -- am Ende, damit die Nummern der anderen Punkte gleich bleiben
+            if not info.installer then
+                list[#list+1]={"Aufgabe",function() return common.JOB_NAMES[c.job] or "?" end,function() editJob(c,info) end}
+            end
         end
         if role=="storage" then
             list[#list+1]={"Lager",function() local s=c.storage
@@ -484,9 +507,9 @@ function S.new(common)
     end
     -- Uebersicht; true = uebernehmen, false = abbrechen
     function M.run(c,info)
-        local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
-            or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[info.role].." #"..os.getComputerID())
         while true do
+            local what=info.role=="turtle" and ((info.newJob and "NEUER AUFTRAG: " or "").."Turtle #"..os.getComputerID().." / "..(common.JOB_NAMES[info.job] or "?"))
+                or (({controller="Zentrale",pocket="Pocket",repeater="Repeater",info="Infoscreen",gps="GPS-Sender",storage="Lager"})[info.role].." #"..os.getComputerID())
             local list=items(c,info)
             header(what)
             print("")
@@ -530,6 +553,23 @@ function S.new(common)
             return true
         end
         printError("Erst an die Basis stellen, dann: toast.lua neu")
+        sleep(2)
+        return false
+    end
+    -- Aufgabe gewechselt: Fortschritt beider Aufgaben loeschen (Turtle an der Basis)
+    function M.switchJob(old,new)
+        header("Aufgabe wechseln")
+        print((common.JOB_NAMES[old] or "?").." -> "..(common.JOB_NAMES[new] or "?"))
+        print("Die Turtle muss an ihrer Basis stehen")
+        print("(Kisten unten/oben, Blick nach vorne).")
+        if yesno("Steht sie an der Basis?",true) then
+            for _,j in ipairs({old,new}) do
+                local file=M.STATE_FILES[j]
+                if file then for _,p in ipairs({file,file..".tmp"}) do if fs.exists(p) then fs.delete(p) end end end
+            end
+            return true
+        end
+        printError("Erst an die Basis stellen, dann nochmal.")
         sleep(2)
         return false
     end

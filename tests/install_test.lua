@@ -188,7 +188,7 @@ ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Holz-Config gespeichert",kc and kc.job=="tree" and kc.tree.length==6 and kc.tree.width==3 and kc.tree.side=="right"
   and kc.tree.interval==60 and kc.tree.replant==true and kc.tree.maxHeight==20 and not kc.mine and not kc.farm and not kc.chunkload,err)
-check("Holz-Programme installiert",S.files["/toast/tree_turtle.lua"] and S.files["/toast/toast_worker.lua"] and not S.files["/toast/mine_turtle.lua"])
+check("Holz-Programme installiert (+ alle anderen fuer Aufgabenwechsel)",S.files["/toast/tree_turtle.lua"] and S.files["/toast/toast_worker.lua"] and S.files["/toast/mine_turtle.lua"] and S.files["/toast/mob_turtle.lua"] and S.files["/toast/farm_turtle.lua"])
 S.T=0;S.timers={};S.queue={};S.input={};S.protocol="toast.tree.v1"
 S.actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}
 S.inv[1]={name="minecraft:spruce_sapling",count=12}
@@ -208,7 +208,7 @@ kc=ok and cfgOf(S)
 check("Aushub-Config gespeichert",kc and kc.job=="dig" and kc.dig.shape=="cylinder" and kc.dig.width==7 and kc.dig.height==20
   and kc.dig.direction=="down" and kc.dig.seal=="all" and kc.dig.drain==true and kc.dig.keepOres=="diamond" and not kc.mine
   and kc.dig.wallBlock=="minecraft:stone_bricks" and kc.dig.lineWalls==true and kc.dig.lineFloor==false and kc.dig.lineCeiling==true,err)
-check("Aushub-Programme installiert",S.files["/toast/dig_turtle.lua"] and S.files["/toast/toast_worker.lua"] and not S.files["/toast/mine_turtle.lua"])
+check("Aushub-Programme installiert",S.files["/toast/dig_turtle.lua"] and S.files["/toast/toast_worker.lua"])
 
 print("U Neue Mob-Turtle: Patrouille 6x3 links")
 S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","","6","3","l","","","10","","j","n"}});S.files={}

@@ -70,7 +70,10 @@ local function configure(newJob)
         if ok then break end
         printError(tostring(why));sleep(2)
     end
-    if newJob then ui.newJob(job)
+    if role=="turtle" and c.job~=job then
+        -- Aufgabe gewechselt (z.B. Mine -> Mobs)
+        if not ui.switchJob(job,c.job) then print("Aufgabe nicht gewechselt.");return false end
+    elseif newJob then ui.newJob(job)
     elseif before~=ui.layoutKey(c,job) then ui.confirmReset(job) end
     c.role=role;c.label=nil
     local f=assert(fs.open("/toast.config.lua","w"));f.write(common.configText(c));f.close()

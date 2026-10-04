@@ -1,3 +1,16 @@
+# Toast Control 3.9
+
+## Aufgabe einer Turtle wechseln (z.B. Mine -> Mobs)
+
+- An der Turtle **N** drücken (gestoppt, an der Basis) oder `toast.lua config`
+  -> letzter Menüpunkt **Aufgabe** -> neue Aufgabe wählen (Farm, Mine, Holz,
+  Mobs, Aushub) -> Werte der neuen Aufgabe prüfen -> Enter.
+- Kein Neuinstallieren nötig: Jede Turtle hat jetzt alle Programme an Bord.
+- Name, Zentrale und Basis bleiben; der Fortschritt der alten Aufgabe wird
+  gelöscht (Turtle muss an der Basis stehen). Passendes Werkzeug einlegen
+  (Hacke / Spitzhacke / Axt / Schwert) – die Turtle legt es selbst an.
+- Die Zentrale ordnet die Turtle automatisch dem neuen Reiter zu.
+
 # Toast Control 3.8.2
 
 - **Chunkloader-Turtles haben das Modem an, sobald sie nicht abbauen.** Nach zwei
