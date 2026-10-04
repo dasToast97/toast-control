@@ -140,5 +140,33 @@ check("Golderz steht",S.world[S.key(2,1,3)]=="minecraft:gold_ore")
 check("unterwegs abgeladen (Inventar war voll)",S.chestBelow>=13*64-200,S.chestBelow)
 check("an der Basis",S.p.x==0 and S.p.y==0 and S.p.z==0)
 
+print("D7 Waende, Boden und Decke aus Steinziegeln (aus der Kiste oben)")
+local function bricks(S)
+    local n=0;for x=-1,3 do for y=-1,2 do for z=0,4 do if S.world[S.key(x,y,z)]=="minecraft:stone_bricks" then n=n+1 end end end end
+    return n
+end
+S=new('{shape="room",direction="down",width=3,length=3,height=2,side="right",seal="off",drain=false,keepOres="",wallBlock="minecraft:stone_bricks",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,useCoal=true,fuelTarget=500,freeSlots=2,radioTimeout=0,protectedBlocks={}}',
+    function(S) S.top={{name="minecraft:coal",count=16},{name="minecraft:stone_bricks",count=64}};S.topN=2 end)
+Sim.run(S,4000)
+st=state(S)
+check("fertig",st.done==true,tail(S))
+check("40 Flaechen verkleidet",bricks(S)==40 and st.lined==40,bricks(S).." / "..tostring(st.lined))
+check("Ausgabekiste unter der Basis nicht abgebaut",S.world[S.key(0,1,0)]=="minecraft:chest")
+check("Kohlekiste oben unberuehrt",S.world[S.key(0,-1,0)]=="minecraft:chest")
+local inside=0;for x=0,2 do for z=1,3 do for y=0,1 do if S.world[S.key(x,y,z)]~=false then inside=inside+1 end end end end
+check("Raum innen frei",inside==0,inside)
+local coalBack=0;for i=1,(S.topN or 0) do local t=S.top[i];if t and t.name=="minecraft:coal" then coalBack=coalBack+t.count end end
+check("Kohle zurueck in die Kiste",coalBack==16,coalBack)
+check("an der Basis",S.p.x==0 and S.p.y==0 and S.p.z==0)
+
+print("D8 Wandblock geht aus -> holt Nachschub, sonst klare Meldung")
+S=new('{shape="room",direction="down",width=3,length=3,height=2,side="right",seal="off",drain=false,keepOres="",wallBlock="minecraft:stone_bricks",lineWalls=true,lineFloor=false,lineCeiling=false,wallStock=64,useCoal=true,fuelTarget=500,freeSlots=2,radioTimeout=0,protectedBlocks={}}',
+    function(S) S.top={{name="minecraft:stone_bricks",count=10},{name="minecraft:dirt",count=5},{name="minecraft:stone_bricks",count=6}};S.topN=3 end)
+Sim.run(S,4000)
+st=state(S)
+check("16 verbaut, dann Meldung",st.lined==16 and S.last and tostring(S.last.fault):find("Wandblock fehlt",1,true),tostring(st.lined).." "..tostring(S.last and S.last.fault))
+check("wartet an der Basis",S.p.x==0 and S.p.y==0 and S.p.z==0)
+check("Erde zurueck in die Kiste",(function() for i=1,S.topN do local t=S.top[i];if t and t.name=="minecraft:dirt" and t.count==5 then return true end end end)())
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end

@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.7.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.8 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -129,7 +129,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.7.1",
+    version="3.8",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -187,6 +187,7 @@ M.DEFAULTS={
     mob={mode="farm",attack="front",nightOnly=false,length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
     storage={interval=10,warnAt=90,names={}},
     dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
+        wallBlock="",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
 }
 local function copy(v)
@@ -307,6 +308,9 @@ function M.configText(c)
             {"seal","\"off\", \"liquids\" (Wasser/Lava zubauen), \"all\" (auch Loecher)"},
             {"drain","true = Wasser/Lava im Raum entfernen (unter Wasser/Lava)"},
             {"keepOres","Erze stehen lassen: \"\" keine, \"all\" alle, \"diamond,emerald\""},
+            {"wallBlock","Verkleidung, z.B. \"minecraft:stone_bricks\" (Kiste OBEN), \"\" = aus"},
+            {"lineWalls","true = Waende verkleiden"},{"lineFloor","true = Boden verkleiden"},
+            {"lineCeiling","true = Decke verkleiden"},{"wallStock","so viele Wandbloecke mitnehmen (64-1024)"},
             {"useCoal","true = gefundene Kohle als Fuel"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"protectedBlocks","diese Bloecke nie abbauen"}},c.dig)
@@ -760,6 +764,11 @@ function M.checkDig(d)
     assert(d.side=="right" or d.side=="left","dig.side: right oder left.")
     assert(d.seal=="off" or d.seal=="liquids" or d.seal=="all","dig.seal: off, liquids oder all.")
     assert(type(d.drain)=="boolean" and type(d.useCoal)=="boolean","dig.drain/useCoal: true oder false.")
+    assert(type(d.wallBlock)=="string" and (d.wallBlock=="" or d.wallBlock:match("^[%w_%.%-]+:[%w_%./%-]+$")),
+        "dig.wallBlock: \"\" oder Blockname wie \"minecraft:stone_bricks\".")
+    assert(type(d.lineWalls)=="boolean" and type(d.lineFloor)=="boolean" and type(d.lineCeiling)=="boolean",
+        "dig.lineWalls/lineFloor/lineCeiling: true oder false.")
+    assert(M.integer(d.wallStock,64,1024),"dig.wallStock: 64 bis 1024.")
     assert(type(d.keepOres)=="string","dig.keepOres: Text, z.B. \"\", \"all\" oder \"diamond,emerald\".")
     assert(M.integer(d.fuelTarget,100,100000),"dig.fuelTarget: 100 bis 100000.")
     assert(M.integer(d.freeSlots,1,8),"dig.freeSlots: 1 bis 8.")
@@ -1125,7 +1134,7 @@ function S.new(common)
         local size=d.shape=="room" and (d.width.."x"..d.length.."x"..d.height) or d.shape=="cylinder" and ("D"..d.width.."x"..d.height) or ("D"..d.width)
         return (SHAPE_TEXT[d.shape] or d.shape).." "..size.." "..(d.direction=="up" and "hoch" or "runter")
             ..(d.seal=="all" and " +dicht" or d.seal=="liquids" and " +Fluess." or "")..(d.drain and " +trocken" or "")
-            ..(d.keepOres~="" and " +Erze bleiben" or "")
+            ..(d.keepOres~="" and " +Erze bleiben" or "")..(d.wallBlock~="" and (" +"..d.wallBlock:gsub("^minecraft:","")) or "")
     end
     local function editDig(c)
         local d=c.dig
@@ -1156,6 +1165,22 @@ function S.new(common)
         hint("Unter Wasser / in Lava graben:")
         hint("Wasser/Lava im Raum wird entfernt.")
         d.drain=yesno("Raum trockenlegen?",d.drain==true)
+        header("Aushub: Waende verkleiden")
+        hint("Waende/Boden/Decke aus einem Block bauen")
+        hint("(z.B. stone_bricks, glass, deepslate_tiles).")
+        hint("Den Block in die Kiste OBEN legen (zur")
+        hint("Kohle). Leer = keine Verkleidung, - = aus")
+        write(cut("Block ["..(d.wallBlock=="" and "-" or d.wallBlock).."]: "))
+        local vb=read():lower():gsub("%s","")
+        if vb=="-" then d.wallBlock="" elseif vb~="" then
+            if not vb:find(":",1,true) then vb="minecraft:"..vb end
+            d.wallBlock=vb
+        end
+        if d.wallBlock~="" then
+            d.lineWalls=yesno("Waende verkleiden?",d.lineWalls~=false)
+            d.lineFloor=yesno("Boden verkleiden?",d.lineFloor~=false)
+            d.lineCeiling=yesno("Decke verkleiden?",d.lineCeiling~=false)
+        end
         header("Aushub: Erze schonen")
         hint("Erze stehen lassen und drumherum graben")
         hint("(spaeter von Hand abbauen, z.B. Gluck).")
@@ -1955,6 +1980,10 @@ local JOB={
             if num(d.kept)>0 then r[#r+1]={"Erze stehen",short(d.kept)} end
             if num(d.sealed)>0 then r[#r+1]={"Zugebaut",short(d.sealed).." Stellen"} end
             if num(d.drained)>0 then r[#r+1]={"Trockengelegt",short(d.drained)} end
+            if d.wallBlock then
+                r[#r+1]={"Wandblock",(d.noWall and "FEHLT " or short(d.wall).." ")..tostring(d.wallBlock):gsub("^minecraft:","")}
+                if num(d.lined)>0 then r[#r+1]={"Verkleidet",short(d.lined).." Bloecke"} end
+            end
             r[#r+1]={"Fuellmaterial",d.noFill and "FEHLT" or short(d.fill)}
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }
@@ -6058,6 +6087,10 @@ local W=dofile("/toast/toast_worker.lua")
 local DOWN=C.direction~="up"
 local SEAL=C.seal or "liquids"
 local DRAIN=C.drain==true
+-- Verkleidung: Waende/Boden/Decke aus einem bestimmten Block (liegt in der Kiste OBEN)
+local WALL=(type(C.wallBlock)=="string" and C.wallBlock~="") and C.wallBlock or nil
+local LINE={side=C.lineWalls~=false,down=C.lineFloor~=false,up=C.lineCeiling~=false}
+local WALLSTOCK=C.wallStock or 256
 local SHAPE=C.shape
 -- ===== Bloecke =====
 local KEEPALL,KEEP=false,{}
@@ -6086,6 +6119,8 @@ for _,n in ipairs({"cobblestone","cobbled_deepslate","stone","deepslate","dirt",
     FILL["minecraft:"..n]=true
 end
 local function isFill(n) return FILL[n]==true end
+local function isWall(n) return WALL~=nil and n==WALL end
+local function isContainer(n) return n:find("chest",1,true)~=nil or n:find("barrel",1,true)~=nil or n:find("shulker",1,true)~=nil end
 local function isTool(n) return n:find("_pickaxe",1,true)~=nil end
 -- Bloecke, die stehen bleiben (nicht abbauen, aussen herum)
 local PROTECTED={};for _,n in ipairs(C.protectedBlocks or {}) do PROTECTED[n]=true end
@@ -6159,7 +6194,8 @@ opts={job="dig",cfg=cfg,section=C,stateFile="/toast_dig_state",args={...},cells=
     interval=0,readyText="START: Form ausheben | 1x: dasselbe (macht weiter, wo sie war)",
     extra=function() local s=w and w.st or {}
         return {shape=SHAPE,digDir=DOWN and "down" or "up",kept=s.kept or 0,sealed=s.sealed or 0,
-            drained=s.drained or 0,fill=w and w.count(isFill) or 0,noFill=s.noFill,done=s.done} end,
+            drained=s.drained or 0,fill=w and w.count(isFill) or 0,noFill=s.noFill,done=s.done,
+            wallBlock=WALL,wall=WALL and w and w.count(isWall) or 0,lined=s.lined or 0,noWall=s.noWall} end,
     round=function() return round() end,
     idleHome=function() return idleHome() end,
     idleBase=function() return idleBase() end}
@@ -6172,6 +6208,7 @@ if st.done then run.scanned=N;opts.readyText="FERTIG: Form komplett. START = noc
 -- ===== Inventar / Fuel =====
 local function keep(name)
     if isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
+    if isWall(name) then return WALLSTOCK end
     if isFill(name) and (SEAL~="off" or DRAIN) then return 64 end
     if W.FUELS[name] and C.useCoal then return 64 end
     return 0
@@ -6190,13 +6227,39 @@ local function burnCoal(target)
     end
     turtle.select(1)
 end
+local function wallCount() return WALL and w.count(isWall) or 0 end
+-- Kiste OBEN: Kohle (tanken) und Wandblock holen. Fremdes kommt am Ende zurueck.
+local function supply()
+    burnCoal(C.fuelTarget)
+    if not w.container(turtle.inspectUp) then return end
+    local want=WALL and math.min(WALLSTOCK,math.max(0,w.freeSlots()-3)*64+wallCount()) or 0
+    local back={}
+    for _=1,30 do
+        local needFuel=fuel()<C.fuelTarget
+        local needWall=WALL~=nil and wallCount()<want
+        if not needFuel and not needWall then break end
+        if w.freeSlots()<=1 then break end
+        local slot;for i=1,16 do if turtle.getItemCount(i)==0 then slot=i;break end end
+        turtle.select(slot)
+        if not turtle.suckUp() then break end
+        local it=turtle.getItemDetail(slot)
+        if it and W.FUELS[it.name] then
+            while fuel()<C.fuelTarget and turtle.getItemCount(slot)>0 do if not turtle.refuel(1) then break end end
+            if turtle.getItemCount(slot)>0 then back[#back+1]=slot end
+        elseif not (it and isWall(it.name) and needWall) then back[#back+1]=slot end
+    end
+    for _,s in ipairs(back) do turtle.select(s);turtle.dropUp() end
+    turtle.select(1)
+end
 local function base()
     local before=w.items()
     local ok,title,detail=w.unload(keep)
     st.total=(st.total or 0)+math.max(0,before-w.items())
     if not ok then return false,title,detail end
-    ok,title,detail=w.refuel(C.fuelTarget)
-    if not ok and fuel()<(bx+bz+bh)*3+60 then return false,title,detail end
+    supply()
+    if fuel()<math.min(C.fuelTarget,(bx+bz+bh)*3+60) then
+        return false,"Treibstoff fehlt","Kohle / Holzkohle in die Kiste UEBER der Basis legen."
+    end
     w.save()
     return true
 end
@@ -6295,21 +6358,51 @@ local function travel(tk)
     end
     return false,"unreach"
 end
--- Waende: Nachbarn ausserhalb der Form pruefen und zubauen
+-- Eine Aussenseite mit dem Wandblock verkleiden: fremden Block abbauen, Wandblock
+-- setzen. Erze (geschont), Grundgestein, Kisten und Turtles bleiben stehen.
+-- false = kein Wandblock mehr dabei.
+local ATTACK={forward=turtle.attack,up=turtle.attackUp,down=turtle.attackDown}
+local function lineFace(kind)
+    for _=1,10 do
+        local e,b=INSPECT[kind]()
+        if e and b.name==WALL then return true end
+        if e and not isLiquid(b.name) then
+            if stays(b.name) or isTurtle(b.name) or isContainer(b.name) then return true end
+            if not DIG[kind]() then return true end
+            st.harvested=(st.harvested or 0)+1
+        else
+            local slot=w.find(isWall)
+            if not slot then st.noWall=true;return false end
+            turtle.select(slot)
+            local ok=PLACE[kind]()
+            turtle.select(1)
+            if ok then st.lined=(st.lined or 0)+1;st.noWall=nil;return true end
+            pcall(ATTACK[kind]);sleep(0.2)
+        end
+    end
+    return true
+end
+-- Waende: Nachbarn ausserhalb der Form verkleiden bzw. zubauen.
+-- false = Wandblock fehlt (Turtle holt Nachschub und macht hier weiter).
 local function sealAround()
-    if SEAL=="off" then return end
+    if SEAL=="off" and not WALL then return true end
     local x,i,z=st.x,layer(st.y),st.z
     local function need(e,b)
         if not e then return SEAL=="all" end
-        return isLiquid(b.name)
+        return SEAL~="off" and isLiquid(b.name)
+    end
+    local function face(kind,lineIt)
+        if WALL and lineIt then return lineFace(kind) end
+        local e,b=INSPECT[kind]()
+        if need(e,b) and placeFill(kind) then st.sealed=(st.sealed or 0)+1 end
+        return true
     end
     local function outside(nk) return nk~=BASE and (INDEX[nk]==nil or st.skip[nk]) end
     for _,v in ipairs({{"up",1},{"down",-1}}) do
         local nk=key(x,layer(st.y+v[2]),z)
         if layer(st.y+v[2])<0 then nk=-1 end
         if nk==-1 or outside(nk) then
-            local e,b=INSPECT[v[1]]()
-            if need(e,b) and placeFill(v[1]) then st.sealed=(st.sealed or 0)+1 end
+            if not face(v[1],LINE[v[1]]) then return false end
         end
     end
     for d=0,3 do
@@ -6317,11 +6410,11 @@ local function sealAround()
         local nk=(nx>=0 and nz>=0) and key(nx,i,nz) or -1
         if nk==-1 or outside(nk) then
             if w.face(d) then
-                local e,b=turtle.inspect()
-                if need(e,b) and placeFill("forward") then st.sealed=(st.sealed or 0)+1 end
+                if not face("forward",LINE.side) then return false end
             end
         end
     end
+    return true
 end
 local function goHome()
     if w.isHome() then return w.face(0) end
@@ -6362,11 +6455,19 @@ round=function()
         run.scanned=st.idx-1
         if not st.skip[k] then
             local _,ki=unkey(k)
-            w.status(st.noFill and "Kein Fuellmaterial" or "Graebt",
+            w.status(st.noWall and "Wandblock fehlt" or st.noFill and "Kein Fuellmaterial" or "Graebt",
                 st.idx<=ACCESS and "Zugang zur Form" or
                 ("Ebene "..(ki+1).."/"..bh.." ("..(DOWN and "runter" or "hoch").."), Block "..st.idx.."/"..N))
             local ok,why=travel(k)
-            if ok then sealAround()
+            if ok and not sealAround() then
+                -- Wandblock alle: zur Basis, aus der Kiste OBEN nachladen, hier weitermachen
+                local okr,whyr=resupply();if not okr then w.fail(whyr);return false end
+                if wallCount()==0 then
+                    w.status("Wandblock fehlt",WALL.." in die Kiste UEBER der Basis legen.")
+                    w.fail("Wandblock fehlt: "..WALL);return false
+                end
+                st.idx=st.idx-1
+            elseif ok then
             elseif why=="stopped" then w.save();return false
             elseif why=="keep" or why=="unreach" then st.skip[k]=true
             else w.fail(why);return false end
@@ -6636,7 +6737,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.7.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.8 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

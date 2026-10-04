@@ -1,5 +1,5 @@
 local M={
-    version="3.7.1",
+    version="3.8",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -57,6 +57,7 @@ M.DEFAULTS={
     mob={mode="farm",attack="front",nightOnly=false,length=16,width=16,side="right",climb=8,interval=10,fuelTarget=2000,radioTimeout=0},
     storage={interval=10,warnAt=90,names={}},
     dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
+        wallBlock="",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
 }
 local function copy(v)
@@ -177,6 +178,9 @@ function M.configText(c)
             {"seal","\"off\", \"liquids\" (Wasser/Lava zubauen), \"all\" (auch Loecher)"},
             {"drain","true = Wasser/Lava im Raum entfernen (unter Wasser/Lava)"},
             {"keepOres","Erze stehen lassen: \"\" keine, \"all\" alle, \"diamond,emerald\""},
+            {"wallBlock","Verkleidung, z.B. \"minecraft:stone_bricks\" (Kiste OBEN), \"\" = aus"},
+            {"lineWalls","true = Waende verkleiden"},{"lineFloor","true = Boden verkleiden"},
+            {"lineCeiling","true = Decke verkleiden"},{"wallStock","so viele Wandbloecke mitnehmen (64-1024)"},
             {"useCoal","true = gefundene Kohle als Fuel"},{"fuelTarget","an der Basis bis hierhin tanken"},
             {"freeSlots","so wenige Slots frei -> abladen"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"protectedBlocks","diese Bloecke nie abbauen"}},c.dig)
@@ -630,6 +634,11 @@ function M.checkDig(d)
     assert(d.side=="right" or d.side=="left","dig.side: right oder left.")
     assert(d.seal=="off" or d.seal=="liquids" or d.seal=="all","dig.seal: off, liquids oder all.")
     assert(type(d.drain)=="boolean" and type(d.useCoal)=="boolean","dig.drain/useCoal: true oder false.")
+    assert(type(d.wallBlock)=="string" and (d.wallBlock=="" or d.wallBlock:match("^[%w_%.%-]+:[%w_%./%-]+$")),
+        "dig.wallBlock: \"\" oder Blockname wie \"minecraft:stone_bricks\".")
+    assert(type(d.lineWalls)=="boolean" and type(d.lineFloor)=="boolean" and type(d.lineCeiling)=="boolean",
+        "dig.lineWalls/lineFloor/lineCeiling: true oder false.")
+    assert(M.integer(d.wallStock,64,1024),"dig.wallStock: 64 bis 1024.")
     assert(type(d.keepOres)=="string","dig.keepOres: Text, z.B. \"\", \"all\" oder \"diamond,emerald\".")
     assert(M.integer(d.fuelTarget,100,100000),"dig.fuelTarget: 100 bis 100000.")
     assert(M.integer(d.freeSlots,1,8),"dig.freeSlots: 1 bis 8.")

@@ -91,6 +91,10 @@ local JOB={
             if num(d.kept)>0 then r[#r+1]={"Erze stehen",short(d.kept)} end
             if num(d.sealed)>0 then r[#r+1]={"Zugebaut",short(d.sealed).." Stellen"} end
             if num(d.drained)>0 then r[#r+1]={"Trockengelegt",short(d.drained)} end
+            if d.wallBlock then
+                r[#r+1]={"Wandblock",(d.noWall and "FEHLT " or short(d.wall).." ")..tostring(d.wallBlock):gsub("^minecraft:","")}
+                if num(d.lined)>0 then r[#r+1]={"Verkleidet",short(d.lined).." Bloecke"} end
+            end
             r[#r+1]={"Fuellmaterial",d.noFill and "FEHLT" or short(d.fill)}
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }

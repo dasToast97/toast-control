@@ -175,7 +175,7 @@ function S.new(common)
         local size=d.shape=="room" and (d.width.."x"..d.length.."x"..d.height) or d.shape=="cylinder" and ("D"..d.width.."x"..d.height) or ("D"..d.width)
         return (SHAPE_TEXT[d.shape] or d.shape).." "..size.." "..(d.direction=="up" and "hoch" or "runter")
             ..(d.seal=="all" and " +dicht" or d.seal=="liquids" and " +Fluess." or "")..(d.drain and " +trocken" or "")
-            ..(d.keepOres~="" and " +Erze bleiben" or "")
+            ..(d.keepOres~="" and " +Erze bleiben" or "")..(d.wallBlock~="" and (" +"..d.wallBlock:gsub("^minecraft:","")) or "")
     end
     local function editDig(c)
         local d=c.dig
@@ -206,6 +206,22 @@ function S.new(common)
         hint("Unter Wasser / in Lava graben:")
         hint("Wasser/Lava im Raum wird entfernt.")
         d.drain=yesno("Raum trockenlegen?",d.drain==true)
+        header("Aushub: Waende verkleiden")
+        hint("Waende/Boden/Decke aus einem Block bauen")
+        hint("(z.B. stone_bricks, glass, deepslate_tiles).")
+        hint("Den Block in die Kiste OBEN legen (zur")
+        hint("Kohle). Leer = keine Verkleidung, - = aus")
+        write(cut("Block ["..(d.wallBlock=="" and "-" or d.wallBlock).."]: "))
+        local vb=read():lower():gsub("%s","")
+        if vb=="-" then d.wallBlock="" elseif vb~="" then
+            if not vb:find(":",1,true) then vb="minecraft:"..vb end
+            d.wallBlock=vb
+        end
+        if d.wallBlock~="" then
+            d.lineWalls=yesno("Waende verkleiden?",d.lineWalls~=false)
+            d.lineFloor=yesno("Boden verkleiden?",d.lineFloor~=false)
+            d.lineCeiling=yesno("Decke verkleiden?",d.lineCeiling~=false)
+        end
         header("Aushub: Erze schonen")
         hint("Erze stehen lassen und drumherum graben")
         hint("(spaeter von Hand abbauen, z.B. Gluck).")

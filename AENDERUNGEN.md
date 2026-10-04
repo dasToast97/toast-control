@@ -1,3 +1,18 @@
+# Toast Control 3.8
+
+## Aushub: Wände, Boden und Decke verkleiden
+
+- Neue Einstellung **Wandblock** (z.B. `stone_bricks`, `glass`, `deepslate_tiles`):
+  Die Turtle baut beim Aushöhlen alle Außenflächen der Form aus diesem Block –
+  einzeln wählbar **Wände**, **Boden**, **Decke**. Vorhandenes Gestein an der
+  Wand wird dafür abgebaut und ersetzt; Luft, Wasser und Lava werden gefüllt.
+- Den Block legt man in die **Kiste OBEN** (zur Kohle). Die Turtle nimmt bis zu
+  256 Stück mit; was nicht passt (z.B. Erde), legt sie zurück.
+- Gehen die Blöcke aus, holt sie Nachschub und macht genau dort weiter. Ist die
+  Kiste leer, wartet sie an der Basis mit der Meldung „Wandblock fehlt“.
+- Kisten, geschonte Erze und Grundgestein in der Wand bleiben stehen.
+- Zentrale/Pocket zeigen Wandblock-Vorrat und verkleidete Flächen.
+
 # Toast Control 3.7.1
 
 - **Infoscreen kann das Lager zeigen:** Menü „Anzeige“ -> 7 Lager (Kisten).
