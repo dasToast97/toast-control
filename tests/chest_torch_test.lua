@@ -39,6 +39,30 @@ check("4 Fackeln auf dem Boden (z=5,10,15,20)",torches==4,torches)
 check("Fackeln/Kisten nicht in Basiskiste",not S.chestNames["minecraft:torch"] and S.dropsAt[S.key(0,1,0)] and true)
 check("Status Fackeln",S.last and S.last.torchesPlaced==4 and S.last.torchesLeft==12,S.last and S.last.torchesPlaced)
 
+print("K1b Kisten-Position gemerkt: Datei + Status (mit Koordinaten aus der Basis)")
+S=Sim.new({config=cfg("placeChests=true,torches=0,useCoal=false").."",actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.files["/toast.config.lua"]=S.files["/toast.config.lua"]:gsub("^return {","return {base={set=true,x=100,y=64,z=-20,facing=\"north\"},")
+S.protocol="toast.mine.v1"
+S.inv[2]={name="minecraft:chest",count=3}
+local mv2=S.turtle.forward
+S.turtle.forward=function() local ok,w=mv2()
+    if ok and not S.watch and S.p.z==8 then fill(S);S.watch=true end;return ok,w end
+Sim.run(S,600)
+local file=S.files["/toast_kisten.txt"] or ""
+local msg;for _,m in ipairs(S.sent) do if type(m.msg)=="table" and m.msg.chestList and #m.msg.chestList>0 then msg=m.msg end end
+local k=msg and msg.chestList[1]
+check("Datei /toast_kisten.txt",file:find("Kiste 1:",1,true) and file:find("X 100",1,true) and file:find("Y 63",1,true),file)
+check("Status: Kiste 1 mit Weltkoordinaten",k and k.pos and k.pos.x==100 and k.pos.y==63 and k.pos.z==-28,k and k.pos and (k.pos.x..","..k.pos.y..","..k.pos.z))
+check("Status: relativ 8 vor, 1 tief",k and k.rel and k.rel.fwd==8 and k.rel.up==-1,k and k.rel and (k.rel.fwd..","..k.rel.up))
+do
+  local G=Sim.env(S)
+  for _,n in ipairs({"toast_ui.lua"})do S.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a")end
+  local UI=G.dofile("/toast/toast_ui.lua")
+  local rows=UI.JOB.mining.rows(msg)
+  local found=false;for _,r in ipairs(rows) do if r[1]=="Kiste 1" and r[2]=="X100 Y63 Z-28" then found=true end end
+  check("Anzeige Zentrale/Pocket/Infoscreen: Zeile 'Kiste 1'",found)
+end
+
 print("K2 Ohne Kisten im Inventar: normal heimfahren")
 S=Sim.new({config=cfg("placeChests=true,torches=0"),actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},
 }})

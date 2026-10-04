@@ -36,6 +36,16 @@ local function runOnce()
             if type(msg)=="table" and msg.kind=="status" then
                 msg.label=cfg.label;msg.job=cfg.job;msg.controllerId=cfg.controllerId;msg.toast=common.version
                 pcall(common.addPosition,msg,cfg,cfg.job)
+                -- Abladekisten der Mine: Weltkoordinaten fuer Zentrale/Pocket/Infoscreen
+                if type(msg.chestSpots)=="table" then
+                    local list={}
+                    for i,k in ipairs(msg.chestSpots) do
+                        if i>40 then break end
+                        local ok,pos,rel=pcall(common.worldPos,cfg,cfg.job,k.x,k.y or 1,k.z)
+                        list[#list+1]={n=k.n or i,pos=ok and pos or nil,rel=ok and rel or nil}
+                    end
+                    msg.chestList=list;msg.chestSpots=nil
+                end
             end
             return nativeRednet.send(id,msg,protocol)
         end

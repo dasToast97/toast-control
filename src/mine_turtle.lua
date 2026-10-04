@@ -883,8 +883,21 @@ local function dumpHere()
     turtle.select(1)
     st.chestsPlaced=(st.chestsPlaced or 0)+1
     st.chestSpots=st.chestSpots or {}
-    if #st.chestSpots<64 then st.chestSpots[#st.chestSpots+1]={x=st.x,z=st.z} end
+    if #st.chestSpots<64 then st.chestSpots[#st.chestSpots+1]={x=st.x,y=st.y+1,z=st.z,n=st.chestsPlaced} end
     save()
+    -- Liste der Kisten auch als Datei (an der Turtle: edit /toast_kisten.txt)
+    pcall(function()
+        local okc,full=pcall(TC.load)
+        local f=fs.open("/toast_kisten.txt","w")
+        f.writeLine("Abladekisten von Turtle #"..os.getComputerID().." (Mine)")
+        for _,k in ipairs(st.chestSpots) do
+            local pos,rel=nil,nil
+            if okc then pos,rel=TC.worldPos(full,"mining",k.x,k.y or 1,k.z) end
+            local where=rel and (rel.fwd.." vor, "..math.abs(rel.right)..(rel.right>=0 and " rechts, " or " links, ")..math.abs(rel.up).." tief") or ""
+            f.writeLine("Kiste "..(k.n or "?")..": "..(pos and ("X "..pos.x.." Y "..pos.y.." Z "..pos.z.."  ") or "")..where)
+        end
+        f.close()
+    end)
     ok=vertical(y0,false)
     return ok
 end
@@ -1013,6 +1026,7 @@ local function snapshot()
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
         x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
         placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
+        chestSpots=st.chestSpots,
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end

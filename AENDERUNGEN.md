@@ -1,3 +1,13 @@
+# Toast Control 3.9.3
+
+- **Mine: Abladekisten werden gemerkt.** Jede unterwegs gesetzte Kiste wird
+  mit Position gespeichert:
+  - in der Datei **/toast_kisten.txt** auf der Turtle (Weltkoordinaten + „8 vor,
+    3 rechts, 1 tief“),
+  - und in **Zentrale, Pocket und Infoscreen**: Turtle antippen -> Zeilen
+    „Kiste 1: X100 Y63 Z-28“. Koordinaten per GPS oder aus den eingetragenen
+    Basis-Koordinaten, sonst relativ zur Basis.
+
 # Toast Control 3.9.2
 
 - **Wächter und Holzfäller fahren nicht mehr in Lava.** Lava vor der Turtle

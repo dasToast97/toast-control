@@ -70,6 +70,14 @@ local JOB={
             {"Abgebaut",short(d.harvested).." Bloecke"},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
             if d.useCoal then r[#r+1]={"Kohle",short(d.coal).." verbrannt"} end
             if d.placeChests then r[#r+1]={"Kisten",short(d.chestsPlaced).." gesetzt, "..short(d.chestsLeft).." dabei"} end
+            -- Wo liegen die Abladekisten?
+            if type(d.chestList)=="table" then
+                for _,k in ipairs(d.chestList) do
+                    local p=type(k.pos)=="table" and ("X"..num(k.pos.x).." Y"..num(k.pos.y).." Z"..num(k.pos.z))
+                        or (type(k.rel)=="table" and M.posText({rel=k.rel})) or "?"
+                    r[#r+1]={"Kiste "..tostring(k.n),p}
+                end
+            end
             if num(d.torches)>0 then r[#r+1]={"Fackeln",short(d.torchesPlaced).." gesetzt, "..short(d.torchesLeft).." dabei"} end
             return r end},
     tree={name="Holz",plural="Holzfarmen",metric="Holz",unit="Staemme",once="1 Runde",

@@ -1,5 +1,5 @@
 local M={
-    version="3.9.2",
+    version="3.9.3",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -511,6 +511,17 @@ function M.senseDimension()
     return dimSeen
 end
 -- Status einer Turtle um Positionsangaben ergaenzen
+-- Weltkoordinaten einer Stelle (Turtle-Koordinaten x,y,z): per GPS-Kalibrierung,
+-- sonst aus den eingetragenen Basis-Koordinaten. nil = unbekannt.
+function M.worldPos(c,job,x,y,z)
+    local rel,abs=M.position(c,job,x,y,z)
+    if cal then
+        local dx,dy,dz=rot(cal.facing,rel)
+        return {x=cal.x+dx,y=cal.y+dy,z=cal.z+dz,src="GPS"},rel
+    end
+    if abs then abs.src="Basis" end
+    return abs,rel
+end
 function M.addPosition(msg,c,job)
     if type(msg)~="table" or msg.x==nil then return msg end
     local rel,abs=M.position(c,job,msg.x,msg.y,msg.z)

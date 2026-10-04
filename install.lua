@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.9.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.9.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -39,6 +39,16 @@ local function runOnce()
             if type(msg)=="table" and msg.kind=="status" then
                 msg.label=cfg.label;msg.job=cfg.job;msg.controllerId=cfg.controllerId;msg.toast=common.version
                 pcall(common.addPosition,msg,cfg,cfg.job)
+                -- Abladekisten der Mine: Weltkoordinaten fuer Zentrale/Pocket/Infoscreen
+                if type(msg.chestSpots)=="table" then
+                    local list={}
+                    for i,k in ipairs(msg.chestSpots) do
+                        if i>40 then break end
+                        local ok,pos,rel=pcall(common.worldPos,cfg,cfg.job,k.x,k.y or 1,k.z)
+                        list[#list+1]={n=k.n or i,pos=ok and pos or nil,rel=ok and rel or nil}
+                    end
+                    msg.chestList=list;msg.chestSpots=nil
+                end
             end
             return nativeRednet.send(id,msg,protocol)
         end
@@ -132,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.9.2",
+    version="3.9.3",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -644,6 +654,17 @@ function M.senseDimension()
     return dimSeen
 end
 -- Status einer Turtle um Positionsangaben ergaenzen
+-- Weltkoordinaten einer Stelle (Turtle-Koordinaten x,y,z): per GPS-Kalibrierung,
+-- sonst aus den eingetragenen Basis-Koordinaten. nil = unbekannt.
+function M.worldPos(c,job,x,y,z)
+    local rel,abs=M.position(c,job,x,y,z)
+    if cal then
+        local dx,dy,dz=rot(cal.facing,rel)
+        return {x=cal.x+dx,y=cal.y+dy,z=cal.z+dz,src="GPS"},rel
+    end
+    if abs then abs.src="Basis" end
+    return abs,rel
+end
 function M.addPosition(msg,c,job)
     if type(msg)~="table" or msg.x==nil then return msg end
     local rel,abs=M.position(c,job,msg.x,msg.y,msg.z)
@@ -2002,6 +2023,14 @@ local JOB={
             {"Abgebaut",short(d.harvested).." Bloecke"},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
             if d.useCoal then r[#r+1]={"Kohle",short(d.coal).." verbrannt"} end
             if d.placeChests then r[#r+1]={"Kisten",short(d.chestsPlaced).." gesetzt, "..short(d.chestsLeft).." dabei"} end
+            -- Wo liegen die Abladekisten?
+            if type(d.chestList)=="table" then
+                for _,k in ipairs(d.chestList) do
+                    local p=type(k.pos)=="table" and ("X"..num(k.pos.x).." Y"..num(k.pos.y).." Z"..num(k.pos.z))
+                        or (type(k.rel)=="table" and M.posText({rel=k.rel})) or "?"
+                    r[#r+1]={"Kiste "..tostring(k.n),p}
+                end
+            end
             if num(d.torches)>0 then r[#r+1]={"Fackeln",short(d.torchesPlaced).." gesetzt, "..short(d.torchesLeft).." dabei"} end
             return r end},
     tree={name="Holz",plural="Holzfarmen",metric="Holz",unit="Staemme",once="1 Runde",
@@ -4784,8 +4813,21 @@ local function dumpHere()
     turtle.select(1)
     st.chestsPlaced=(st.chestsPlaced or 0)+1
     st.chestSpots=st.chestSpots or {}
-    if #st.chestSpots<64 then st.chestSpots[#st.chestSpots+1]={x=st.x,z=st.z} end
+    if #st.chestSpots<64 then st.chestSpots[#st.chestSpots+1]={x=st.x,y=st.y+1,z=st.z,n=st.chestsPlaced} end
     save()
+    -- Liste der Kisten auch als Datei (an der Turtle: edit /toast_kisten.txt)
+    pcall(function()
+        local okc,full=pcall(TC.load)
+        local f=fs.open("/toast_kisten.txt","w")
+        f.writeLine("Abladekisten von Turtle #"..os.getComputerID().." (Mine)")
+        for _,k in ipairs(st.chestSpots) do
+            local pos,rel=nil,nil
+            if okc then pos,rel=TC.worldPos(full,"mining",k.x,k.y or 1,k.z) end
+            local where=rel and (rel.fwd.." vor, "..math.abs(rel.right)..(rel.right>=0 and " rechts, " or " links, ")..math.abs(rel.up).." tief") or ""
+            f.writeLine("Kiste "..(k.n or "?")..": "..(pos and ("X "..pos.x.." Y "..pos.y.." Z "..pos.z.."  ") or "")..where)
+        end
+        f.close()
+    end)
     ok=vertical(y0,false)
     return ok
 end
@@ -4914,6 +4956,7 @@ local function snapshot()
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
         x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
         placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
+        chestSpots=st.chestSpots,
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
@@ -6854,7 +6897,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.9.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.9.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
