@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.13.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.13.1",
+    version="3.13.2",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -2282,12 +2282,13 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     local per=math.ceil(#rows/cols)
     for i,r in ipairs(rows) do
         local c=math.floor((i-1)/per);local yy=y+(i-1)%per
-        if yy<=h then
+        if yy<=h-1 then
             local x=1+c*cw
             P.text(x,yy,r[1],colors.lightGray)
             P.text(x+cw-1-#r[2]-(cols>1 and c==0 and 2 or 0),yy,r[2],colors.white)
         end
     end
+    P.right(h,"Infoscreen v"..common.version,colors.gray)
 end
 -- show: "all", "farm", "mining" oder Turtle-ID (Zahl)
 function M.drawInfo(screen,fleet,link,st,show)
@@ -2451,7 +2452,10 @@ function M.drawInfo(screen,fleet,link,st,show)
         end
     end
     -- Fusszeile
-    P.text(1,footer,("Fuel "..short(fuel)..(chunk>0 and ("  Chunks -"..short(chunk).."/h") or "")):sub(1,w),colors.lightGray)
+    local fl=("Fuel "..short(fuel)..(chunk>0 and ("  Chunks -"..short(chunk).."/h") or ""))
+    local ver="v"..common.version
+    P.text(1,footer,fl:sub(1,w),colors.lightGray)
+    if #fl+#ver+2<=w then P.right(footer,ver,colors.gray) end
 end
 function M.new(screen,cfg)
     -- kbd: Tastatur-Bedienung sichtbar (Markierung + Tastenhinweise).
@@ -2529,6 +2533,7 @@ function M.new(screen,cfg)
                 text(2,i+2,l[1],colors.yellow);text(2+kw,i+2,l[2],colors.white)
             end
             text(1,h,("Taste druecken = weiter"):sub(1,w),colors.lightGray)
+            right(1,"v"..common.version.." ",colors.white,colors.blue)
             ui.buttons={{x=1,y=1,w=w,action="help",enabled=true}}
             for y=2,h do ui.buttons[#ui.buttons+1]={x=1,y=y,w=w,action="help",enabled=true} end
             return
@@ -2782,8 +2787,13 @@ function M.new(screen,cfg)
                 tip=sel and (w>=40 and "\24\25 Turtle  \27 zurueck  H Hilfe" or "\27 zurueck  H Hilfe")
                     or (w>=40 and "\24\25 Wahl  Enter Details  H Hilfe" or "\24\25 Enter  H Hilfe")
             else tip=not sel and "Tippen = Details" or nil end
-            if tip and #info+2+#tip<=w then info=info..string.rep(" ",w-#info-#tip)..tip
-            elseif tip and #tip<=w and ui.kbd then info=tip end
+            -- rechts die eigene Version (nicht bei Seitenzahl)
+            local ver=((ui.pages or 1)>1 and not sel) and "" or (" v"..common.version)
+            local W2=w-#ver
+            if tip and #info+2+#tip<=W2 then info=info..string.rep(" ",W2-#info-#tip)..tip
+            elseif tip and #tip<=W2 and ui.kbd and #info>W2 then info=tip end
+            info=info:sub(1,W2)..string.rep(" ",math.max(0,W2-#info))
+            if ver~="" then text(W2+1,foot,ver,colors.gray) end
         end
         text(1,foot,info:sub(1,w),infoCol)
         local pages=ui.pages or 1
@@ -2948,7 +2958,9 @@ function M.new(screen,cfg)
                     or (ui.storeView=="items" and (ui.kbd and "Tippen = suchen, Item = wo liegt es" or "Item antippen = wo liegt es")
                     or (w>=30 and "Orange = fast voll, Rot = voll" or "Orange fast voll, Rot voll"))
             end
-            text(1,h,info:sub(1,w),colors.lightGray)
+            local ver=" v"..common.version
+            if #info+#ver<=w then text(1,h,info,colors.lightGray);text(w-#ver+1,h,ver,colors.gray)
+            else text(1,h,info:sub(1,w),colors.lightGray) end
         end
     end
     function ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice)
@@ -3013,7 +3025,10 @@ function M.new(screen,cfg)
         local info=tostring(notice or "")
         if info:find("Warte auf Geraete",1,true) or info:find("bestaetigt",1,true) then info="" end
         if info=="" then info=sel and "Update oben aktualisiert alle Geraete" or "Tippen = Details, Position, Version" end
+        local ver=" v"..common.version
+        if #info+#ver<=w then info=info..string.rep(" ",w-#info-#ver) end
         text(1,h,info:sub(1,w),colors.lightGray)
+        if #info+#ver<=w+#ver and #info<=w-#ver then text(w-#ver+1,h,ver,colors.gray) end
     end
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)
@@ -3958,7 +3973,7 @@ local function heartbeat()
 end
 if not GEAR then pcall(equipTool) end
 term.clear(); term.setCursorPos(1, 1)
-print("TOAST FARM 2.1 - Turtle #" .. os.getComputerID())
+print("TOAST FARM v" .. TC.version .. " - Turtle #" .. os.getComputerID())
 print("Zentrale #" .. st.controller .. " | " .. crop.label)
 if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
 print("Q: Stopp + Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
@@ -5308,7 +5323,7 @@ end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
 if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
-print("TOAST MINING 2.6 / Turtle #"..os.getComputerID())
+print("TOAST MINING v"..TC.version.." / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
 if sideNote then print(sideNote) end
 print("Zentrale #"..cfg.controllerId)
@@ -5448,7 +5463,7 @@ local function draw()
     end
     local count=0;for _ in pairs(modems) do count=count+1 end
     local label=os.getComputerLabel and os.getComputerLabel()
-    line(1,"TOAST / WIRELESS REPEATER"..(label and (" / "..label) or ""))
+    line(1,"TOAST REPEATER"..(common and (" v"..common.version) or "")..(label and (" / "..label) or ""))
     line(3,"Computer-ID: "..os.getComputerID())
     line(4,"Funkmodems: "..count..(count==0 and " - BITTE ANBRINGEN" or " / AKTIV"))
     line(6,"Weitergeleitet: "..repeated)
@@ -6074,7 +6089,7 @@ function W.new(o)
     end
     function w.start(title,info)
         term.clear();term.setCursorPos(1,1)
-        print(title.." - Turtle #"..os.getComputerID())
+        print(title.." v"..common.version.." - Turtle #"..os.getComputerID())
         print("Zentrale #"..st.controller..(info and (" | "..info) or ""))
         print("Q: Stopp + zur Basis. N: neuer Auftrag (gestoppt, an Basis).")
         if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
@@ -7040,7 +7055,7 @@ local function draw()
         term.setCursorPos(1,yy);if term.isColor and term.isColor() then term.setTextColor(col or colors.white) end
         term.write(tostring(text):sub(1,w))
     end
-    line(1,"TOAST GPS-SENDER  #"..os.getComputerID(),colors.cyan)
+    line(1,"TOAST GPS-SENDER v"..common.version.."  #"..os.getComputerID(),colors.cyan)
     line(3,"Position  X "..x.."  Y "..y.."  Z "..z,colors.lime)
     line(4,"Quelle    "..source,colors.lightGray)
     local n=0;for _ in pairs(modems) do n=n+1 end
@@ -7243,7 +7258,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.13.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

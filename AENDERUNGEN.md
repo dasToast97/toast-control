@@ -1,3 +1,9 @@
+# Toast Control 3.13.2
+
+- **Eigene Version überall sichtbar:** Zentrale und Pocket unten rechts
+  („v3.13.2“, auch in der Hilfe), Infoscreen in der Fußzeile, Lager-Computer,
+  Netz-Reiter, GPS-Sender, Repeater und Turtles in der Titelzeile.
+
 # Toast Control 3.13.1
 
 - **Nachschub fehlt = „Pause“ statt „Problem“.** Lager voll, Treibstoff fehlt,

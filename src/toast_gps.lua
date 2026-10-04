@@ -45,7 +45,7 @@ local function draw()
         term.setCursorPos(1,yy);if term.isColor and term.isColor() then term.setTextColor(col or colors.white) end
         term.write(tostring(text):sub(1,w))
     end
-    line(1,"TOAST GPS-SENDER  #"..os.getComputerID(),colors.cyan)
+    line(1,"TOAST GPS-SENDER v"..common.version.."  #"..os.getComputerID(),colors.cyan)
     line(3,"Position  X "..x.."  Y "..y.."  Z "..z,colors.lime)
     line(4,"Quelle    "..source,colors.lightGray)
     local n=0;for _ in pairs(modems) do n=n+1 end

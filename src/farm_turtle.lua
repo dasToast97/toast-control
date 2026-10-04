@@ -637,7 +637,7 @@ local function heartbeat()
 end
 if not GEAR then pcall(equipTool) end
 term.clear(); term.setCursorPos(1, 1)
-print("TOAST FARM 2.1 - Turtle #" .. os.getComputerID())
+print("TOAST FARM v" .. TC.version .. " - Turtle #" .. os.getComputerID())
 print("Zentrale #" .. st.controller .. " | " .. crop.label)
 if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
 print("Q: Stopp + Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")

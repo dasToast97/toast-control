@@ -1256,7 +1256,7 @@ end
 local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
 if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
-print("TOAST MINING 2.6 / Turtle #"..os.getComputerID())
+print("TOAST MINING v"..TC.version.." / Turtle #"..os.getComputerID())
 print(C.tunnels.." Gaenge / "..C.length.." lang / "..C.height.." hoch / Abstand "..C.gap)
 if sideNote then print(sideNote) end
 print("Zentrale #"..cfg.controllerId)

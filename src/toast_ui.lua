@@ -270,12 +270,13 @@ local function drawTurtleInfo(screen,fleet,link,st,id)
     local per=math.ceil(#rows/cols)
     for i,r in ipairs(rows) do
         local c=math.floor((i-1)/per);local yy=y+(i-1)%per
-        if yy<=h then
+        if yy<=h-1 then
             local x=1+c*cw
             P.text(x,yy,r[1],colors.lightGray)
             P.text(x+cw-1-#r[2]-(cols>1 and c==0 and 2 or 0),yy,r[2],colors.white)
         end
     end
+    P.right(h,"Infoscreen v"..common.version,colors.gray)
 end
 -- show: "all", "farm", "mining" oder Turtle-ID (Zahl)
 function M.drawInfo(screen,fleet,link,st,show)
@@ -439,7 +440,10 @@ function M.drawInfo(screen,fleet,link,st,show)
         end
     end
     -- Fusszeile
-    P.text(1,footer,("Fuel "..short(fuel)..(chunk>0 and ("  Chunks -"..short(chunk).."/h") or "")):sub(1,w),colors.lightGray)
+    local fl=("Fuel "..short(fuel)..(chunk>0 and ("  Chunks -"..short(chunk).."/h") or ""))
+    local ver="v"..common.version
+    P.text(1,footer,fl:sub(1,w),colors.lightGray)
+    if #fl+#ver+2<=w then P.right(footer,ver,colors.gray) end
 end
 function M.new(screen,cfg)
     -- kbd: Tastatur-Bedienung sichtbar (Markierung + Tastenhinweise).
@@ -517,6 +521,7 @@ function M.new(screen,cfg)
                 text(2,i+2,l[1],colors.yellow);text(2+kw,i+2,l[2],colors.white)
             end
             text(1,h,("Taste druecken = weiter"):sub(1,w),colors.lightGray)
+            right(1,"v"..common.version.." ",colors.white,colors.blue)
             ui.buttons={{x=1,y=1,w=w,action="help",enabled=true}}
             for y=2,h do ui.buttons[#ui.buttons+1]={x=1,y=y,w=w,action="help",enabled=true} end
             return
@@ -770,8 +775,13 @@ function M.new(screen,cfg)
                 tip=sel and (w>=40 and "\24\25 Turtle  \27 zurueck  H Hilfe" or "\27 zurueck  H Hilfe")
                     or (w>=40 and "\24\25 Wahl  Enter Details  H Hilfe" or "\24\25 Enter  H Hilfe")
             else tip=not sel and "Tippen = Details" or nil end
-            if tip and #info+2+#tip<=w then info=info..string.rep(" ",w-#info-#tip)..tip
-            elseif tip and #tip<=w and ui.kbd then info=tip end
+            -- rechts die eigene Version (nicht bei Seitenzahl)
+            local ver=((ui.pages or 1)>1 and not sel) and "" or (" v"..common.version)
+            local W2=w-#ver
+            if tip and #info+2+#tip<=W2 then info=info..string.rep(" ",W2-#info-#tip)..tip
+            elseif tip and #tip<=W2 and ui.kbd and #info>W2 then info=tip end
+            info=info:sub(1,W2)..string.rep(" ",math.max(0,W2-#info))
+            if ver~="" then text(W2+1,foot,ver,colors.gray) end
         end
         text(1,foot,info:sub(1,w),infoCol)
         local pages=ui.pages or 1
@@ -936,7 +946,9 @@ function M.new(screen,cfg)
                     or (ui.storeView=="items" and (ui.kbd and "Tippen = suchen, Item = wo liegt es" or "Item antippen = wo liegt es")
                     or (w>=30 and "Orange = fast voll, Rot = voll" or "Orange fast voll, Rot voll"))
             end
-            text(1,h,info:sub(1,w),colors.lightGray)
+            local ver=" v"..common.version
+            if #info+#ver<=w then text(1,h,info,colors.lightGray);text(w-#ver+1,h,ver,colors.gray)
+            else text(1,h,info:sub(1,w),colors.lightGray) end
         end
     end
     function ui.drawNet(nodes,link,text,right,fill,pill,w,h,notice)
@@ -1001,7 +1013,10 @@ function M.new(screen,cfg)
         local info=tostring(notice or "")
         if info:find("Warte auf Geraete",1,true) or info:find("bestaetigt",1,true) then info="" end
         if info=="" then info=sel and "Update oben aktualisiert alle Geraete" or "Tippen = Details, Position, Version" end
+        local ver=" v"..common.version
+        if #info+#ver<=w then info=info..string.rep(" ",w-#info-#ver) end
         text(1,h,info:sub(1,w),colors.lightGray)
+        if #info+#ver<=w+#ver and #info<=w-#ver then text(w-#ver+1,h,ver,colors.gray) end
     end
     local function indexOf(id) for i,v in ipairs(ui.ids) do if v==id then return i end end return 0 end
     function ui.action(a)

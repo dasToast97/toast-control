@@ -563,7 +563,7 @@ function W.new(o)
     end
     function w.start(title,info)
         term.clear();term.setCursorPos(1,1)
-        print(title.." - Turtle #"..os.getComputerID())
+        print(title.." v"..common.version.." - Turtle #"..os.getComputerID())
         print("Zentrale #"..st.controller..(info and (" | "..info) or ""))
         print("Q: Stopp + zur Basis. N: neuer Auftrag (gestoppt, an Basis).")
         if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end

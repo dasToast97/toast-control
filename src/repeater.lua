@@ -43,7 +43,7 @@ local function draw()
     end
     local count=0;for _ in pairs(modems) do count=count+1 end
     local label=os.getComputerLabel and os.getComputerLabel()
-    line(1,"TOAST / WIRELESS REPEATER"..(label and (" / "..label) or ""))
+    line(1,"TOAST REPEATER"..(common and (" v"..common.version) or "")..(label and (" / "..label) or ""))
     line(3,"Computer-ID: "..os.getComputerID())
     line(4,"Funkmodems: "..count..(count==0 and " - BITTE ANBRINGEN" or " / AKTIV"))
     line(6,"Weitergeleitet: "..repeated)
