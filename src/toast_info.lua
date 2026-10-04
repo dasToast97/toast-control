@@ -69,10 +69,10 @@ local function validFleet(f)
     end
     return true
 end
-local tick=0
+local tick,due=0,0
 local function loop()
     poll();draw()
-    local timer=os.startTimer(cfg.network.pollInterval)
+    local timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
@@ -87,9 +87,11 @@ local function loop()
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then common.log("Update: "..tostring(why)) end
-        elseif e=="timer" and a==timer then
+        elseif (e=="timer" and a==timer) or os.clock()>=due then
+            -- "due": falls der Timer verloren ging (z.B. waehrend einer GPS-Abfrage), trotzdem weiter
+            due=os.clock()+cfg.network.pollInterval*3
             tick=tick+1;if tick%2==0 or not connected() then poll() end
-            draw();timer=os.startTimer(cfg.network.pollInterval)
+            draw();timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
             bind();draw()
         elseif STORE and e=="monitor_touch" then

@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.13.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.13.3",
+    version="3.13.4",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -3203,9 +3203,9 @@ local function action(a)
     end
     draw()
 end
-local tick=0
+local tick,due=0,0
 local function loop()
-    poll();draw();local timer=os.startTimer(cfg.network.pollInterval)
+    poll();draw();local timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
     while true do
         local e,a,b,c=os.pullEvent()
         if e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
@@ -3222,14 +3222,16 @@ local function loop()
             notice="Update wird installiert ...";draw()
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
-        elseif e=="timer" and a==timer then
+        elseif (e=="timer" and a==timer) or os.clock()>=due then
+            -- "due": falls der Timer verloren ging (z.B. waehrend einer GPS-Abfrage), trotzdem weiter
+            due=os.clock()+cfg.network.pollInterval*3
             -- Hallo nur alle 2 s (die Zentrale schickt die Daten sowieso regelmaessig)
             tick=(tick or 0)+1;if tick%2==0 or not connected() then poll() end
             if pending then
                 if not connected() or os.clock()-pending.at>=cfg.network.commandTimeout then pending=nil;notice="Befehl unbestaetigt/verfallen"
                 else send(pending.message)end
             end
-            draw();timer=os.startTimer(cfg.network.pollInterval)
+            draw();timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
         elseif e=="peripheral" or e=="peripheral_detach" then poll()
         elseif e=="mouse_click" and a==1 then action(ui.click(b,c))
         elseif e=="term_resize" then draw()
@@ -3318,10 +3320,10 @@ local function validFleet(f)
     end
     return true
 end
-local tick=0
+local tick,due=0,0
 local function loop()
     poll();draw()
-    local timer=os.startTimer(cfg.network.pollInterval)
+    local timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
@@ -3336,9 +3338,11 @@ local function loop()
             and b.kind=="update" and b.controllerId==cfg.controllerId then
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then common.log("Update: "..tostring(why)) end
-        elseif e=="timer" and a==timer then
+        elseif (e=="timer" and a==timer) or os.clock()>=due then
+            -- "due": falls der Timer verloren ging (z.B. waehrend einer GPS-Abfrage), trotzdem weiter
+            due=os.clock()+cfg.network.pollInterval*3
             tick=tick+1;if tick%2==0 or not connected() then poll() end
-            draw();timer=os.startTimer(cfg.network.pollInterval)
+            draw();timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
         elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
             bind();draw()
         elseif STORE and e=="monitor_touch" then
@@ -7258,36 +7262,48 @@ local function beacon() common.nodeBeacon(cfg,"storage",compact()) end
 bind()
 term.clear();term.setCursorPos(1,1);print("Lese Kisten ...")
 scan();draw();beacon()
-local scanTimer=os.startTimer(C.interval)
-local beaconTimer=os.startTimer(10)
 local function screenOf(name) for _,s in ipairs(screens) do if s.name==name then return s end end end
 local function act(s,a)
     if not s or not a then return end
     s.ui.action(a);draw()
 end
-while true do
-    local e,a,b,c,d,f=os.pullEvent()
-    if gpsHost and gpsHost.event(e,a,b,c,d,f) then
-        -- GPS-Anfrage beantwortet
-    elseif e=="rednet_message" and common.isUpdateFor(cfg,a,b) then
-        notice="Update wird installiert ...";draw()
-        local ok,why=common.selfUpdate(nil,b.target)
-        if not ok then notice="Update: "..tostring(why);common.log(notice);draw() end
-    elseif e=="timer" and a==scanTimer then
-        scan();draw();scanTimer=os.startTimer(C.interval)
-    elseif e=="timer" and a==beaconTimer then
-        pcall(common.refreshModems);beacon();beaconTimer=os.startTimer(10)
-    elseif e=="monitor_touch" then local s=screenOf(a);if s then act(s,s.ui.click(b,c)) end
-    elseif e=="mouse_click" then local s=screenOf(nil);act(s,s.ui.click(b,c))
-    elseif e=="mouse_scroll" then local s=screenOf(nil);act(s,a>0 and "down" or "up")
-    elseif e=="char" then local s=screenOf(nil);act(s,s.ui.char(a))
-    elseif e=="key" then local s=screenOf(nil);act(s,s.ui.key(keys.getName(a)))
-    elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
-        bind();if e~="monitor_resize" and e~="term_resize" then scan() end;draw()
+-- Drei Ablaeufe nebeneinander: Auslesen der Kisten blockiert sonst alles andere
+-- (Peripherie-Aufrufe warten auf ihre Antwort und schlucken dabei Timer/Funk -
+-- frueher ging dadurch das Lebenszeichen verloren und das Lager wurde "offline").
+local function scanLoop()
+    while true do
+        sleep(C.interval)
+        scan();draw()
     end
 end
+local function beaconLoop()
+    while true do
+        pcall(common.refreshModems);beacon()
+        sleep(5)
+    end
+end
+local function uiLoop()
+    while true do
+        local e,a,b,c,d,f=os.pullEvent()
+        if gpsHost and gpsHost.event(e,a,b,c,d,f) then
+            -- GPS-Anfrage beantwortet
+        elseif e=="rednet_message" and common.isUpdateFor(cfg,a,b) then
+            notice="Update wird installiert ...";draw()
+            local ok,why=common.selfUpdate(nil,b.target)
+            if not ok then notice="Update: "..tostring(why);common.log(notice);draw() end
+        elseif e=="monitor_touch" then local s=screenOf(a);if s then act(s,s.ui.click(b,c)) end
+        elseif e=="mouse_click" then local s=screenOf(nil);act(s,s.ui.click(b,c))
+        elseif e=="mouse_scroll" then local s=screenOf(nil);act(s,a>0 and "down" or "up")
+        elseif e=="char" then local s=screenOf(nil);act(s,s.ui.char(a))
+        elseif e=="key" then local s=screenOf(nil);act(s,s.ui.key(keys.getName(a)))
+        elseif e=="peripheral" or e=="peripheral_detach" or e=="monitor_resize" or e=="term_resize" then
+            bind();draw()
+        end
+    end
+end
+parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.13.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

@@ -257,6 +257,22 @@ function Sim.env(S)
             ev=table.pack(coroutine.yield())
         end
     end}
+    G.parallel.waitForAny=function(...)
+        local fns={...};local cos,filters={},{}
+        for i,f in ipairs(fns)do cos[i]=coroutine.create(f)end
+        local ev={n=0}
+        while true do
+            for i,co in ipairs(cos)do
+                if filters[i]==nil or filters[i]==ev[1] or ev[1]=="terminate" then
+                    local r=table.pack(coroutine.resume(co,table.unpack(ev,1,ev.n)))
+                    if not r[1] then error(r[2],0) end
+                    filters[i]=r[2]
+                    if coroutine.status(co)=="dead" then return i end
+                end
+            end
+            ev=table.pack(coroutine.yield())
+        end
+    end
     G.shell={run=function()end}
     return G
 end

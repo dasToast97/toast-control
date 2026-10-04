@@ -1,3 +1,12 @@
+# Toast Control 3.13.4
+
+- **Lager bleibt online:** Beim Auslesen der Kisten ging das Lebenszeichen an die
+  Zentrale verloren (der Timer wurde während des Kisten-Lesens verschluckt), daher
+  wurde das Lager nach 30 s „offline“. Jetzt laufen Auslesen, Lebenszeichen (alle
+  5 s) und Bedienung getrennt nebeneinander – auch bei vielen Kisten am Kabel.
+- **Pockets und Infoscreens:** Schutz gegen verlorene Timer (Anzeige hängt nicht
+  mehr fest, wenn eine GPS-Abfrage den Takt verschluckt).
+
 # Toast Control 3.13.3
 
 - **Abladekisten der Mine über eigenen Knopf:** In den Details einer Mining-Turtle

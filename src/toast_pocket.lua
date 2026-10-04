@@ -52,9 +52,9 @@ local function action(a)
     end
     draw()
 end
-local tick=0
+local tick,due=0,0
 local function loop()
-    poll();draw();local timer=os.startTimer(cfg.network.pollInterval)
+    poll();draw();local timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
     while true do
         local e,a,b,c=os.pullEvent()
         if e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
@@ -71,14 +71,16 @@ local function loop()
             notice="Update wird installiert ...";draw()
             local ok,why=common.selfUpdate(nil,b.target)
             if not ok then notice="Update fehlgeschlagen: "..tostring(why);draw() end
-        elseif e=="timer" and a==timer then
+        elseif (e=="timer" and a==timer) or os.clock()>=due then
+            -- "due": falls der Timer verloren ging (z.B. waehrend einer GPS-Abfrage), trotzdem weiter
+            due=os.clock()+cfg.network.pollInterval*3
             -- Hallo nur alle 2 s (die Zentrale schickt die Daten sowieso regelmaessig)
             tick=(tick or 0)+1;if tick%2==0 or not connected() then poll() end
             if pending then
                 if not connected() or os.clock()-pending.at>=cfg.network.commandTimeout then pending=nil;notice="Befehl unbestaetigt/verfallen"
                 else send(pending.message)end
             end
-            draw();timer=os.startTimer(cfg.network.pollInterval)
+            draw();timer=os.startTimer(cfg.network.pollInterval);due=os.clock()+cfg.network.pollInterval*3
         elseif e=="peripheral" or e=="peripheral_detach" then poll()
         elseif e=="mouse_click" and a==1 then action(ui.click(b,c))
         elseif e=="term_resize" then draw()

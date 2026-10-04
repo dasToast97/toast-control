@@ -113,5 +113,32 @@ S.sent={};model.startUpdate(nil,"9.9")
 local up=0;for _,m in ipairs(S.sent) do if m.id==60 and m.msg.kind=="update" then up=up+1 end end
 check("Update auch fuers Lager",up==1,up)
 
+print("L3 Langsames Auslesen (viele Kisten): Lebenszeichen kommt trotzdem regelmaessig")
+S=Sim.new({config=[[return {role="storage",name="Hauptlager",controllerId=4,gps={host=false},storage={interval=10,warnAt=90,names={}}}]]})
+S.files["/toast/toast_storage.lua"]=io.open("/home/claude/toast/toast_storage.lua"):read("a")
+S.files["/toast/toast_ui.lua"]=io.open("/home/claude/toast/toast_ui.lua"):read("a")
+S.polling=false
+local beaconTimes={}
+Sim.env=function(S2) local G=orig(S2);G.turtle=nil;G.os.getComputerID=function()return 61 end
+    do local n=0;local c={};G.colors=setmetatable({},{__index=function(_,k)if not c[k] then n=n+1;c[k]=2^n end;return c[k] end}) end
+    local T=screen(G,39,13);for k,v in pairs(T) do G.term[k]=v end
+    G.os.pullEventRaw=G.os.pullEvent
+    G.rednet.broadcast=function(msg,p) beaconTimes[#beaconTimes+1]=S2.T end
+    G.peripheral.getNames=function() local t={};for n in pairs(PER) do t[#t+1]=n end;table.sort(t);return t end
+    G.peripheral.getType=function(n) return PER[n] end
+    G.peripheral.hasType=function(n,t) return t=="inventory" and INV[n]~=nil end
+    G.peripheral.find=function(t,fl) if t=="modem" then local m={isWireless=function()return true end,_side="top"};if not fl or fl("top",m) then return m end end end
+    -- jede Kiste braucht 4 s zum Auslesen (wie bei sehr vielen Kisten am Kabel)
+    G.peripheral.wrap=function(n) if n=="top" then return {isWireless=function()return true end,open=function()end,close=function()end,isOpen=function()return false end,transmit=function()end} end
+        local inv=INV[n];if not inv then return nil end
+        return {size=inv.size,getItemDetail=inv.getItemDetail,list=function() G.sleep(4);return inv.list() end} end
+    G.keys.getName=function(k) return k end
+    return G end
+Sim.run(S,60)
+Sim.env=orig
+local maxGap=0;for k=2,#beaconTimes do maxGap=math.max(maxGap,beaconTimes[k]-beaconTimes[k-1]) end
+check("mind. 8 Lebenszeichen in 60 s",#beaconTimes>=8,#beaconTimes)
+check("nie mehr als 10 s Pause (Zentrale: offline erst nach 30 s)",maxGap<=10,maxGap)
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end
