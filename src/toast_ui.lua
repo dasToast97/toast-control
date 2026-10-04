@@ -82,7 +82,7 @@ local JOB={
                 end
             end
             if num(d.torches)>0 then r[#r+1]={"Fackeln",short(d.torchesPlaced).." gesetzt, "..short(d.torchesLeft).." dabei"} end
-            if num(d.keptOres)>0 then r[#r+1]={"Erze stehen",short(d.keptOres)} end
+            if num(d.keptOres)>0 then r[#r+1]={"Erze stehen",short(d.keptOres)..(num(d.oresMined)>0 and (", "..short(d.oresMined).." am Rand abgebaut") or "")} end
             if num(d.sealed)>0 then r[#r+1]={"Zugebaut",short(d.sealed).." Stellen"} end
             if num(d.drained)>0 then r[#r+1]={"Trockengelegt",short(d.drained)} end
             if d.noFill then r[#r+1]={"Fuellmaterial","FEHLT (Bruchstein)"} end

@@ -1,3 +1,13 @@
+# Toast Control 3.12.1
+
+- **Mine: Erze auch in der Fahrspur stehen lassen.** Liegt ein geschontes Erz
+  im Weg, sucht die Turtle einen Weg drumherum: über die Reihe darüber oder
+  darunter, sonst seitlich durch die Wand. Die Felder über/unter dem Erz werden
+  trotzdem freigelegt. Gilt für die Arbeit und für alle Wege (Heimweg, Querwege).
+- Nur wenn es gar keinen Weg gibt (Erz am Ende des Gangs, Ganghöhe 1, alles
+  ringsum Erz) baut sie es ab – Zentrale zeigt „x am Rand abgebaut“.
+- Test mit jedem 4. Feld ein Erz: 31 von 33 bleiben stehen, Turtle kommt heim.
+
 # Toast Control 3.12
 
 ## Mine: Trockenlegen, Wände zubauen, Erze stehen lassen

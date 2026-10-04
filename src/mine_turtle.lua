@@ -358,6 +358,8 @@ local function placeFill(place)
     st.noFill=true
     return false
 end
+local KEEPON=KEEPALL or #KEEPORES>0
+local forceOre=false        -- true = Erz in der Fahrspur doch abbauen (am Rand)
 local function clear(inspect,dig,interruptible,digOnly)
     -- Rueckweg (nicht unterbrechbar): immer freiraeumen, auch mit vollem Inventar
     -- (Block faellt dann als Item auf den Boden) und laenger auf Kies/Sand warten.
@@ -374,6 +376,9 @@ local function clear(inspect,dig,interruptible,digOnly)
             if not exists then return true end
         end
         if digOnly and keptOre(b.name) then st.keptOres=(st.keptOres or 0)+1;return true end
+        -- Erz im Weg: nicht abbauen, Aufrufer sucht einen Weg drumherum
+        if not digOnly and KEEPON and not forceOre and keptOre(b.name) then return false,"ore" end
+        if forceOre and KEEPON and keptOre(b.name) then st.oresMined=(st.oresMined or 0)+1 end
         local reason=blockReason(b)
         if reason and hard[b.name] and not interruptible then
             sleep(2)                    -- andere Turtle im Weg: abwarten, sie faehrt weiter
@@ -732,22 +737,106 @@ local function sealHere()
         if outside(x+DX[d],y,z+DZ[d]) and face(d) then check(turtle.inspect,turtle.place) end
     end
 end
+-- Erz, das nicht umgangen werden kann (Querweg, Rand): doch abbauen
+local function forced(kind,i)
+    local ok,why=move(kind,i)
+    if not ok and why=="ore" then
+        forceOre=true;ok,why=move(kind,i);forceOre=false
+    end
+    return ok,why
+end
+local function seq(...)
+    for _,f in ipairs({...}) do local ok,why=f();if not ok then return false,why end end
+    return true
+end
+-- Erz direkt vor der Turtle im Gang (Fahrt entlang z): ueber die Reihe darueber
+-- und/oder darunter drumherum. Endet 2 Felder weiter; die Felder ueber/unter
+-- dem Erz werden mit abgebaut, das Erz bleibt stehen.
+local function detour(dz,i)
+    local x,y,z=st.x,st.y,st.z
+    local tz,nz=z+dz,z+2*dz
+    if not inPlan(x,y,nz) then return false,"rand" end
+    local fwd,back=dz>0 and 0 or 2,dz>0 and 2 or 0
+    local function oreAt(insp) local e,bl=insp();return e and keptOre(bl.name) end
+    local up=inPlan(x,y-1,z) and inPlan(x,y-1,tz) and inPlan(x,y-1,nz)
+    local dn=inPlan(x,y+1,z) and inPlan(x,y+1,tz) and inPlan(x,y+1,nz)
+    status("Erz umgehen","Erz im Gang bleibt stehen, Turtle faehrt drumherum.")
+    -- Weg: raus (hoch/runter/seitlich), 2 Felder vor, wieder rein. Jedes Feld vorher
+    -- pruefen; ist eins Erz, zurueck an den Anfang und den naechsten Weg probieren.
+    local function try(out,inn,outInsp)
+        if outInsp and oreAt(outInsp) then return false,"blocked" end
+        local ok,why=out();if not ok then return false,why end
+        ok,why=face(fwd);if not ok then return false,why end
+        if oreAt(turtle.inspect) then
+            ok,why=inn();if not ok then return false,why end
+            return false,"blocked"
+        end
+        ok,why=move("forward",i);if not ok then return false,why end
+        if oreAt(turtle.inspect) then
+            ok,why=seq(function()return face(back)end,function()return move("forward",i)end,inn)
+            if not ok then return false,why end
+            return false,"blocked"
+        end
+        ok,why=move("forward",i);if not ok then return false,why end
+        return inn()
+    end
+    local function side(d)
+        return function() local ok,why=face(d);if not ok then return false,why end;return move("forward",i) end,
+            function() local ok,why=face((d+2)%4);if not ok then return false,why end;return move("forward",i) end
+    end
+    local ways={}
+    if up then ways[#ways+1]={function()return move("up",i)end,function()return move("down",i)end,turtle.inspectUp} end
+    if dn then ways[#ways+1]={function()return move("down",i)end,function()return move("up",i)end,turtle.inspectDown} end
+    for _,d in ipairs({1,3}) do
+        local o,n=side(d)
+        ways[#ways+1]={function() local ok,why=face(d);if not ok then return false,why end
+            if oreAt(turtle.inspect) then return false,"blocked" end;return move("forward",i) end,n,nil}
+    end
+    local ok,why
+    for _,wy in ipairs(ways) do
+        ok,why=try(wy[1],wy[2],wy[3])
+        if ok or why~="blocked" then break end
+        local okf=face(fwd);if not okf then return false,"Drehen" end
+    end
+    if not ok and why=="blocked" then return false,"rand" end
+    if not ok then return false,why end
+    -- Felder ueber/unter dem Erz (gehoeren zum Gang) freilegen, soweit erreichbar
+    if up and st.y==y and not oreAt(turtle.inspectUp) then
+        ok,why=seq(function()return move("up",i)end,function()return face(back)end,
+            function()return clear(turtle.inspect,turtle.dig,i,true)end,function()return move("down",i)end)
+        if not ok then return false,why end
+    end
+    if dn and st.y==y and not oreAt(turtle.inspectDown) then
+        ok,why=seq(function()return move("down",i)end,function()return face(back)end,
+            function()return clear(turtle.inspect,turtle.dig,i,true)end,function()return move("up",i)end)
+        if not ok then return false,why end
+    end
+    st.keptOres=(st.keptOres or 0)+1;save()
+    return face(fwd)
+end
 local function lineX(x,i)
     while st.x~=x do
         local ok,why=face(st.x<x and 1 or 3);if not ok then return false,why end
-        ok,why=move("forward",i);if not ok then return false,why end
+        ok,why=forced("forward",i);if not ok then return false,why end
     end
     return true
 end
 local function lineZ(z,i)
     while st.z~=z do
-        local ok,why=face(st.z<z and 0 or 2);if not ok then return false,why end
-        ok,why=move("forward",i);if not ok then return false,why end
+        local dz=st.z<z and 1 or -1
+        local ok,why=face(dz>0 and 0 or 2);if not ok then return false,why end
+        ok,why=move("forward",i)
+        if not ok and why=="ore" then
+            if st.z+dz==z then return false,"ore" end          -- das Ziel selbst ist Erz
+            ok,why=detour(dz,i)
+            if not ok and why=="rand" then ok,why=forced("forward",i) end
+        end
+        if not ok then return false,why end
     end
     return true
 end
 local function vertical(y,i)
-    while st.y~=y do local ok,why=move(st.y<y and "down" or "up",i);if not ok then return false,why end end
+    while st.y~=y do local ok,why=forced(st.y<y and "down" or "up",i);if not ok then return false,why end end
     return true
 end
 local function chain(...)
@@ -1057,6 +1146,27 @@ local function work()
                         if st.next>1 then px,py,pz=step(st.next-1) end
                         if px and st.x==px and st.y==py and st.z==pz then ok,why=direct(x,y,z,true)
                         else ok,why=routeTo(x,y,z,true) end
+                        if not ok and why=="ore" then
+                            -- Das Zielfeld selbst ist ein Erz: stehen lassen und ueber die Reihe
+                            -- darueber/darunter zum naechsten Feld; am Rand doch abbauen.
+                            local dz=st.dir==0 and 1 or (st.dir==2 and -1 or 0)
+                            local nx,ny,nz
+                            if st.next<cells then nx,ny,nz=step(st.next+1) end
+                            if dz~=0 and nx==st.x and ny==st.y and nz==st.z+2*dz and st.x==x and st.y==y then
+                                ok,why=detour(dz,true)
+                                if ok then
+                                    st.next=st.next+1;save()
+                                    x,y,z,up,down,left,right=step(st.next)
+                                end
+                            else
+                                -- Erz irgendwo auf dem Weg (Wendepunkt): anders herum versuchen
+                                ok,why=direct(x,y,z,true)
+                                if not ok and why=="ore" then why="rand" end
+                            end
+                            if not ok and (why=="rand" or why=="ore") then
+                                forceOre=true;ok,why=direct(x,y,z,true);forceOre=false
+                            end
+                        end
                         if ok and up then ok,why=clear(turtle.inspectUp,turtle.digUp,true,true) end
                         if ok and down then ok,why=clear(turtle.inspectDown,turtle.digDown,true,true) end
                         if ok then sealHere() end
@@ -1100,7 +1210,7 @@ local function snapshot()
         chunks=GEAR and (GEAR.radius>0 and CL.chunks or 0) or nil,chunkFuel=GEAR and math.floor(GEAR.perSecond()*3600+0.5) or nil,
         x=st.x,y=st.y,z=st.z,total=st.total or 0,harvested=st.harvested or 0,coal=st.coal or 0,useCoal=C.useCoal==true,
         placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
-        chestSpots=st.chestSpots,keptOres=st.keptOres or 0,sealed=st.sealed or 0,drained=st.drained or 0,noFill=st.noFill,
+        chestSpots=st.chestSpots,keptOres=st.keptOres or 0,oresMined=st.oresMined or 0,sealed=st.sealed or 0,drained=st.drained or 0,noFill=st.noFill,
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
 end
@@ -1157,3 +1267,4 @@ if not ok then
     if why~="Terminated" then error(why,0) end
     printError("Abgebrochen.")
 end
+

@@ -51,5 +51,62 @@ S.protocol="toast.mine.v1"
 S.world[S.key(0,-2,3)]="minecraft:diamond_ore"
 Sim.run(S,600)
 check("Diamant abgebaut",S.world[S.key(0,-2,3)]==false)
+print("X3 Erz mitten in der Fahrspur: stehen lassen, drumherum fahren")
+S=Sim.new({config=cfg('keepOres="diamond"'),actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}})
+S.protocol="toast.mine.v1"
+S.world[S.key(0,-1,3)]="minecraft:diamond_ore"     -- in der Fahrspur (mittlere Reihe)
+Sim.run(S,600)
+st=load("return "..S.files["/toast_mining_state"])()
+local missing=0
+for z=1,6 do for y=0,-2,-1 do if not (z==3 and y==-1) and S.world[S.key(0,y,z)]~=false then missing=missing+1 end end end
+check("Mine fertig + zu Hause",st.next and st.next>6 and S.p.x==0 and S.p.z==0 and S.p.y==0,tostring(st.next).." "..tail(S))
+check("Diamant in der Fahrspur steht noch",S.world[S.key(0,-1,3)]=="minecraft:diamond_ore")
+check("alles andere ausgehoben (auch ueber/unter dem Erz)",missing==0,missing)
+check("kein Fehler",not (S.last and S.last.fault),S.last and S.last.fault)
+print("X4 Erz am Ende des Gangs (Rand): dort darf sie es abbauen")
+S=Sim.new({config=cfg('keepOres="diamond"'),actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}}})
+S.protocol="toast.mine.v1"
+S.world[S.key(0,-1,6)]="minecraft:diamond_ore"
+Sim.run(S,600)
+st=load("return "..S.files["/toast_mining_state"])()
+check("Mine fertig",st.next and st.next>6 and S.p.x==0 and S.p.z==0,tostring(st.next).." "..tail(S))
+check("Rand-Erz abgebaut",S.world[S.key(0,-1,6)]==false)
+print("X5 Zwei Gaenge, Erz im Rueckweg-Gang: Heimweg faehrt drumherum")
+S=Sim.new({config=(cfg('keepOres="all"'):gsub("tunnels=1","tunnels=2")),actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1"
+S.world[S.key(0,-1,2)]="minecraft:emerald_ore";S.world[S.key(2,-1,4)]="minecraft:gold_ore"
+Sim.run(S,900)
+st=load("return "..S.files["/toast_mining_state"])()
+check("fertig + zu Hause",st.next and st.next>12 and S.p.x==0 and S.p.z==0 and S.p.y==0,tostring(st.next).." "..tail(S))
+check("beide Erze stehen",S.world[S.key(0,-1,2)]=="minecraft:emerald_ore" and S.world[S.key(2,-1,4)]=="minecraft:gold_ore")
+
+print("X6 Viele Erze verstreut (3 Gaenge x 15, Hoehe 3): fertig, kaum Erz abgebaut")
+S=Sim.new({config=(cfg('keepOres="all"'):gsub("tunnels=1","tunnels=3"):gsub("length=6","length=15"):gsub("gap=1","gap=2")),
+    fuel=20000,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1"
+local ores,n=0,0
+for x=0,6,3 do for z=1,15 do for y=0,-2,-1 do n=n+1
+    if (x*7+z*13+y*5)%9==0 then S.world[S.key(x,y,z)]="minecraft:iron_ore";ores=ores+1 end end end end
+Sim.run(S,4000)
+st=load("return "..S.files["/toast_mining_state"])()
+local left=0;for x=0,6,3 do for z=1,15 do for y=0,-2,-1 do if S.world[S.key(x,y,z)]=="minecraft:iron_ore" then left=left+1 end end end end
+print(("    %d Erze gesetzt, %d stehen noch, %d am Rand abgebaut"):format(ores,left,st.oresMined or 0))
+check("fertig + zu Hause",st.next and st.next>3*15 and S.p.x==0 and S.p.z==0 and S.p.y==0 and not (S.last and S.last.fault),tostring(st.next).." "..tostring(S.last and S.last.fault).." "..tail(S))
+check("die meisten Erze stehen",left>=ores-(st.oresMined or 0) and left>=ores*0.7,left.."/"..ores)
+
+print("X7 Sehr viele Erze (jedes 4. Feld): faehrt trotzdem fertig und heim")
+S=Sim.new({config=(cfg('keepOres="all"'):gsub("tunnels=1","tunnels=3"):gsub("length=6","length=15"):gsub("gap=1","gap=2")),
+    fuel=30000,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.mine.v1"
+ores=0
+for x=0,6,3 do for z=1,15 do for y=0,-2,-1 do
+    if (x*5+z*7+y*3)%4==0 then S.world[S.key(x,y,z)]="minecraft:copper_ore";ores=ores+1 end end end end
+Sim.run(S,8000)
+st=load("return "..S.files["/toast_mining_state"])()
+left=0;for x=0,6,3 do for z=1,15 do for y=0,-2,-1 do if S.world[S.key(x,y,z)]=="minecraft:copper_ore" then left=left+1 end end end end
+print(("    %d Erze gesetzt, %d stehen noch, %d notgedrungen abgebaut"):format(ores,left,st.oresMined or 0))
+check("fertig + zu Hause",st.next and st.next>3*15 and S.p.x==0 and S.p.z==0 and S.p.y==0 and not (S.last and S.last.fault),tostring(st.next).." "..tostring(S.last and S.last.fault).." "..tail(S))
+check("Zaehlung stimmt",left+(st.oresMined or 0)==ores,left.."+"..tostring(st.oresMined).." vs "..ores)
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end
