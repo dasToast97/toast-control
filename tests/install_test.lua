@@ -73,7 +73,7 @@ ok,err=install(S,true,7)
 check("neue Farm-Config",ok and cfgOf(S).job=="farm",err)
 
 print("F Neue Farm: Name, 10 x 4, links, Karotten, Pause 30")
-S=Sim.new({config=MINECFG,input={"1","1","4","1","Karotten Sued","3","10","4","l","2","30","","","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","1","4","1","Karotten Sued","3","10","4","l","2","30","","","","j","n"}});S.files={}
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Name + Feld gespeichert",kc and kc.name=="Karotten Sued" and kc.farm.length==10 and kc.farm.width==4 and kc.farm.side=="left"

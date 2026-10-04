@@ -29,6 +29,7 @@ function M.load(c)
     assert(integer(f.width,1,32) and integer(f.length,1,32), "Feldgroesse: 1 bis 32.")
     assert(({wheat=true,carrots=true,potatoes=true,beetroot=true})[f.crop], "Unbekannte crop.")
     assert(integer(f.interval,1,86400) and integer(f.seedReserve,0,256), "interval/seedReserve ungueltig.")
+    assert(f.maxInterval==nil or integer(f.maxInterval,0,86400), "maxInterval: 0 (aus) bis 86400 Sekunden.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(type(f.water)=="table", "farm.water muss eine Liste sein (auch {} erlaubt).")
     local cells={}

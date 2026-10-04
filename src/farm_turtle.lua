@@ -57,7 +57,7 @@ if CL.enabled then
 end
 local drainPerSec = CL.enabled and TC.chunkCostPerTick(CL.radius) * 20 or 0
 local budget = CFG.width * CFG.length + CFG.width + CFG.length + 20
-    + math.ceil(drainPerSec * (CFG.width * CFG.length * 1.5 + CFG.interval + 90))
+    + math.ceil(drainPerSec * (CFG.width * CFG.length * 1.5 + math.max(CFG.interval, CFG.maxInterval or 0) + 90))
 
 local function readTable(path)
     if not fs.exists(path) then return nil end
@@ -530,6 +530,21 @@ local function idle()
     if GEAR then GEAR.radio() end
     chunkTick()
 end
+-- Spar-Pause: Pflanzen brauchen ~5-30 min. Waren beim letzten Durchgang nur
+-- wenige reif, wird die Pause laenger (bis maxInterval), bei fast allen reif
+-- wieder kuerzer (bis interval). Spart viele unnoetige Runden = Fuel.
+local function nextPause()
+    local maxI = CFG.maxInterval or 0
+    if maxI <= CFG.interval then return CFG.interval end
+    local cells = CFG.width * CFG.length - #CFG.water - (run.skipped or 0)
+    local f = cells > 0 and (run.roundPlants or 0) / cells or 1
+    local p = st.pause or CFG.interval
+    if f < 0.25 then p = p * 2 elseif f < 0.6 then p = p * 1.4 elseif f > 0.9 then p = p * 0.7 end
+    p = math.floor(math.max(CFG.interval, math.min(maxI, p)))
+    st.pause, st.lastRipe = p, math.floor(f * 100 + 0.5)
+    save()
+    return p
+end
 local function worker()
     while true do
         if run.recovery then
@@ -538,12 +553,15 @@ local function worker()
             local complete = scan()
             if complete and run.mode == "once" then finish() end
             if complete and active() then
-                run.waitUntil = os.clock() + CFG.interval
+                local pause = nextPause()
+                run.waitUntil = os.clock() + pause
                 if GEAR then GEAR.radio() end
                 while active() and run.waitUntil > os.clock() do
                     chunkTick()
-                    status("Warten", "Naechster Feldscan startet automatisch."
-                        .. ((run.skipped or 0) > 0 and (" " .. run.skipped .. " Felder ohne Acker.") or ""))
+                    local left = math.max(0, math.ceil(run.waitUntil - os.clock()))
+                    status("Warten", "Naechste Runde in " .. (left >= 120 and (math.ceil(left / 60) .. " min") or (left .. " s"))
+                        .. (st.lastRipe and (", zuletzt " .. st.lastRipe .. "% reif") or "")
+                        .. ((run.skipped or 0) > 0 and (". " .. run.skipped .. " Felder ohne Acker.") or ""))
                     sleep(0.2)
                 end
                 run.waitUntil = 0
@@ -567,7 +585,7 @@ local function snapshot()
         harvested = st.harvested or 0, rounds = st.rounds or 0,
         roundYield = run.roundYield, roundPlants = run.roundPlants,
         scanned = run.scanned, cells = CFG.width * CFG.length,
-        wait = math.max(0, math.ceil(run.waitUntil - os.clock())) }
+        wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
 sendStatus = function() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
 local function reset()

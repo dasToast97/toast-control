@@ -116,7 +116,11 @@ function S.new(common)
         local cur=1;for i,v in ipairs(crops) do if v==f.crop then cur=i end end
         hint("1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
         f.crop=crops[ask("Pflanze",cur,1,4)]
-        f.interval=ask("Pause zwischen Runden (s)",f.interval,1,86400)
+        f.interval=ask("Kuerzeste Pause zwischen Runden (s)",f.interval,1,86400)
+        hint("Spar-Pause: sind wenige Pflanzen reif,")
+        hint("wartet sie laenger (spart viel Fuel).")
+        hint("0 = immer die kuerzeste Pause")
+        f.maxInterval=ask("Laengste Pause (s, 1200 = 20 min)",f.maxInterval or 1200,0,86400)
         hint("Saatgut aus der Ernte wird behalten.")
         hint("0 = automatisch passend zum Feld")
         f.seedReserve=ask("Saatgut behalten (0-256)",f.seedReserve or 0,0,256)

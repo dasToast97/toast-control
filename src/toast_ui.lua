@@ -63,7 +63,10 @@ local JOB={
         rows=function(d) local r={{"Runden",short(d.rounds)}}
             if num(d.roundYield)>0 then r[#r+1]={"Diese Runde",short(d.roundYield).." Items"} end
             r[#r+1]={"Geerntet",short(d.harvested).." Pflanzen"};r[#r+1]={"Ertrag",short(d.total).." Items"}
-            r[#r+1]={"Saatgut",short(d.seeds)};wait(r,d);return r end},
+            r[#r+1]={"Saatgut",short(d.seeds)}
+            if d.pause then r[#r+1]={"Pause",(num(d.pause)>=120 and (math.floor(num(d.pause)/60+0.5).." min") or (num(d.pause).." s"))
+                ..(d.lastRipe and (" ("..d.lastRipe.."% reif)") or "")} end
+            wait(r,d);return r end},
     mining={name="Mine",plural="Minen",metric="Abgebaut",unit="Bl.",once="1 Gang",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
         rows=function(d) local r={{"Gaenge",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "").." fertig"},

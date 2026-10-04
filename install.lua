@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.10 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.11 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.10",
+    version="3.11",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -192,7 +192,7 @@ M.DEFAULTS={
     chunkload={enabled=false,chunks=1,idle=false,wakeOnWorldLoad=true,reportEvery=10},
     base={set=false,x=0,y=64,z=0,facing="north",dimension="auto"},
     gps={auto=true,x=0,y=64,z=0,host=true,set=false},
-    farm={length=9,width=9,side="right",crop="wheat",interval=60,seedReserve=0,radioTimeout=60,water={}},
+    farm={length=9,width=9,side="right",crop="wheat",interval=60,maxInterval=1200,seedReserve=0,radioTimeout=60,water={}},
     mine={length=100,height=3,tunnels=5,gap=2,side="right",sideDig=false,useCoal=true,placeChests=false,torches=0,radioTimeout=60,
         fuelTarget=2000,freeSlots=2,digRetries=16,protectedBlocks={}},
     tree={length=24,width=24,side="right",climb=8,maxHeight=32,replant=true,keepSaplings=32,interval=300,
@@ -331,7 +331,8 @@ function M.configText(c)
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
             {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot"},
-            {"interval","Pause zwischen Runden in s"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
+            {"interval","kuerzeste Pause zwischen Runden in s"},
+            {"maxInterval","Spar-Pause: laengste Pause in s (0 = immer interval)"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
     end
     if role=="turtle" then
@@ -1099,7 +1100,11 @@ function S.new(common)
         local cur=1;for i,v in ipairs(crops) do if v==f.crop then cur=i end end
         hint("1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
         f.crop=crops[ask("Pflanze",cur,1,4)]
-        f.interval=ask("Pause zwischen Runden (s)",f.interval,1,86400)
+        f.interval=ask("Kuerzeste Pause zwischen Runden (s)",f.interval,1,86400)
+        hint("Spar-Pause: sind wenige Pflanzen reif,")
+        hint("wartet sie laenger (spart viel Fuel).")
+        hint("0 = immer die kuerzeste Pause")
+        f.maxInterval=ask("Laengste Pause (s, 1200 = 20 min)",f.maxInterval or 1200,0,86400)
         hint("Saatgut aus der Ernte wird behalten.")
         hint("0 = automatisch passend zum Feld")
         f.seedReserve=ask("Saatgut behalten (0-256)",f.seedReserve or 0,0,256)
@@ -2016,7 +2021,10 @@ local JOB={
         rows=function(d) local r={{"Runden",short(d.rounds)}}
             if num(d.roundYield)>0 then r[#r+1]={"Diese Runde",short(d.roundYield).." Items"} end
             r[#r+1]={"Geerntet",short(d.harvested).." Pflanzen"};r[#r+1]={"Ertrag",short(d.total).." Items"}
-            r[#r+1]={"Saatgut",short(d.seeds)};wait(r,d);return r end},
+            r[#r+1]={"Saatgut",short(d.seeds)}
+            if d.pause then r[#r+1]={"Pause",(num(d.pause)>=120 and (math.floor(num(d.pause)/60+0.5).." min") or (num(d.pause).." s"))
+                ..(d.lastRipe and (" ("..d.lastRipe.."% reif)") or "")} end
+            wait(r,d);return r end},
     mining={name="Mine",plural="Minen",metric="Abgebaut",unit="Bl.",once="1 Gang",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
         rows=function(d) local r={{"Gaenge",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "").." fertig"},
@@ -3276,7 +3284,7 @@ if CL.enabled then
 end
 local drainPerSec = CL.enabled and TC.chunkCostPerTick(CL.radius) * 20 or 0
 local budget = CFG.width * CFG.length + CFG.width + CFG.length + 20
-    + math.ceil(drainPerSec * (CFG.width * CFG.length * 1.5 + CFG.interval + 90))
+    + math.ceil(drainPerSec * (CFG.width * CFG.length * 1.5 + math.max(CFG.interval, CFG.maxInterval or 0) + 90))
 
 local function readTable(path)
     if not fs.exists(path) then return nil end
@@ -3749,6 +3757,21 @@ local function idle()
     if GEAR then GEAR.radio() end
     chunkTick()
 end
+-- Spar-Pause: Pflanzen brauchen ~5-30 min. Waren beim letzten Durchgang nur
+-- wenige reif, wird die Pause laenger (bis maxInterval), bei fast allen reif
+-- wieder kuerzer (bis interval). Spart viele unnoetige Runden = Fuel.
+local function nextPause()
+    local maxI = CFG.maxInterval or 0
+    if maxI <= CFG.interval then return CFG.interval end
+    local cells = CFG.width * CFG.length - #CFG.water - (run.skipped or 0)
+    local f = cells > 0 and (run.roundPlants or 0) / cells or 1
+    local p = st.pause or CFG.interval
+    if f < 0.25 then p = p * 2 elseif f < 0.6 then p = p * 1.4 elseif f > 0.9 then p = p * 0.7 end
+    p = math.floor(math.max(CFG.interval, math.min(maxI, p)))
+    st.pause, st.lastRipe = p, math.floor(f * 100 + 0.5)
+    save()
+    return p
+end
 local function worker()
     while true do
         if run.recovery then
@@ -3757,12 +3780,15 @@ local function worker()
             local complete = scan()
             if complete and run.mode == "once" then finish() end
             if complete and active() then
-                run.waitUntil = os.clock() + CFG.interval
+                local pause = nextPause()
+                run.waitUntil = os.clock() + pause
                 if GEAR then GEAR.radio() end
                 while active() and run.waitUntil > os.clock() do
                     chunkTick()
-                    status("Warten", "Naechster Feldscan startet automatisch."
-                        .. ((run.skipped or 0) > 0 and (" " .. run.skipped .. " Felder ohne Acker.") or ""))
+                    local left = math.max(0, math.ceil(run.waitUntil - os.clock()))
+                    status("Warten", "Naechste Runde in " .. (left >= 120 and (math.ceil(left / 60) .. " min") or (left .. " s"))
+                        .. (st.lastRipe and (", zuletzt " .. st.lastRipe .. "% reif") or "")
+                        .. ((run.skipped or 0) > 0 and (". " .. run.skipped .. " Felder ohne Acker.") or ""))
                     sleep(0.2)
                 end
                 run.waitUntil = 0
@@ -3786,7 +3812,7 @@ local function snapshot()
         harvested = st.harvested or 0, rounds = st.rounds or 0,
         roundYield = run.roundYield, roundPlants = run.roundPlants,
         scanned = run.scanned, cells = CFG.width * CFG.length,
-        wait = math.max(0, math.ceil(run.waitUntil - os.clock())) }
+        wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
 sendStatus = function() pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
 local function reset()
@@ -3885,6 +3911,7 @@ function M.load(c)
     assert(integer(f.width,1,32) and integer(f.length,1,32), "Feldgroesse: 1 bis 32.")
     assert(({wheat=true,carrots=true,potatoes=true,beetroot=true})[f.crop], "Unbekannte crop.")
     assert(integer(f.interval,1,86400) and integer(f.seedReserve,0,256), "interval/seedReserve ungueltig.")
+    assert(f.maxInterval==nil or integer(f.maxInterval,0,86400), "maxInterval: 0 (aus) bis 86400 Sekunden.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
     assert(type(f.water)=="table", "farm.water muss eine Liste sein (auch {} erlaubt).")
     local cells={}
@@ -6929,7 +6956,7 @@ while true do
     end
 end
 ]======]
--- TOAST CONTROL 3.10 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.11 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

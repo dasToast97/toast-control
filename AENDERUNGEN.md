@@ -1,3 +1,17 @@
+# Toast Control 3.11
+
+## Farm: Spar-Pause (viel weniger Fuel)
+
+- Pflanzen brauchen ca. 5–30 Minuten zum Wachsen. Bisher fuhr die Farm jede
+  Minute das ganze Feld ab – meist umsonst.
+- Jetzt passt sie die Pause selbst an: Waren beim letzten Durchgang wenig
+  Pflanzen reif, wartet sie länger (bis **maxInterval**, Standard 20 min); waren
+  fast alle reif, wird die Pause wieder kürzer (bis **interval**).
+- Im Test (5x5-Feld, 1 Stunde, nichts reif): **8 statt 356 Runden,
+  272 statt 12 104 Fuel**.
+- Zentrale zeigt „Pause 20 min (0% reif)“; Status „Nächste Runde in 12 min“.
+- Einstellbar: `toast.lua config` -> Feld -> „Längste Pause“ (0 = altes Verhalten).
+
 # Toast Control 3.10
 
 ## Dauerhaft online: Chunkloader für alle Turtles
