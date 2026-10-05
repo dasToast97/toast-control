@@ -676,12 +676,19 @@ function M.new(screen,cfg)
             local label,kind=M.state(sel,link)
             local name=(sel.label and sel.label~="" and sel.label or JOB[jobOf(sel)].name).." #"..ui.selected
             local chests=type(d.chestList)=="table" and #d.chestList or 0
-            if chests==0 then ui.chestView=nil end
-            local kl=chests>0 and ((ui.chestView and "Infos" or "Kisten").." ("..chests..")") or nil
-            local nameW=math.min(w-(kl and #kl+3 or 0),#name+(w>=30 and 14 or 4))
-            pill(1,3,nameW,(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
-            if kl then pill(w-#kl-1,3,#kl+2,kl,"chests",ui.chestView and colors.lightBlue or colors.gray,true,ui.chestView and colors.black or colors.white) end
-            if ui.chestView then
+            if chests==0 and ui.detailView=="chests" then ui.detailView=nil end
+            ui.chestView=ui.detailView=="chests"
+            pill(1,3,math.min(w,#name+(w>=30 and 14 or 4)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
+            -- Reiter der Turtle: Info | Steuern | Einstellungen | Kisten
+            local dtabs={{"Info","dv:info",nil},{w>=30 and "Steuern" or "Steuer","dv:drive","drive"},{w>=30 and "Einstellungen" or "Einst.","dv:config","config"}}
+            if chests>0 then dtabs[#dtabs+1]={(w>=30 and "Kisten " or "K")..chests,"chests","chests"} end
+            local tw2=math.floor(w/#dtabs)
+            for i,t in ipairs(dtabs) do
+                local act=ui.detailView==t[3]
+                local width=i==#dtabs and w-(i-1)*tw2 or tw2-1
+                pill(1+(i-1)*tw2,4,width,t[1],t[2],act and colors.lightBlue or colors.gray,true,act and colors.black or colors.white)
+            end
+            if ui.detailView=="chests" then
                 -- Liste der gesetzten Abladekisten (scrollbar)
                 local lines={}
                 for _,k in ipairs(d.chestList) do
@@ -690,7 +697,7 @@ function M.new(screen,cfg)
                         or (type(k.rel)=="table" and M.posText({rel=k.rel})) or "Position unbekannt"
                     lines[#lines+1]={p,colors.white}
                 end
-                local top=4
+                local top=5
                 local avail=math.max(2,foot-1-top);avail=avail-avail%2      -- immer ganze Kisten (2 Zeilen)
                 ui.chestMax=math.max(0,#lines-avail)
                 ui.chestScroll=math.max(0,math.min(ui.chestScroll or 0,ui.chestMax))
@@ -703,15 +710,19 @@ function M.new(screen,cfg)
                     pill(w,top,1,"\24","cup",colors.gray,ui.chestScroll>0,colors.white)
                     pill(w,top+avail-1,1,"\25","cdown",colors.gray,ui.chestScroll<ui.chestMax,colors.white)
                 end
+            elseif ui.detailView=="drive" then
+                ui.drawDrive(sel,d,link,text,right,fill,pill,button,w,foot)
+            elseif ui.detailView=="config" then
+                ui.drawConfig(sel,d,link,text,right,fill,pill,w,foot,fleet.configs and fleet.configs[ui.selected])
             else
-            fill(4,COLOR[kind])
+            fill(5,COLOR[kind])
             local why=(kind=="fault" or kind=="warn" or kind=="pause") and (d.fault or d.status) or nil
-            text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
+            text(2,5,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
             -- Detailtext umbrechen (max. 2 Zeilen)
             local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
-            local y=5
-            while #det>0 and y<=6 do text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
-            y=7
+            local y=6
+            while #det>0 and y<=7 do text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
+            y=8
             -- Fortschrittsbalken (nur wenn es eine Runde gibt)
             if hasProgress(d) then
                 local pc=progress(d)
@@ -857,7 +868,206 @@ function M.new(screen,cfg)
         p=num(p);if p>=100 then return colors.red elseif p>=num(warn or 90) then return colors.orange end
         return colors.lime
     end
-    function ui.textInput() return ui.filter=="store" end
+    -- ===== Fernsteuerung: von Hand fahren =====
+    local function bname(n)
+        if not n then return "-" end
+        n=tostring(n):gsub("^[^:]+:",""):gsub("_"," ")
+        return n
+    end
+    function ui.drawDrive(sel,d,link,text,right,fill,pill,button,w,foot)
+        local on=d.manual==true
+        local can=link and sel.online and d.mode=="off" and not d.recovery
+        local y=5
+        if on then
+            fill(y,colors.lime);text(2,y,"Fernsteuerung AN",colors.black,colors.lime)
+            local l=w>=30 and " Beenden + heim " or " Beenden "
+            pill(w-#l+1,y,#l,l,"rc:manual_off",colors.red,link,colors.white)
+        else
+            fill(y,colors.gray);text(2,y,can and "Fernsteuerung aus" or (d.mode~="off" and "Erst stoppen" or "nicht erreichbar"),colors.white,colors.gray)
+            local l=" Steuern "
+            pill(w-#l+1,y,#l,l,"rc:manual_on",colors.green,can,colors.white)
+        end
+        y=y+1
+        if on then
+            text(1,y,"Vorne",colors.lightGray);text(8,y,bname(d.mFront):sub(1,w-8));y=y+1
+            local ou="Oben "..bname(d.mUp):sub(1,math.floor(w/2)-6)
+            text(1,y,ou,colors.lightGray);text(math.floor(w/2)+1,y,("Unten "..bname(d.mDown)):sub(1,w-math.floor(w/2)),colors.lightGray);y=y+1
+            text(1,y,("Hand "..bname(d.mLeft).." / "..bname(d.mRight)):sub(1,w),colors.gray);y=y+1
+        else
+            text(1,y,"Turtle stoppen, dann 'Steuern'.",colors.lightGray);y=y+1
+            text(1,y,"Beenden = sie faehrt zur Basis.",colors.lightGray);y=y+1
+            y=y+1
+        end
+        local msg=tostring(d.mMsg or "")
+        text(1,y,msg:sub(1,w),msg:find("Geht nicht",1,true) and colors.orange or colors.cyan);y=y+1
+        -- Steuerkreuz + Werkzeug (3 Spalten)
+        local rows={
+            {{"\27 Links","left"},{"\24 Vor","forward"},{"Rechts \26","right"}},
+            {{"Hoch","up"},{w>=30 and "\25 Zurueck" or "\25 Zur.","back"},{"Runter","down"}},
+            {{"Abbau \24","digUp"},{"Abbau","dig"},{"Abbau \25","digDown"}},
+            {{"Angriff\24","attackUp"},{"Angriff","attack"},{"Angriff\25","attackDown"}},
+        }
+        local free=foot-1-y
+        local cw=math.floor(w/3)
+        for ri,r in ipairs(rows) do
+            -- Fahrknoepfe doppelt hoch, wenn Platz ist (leichter zu treffen)
+            local bh=(free>=8 or (free>=6 and ri<=2)) and 2 or 1
+            if y+bh-1>foot-1 then break end
+            for i,b in ipairs(r) do
+                local x=1+(i-1)*cw
+                local width=i==3 and w-x+1 or cw
+                local col=(b[2]:find("^dig") and colors.brown) or (b[2]:find("^attack") and colors.red) or colors.blue
+                button(x,y,width,b[1],"rc:"..b[2],col,on and link,bh,true)
+            end
+            y=y+bh
+        end
+    end
+    -- ===== Fernsteuerung: Einstellungen abrufen/aendern =====
+    ui.cfgEdits={}
+    local function cfgLines(cf,id)
+        local ed=ui.cfgEdits[id] or {values={}}
+        local L={}
+        local jobs=cf.jobs or common.JOBS
+        L[#L+1]={kind="job",label="Aufgabe",value=ed.job or cf.job,opts=jobs,changed=ed.job~=nil}
+        L[#L+1]={kind="name",label="Name",value=ed.name or cf.name or "",changed=ed.name~=nil}
+        for _,sec in ipairs(cf.sections or {}) do
+            L[#L+1]={kind="title",label=sec.title or sec.name}
+            for _,f in ipairs(sec.fields or {}) do
+                local ev=ed.values[sec.name] and ed.values[sec.name][f.k]
+                local v=ev;if v==nil then v=f.v end
+                L[#L+1]={kind="field",sec=sec.name,k=f.k,label=f.d or f.k,value=v,opts=f.o,changed=ev~=nil,orig=f.v}
+            end
+        end
+        return L
+    end
+    local function showVal(l)
+        local v=l.value
+        if l.kind=="job" then return common.JOB_NAMES[v] or tostring(v) end
+        if type(v)=="boolean" then return v and "ja" or "nein" end
+        if v=="" then return "-" end
+        return tostring(v)
+    end
+    function ui.drawConfig(sel,d,link,text,right,fill,pill,w,foot,cfgEntry)
+        local id=ui.selected
+        local y=5
+        fill(y,colors.gray);text(2,y,"Einstellungen",colors.white,colors.gray)
+        local rl=w>=30 and " Neu laden " or " Laden "
+        pill(w-#rl+1,y,#rl,rl,"rc:getconfig",colors.blue,link and sel.online,colors.white)
+        y=y+1
+        local cf=cfgEntry and cfgEntry.config
+        if not cf then
+            text(1,y+1,"Lade Einstellungen ...",colors.lightGray)
+            text(1,y+2,link and sel.online and "(Turtle muss erreichbar sein)" or "Turtle nicht erreichbar",colors.gray)
+            return
+        end
+        local L=cfgLines(cf,id)
+        ui.cfgLinesCache=L
+        -- unten: Beschreibung, Bearbeiten, Speichern
+        local editY=foot-3
+        local listTop,listBot=y,editY-1
+        local avail=listBot-listTop+1
+        ui.cfgSel=ui.cfgSel or 1
+        if not L[ui.cfgSel] or L[ui.cfgSel].kind=="title" then
+            for i,l in ipairs(L) do if l.kind~="title" then ui.cfgSel=i;break end end
+        end
+        ui.cfgScroll=ui.cfgScroll or 0
+        if ui.cfgSel<=ui.cfgScroll then ui.cfgScroll=ui.cfgSel-1 end
+        if ui.cfgSel>ui.cfgScroll+avail then ui.cfgScroll=ui.cfgSel-avail end
+        ui.cfgScroll=math.max(0,math.min(ui.cfgScroll,math.max(0,#L-avail)))
+        for i=1,avail do
+            local idx=ui.cfgScroll+i;local l=L[idx];if not l then break end
+            local yy=listTop+i-1
+            if l.kind=="title" then
+                text(1,yy,("- "..l.label):sub(1,w),colors.cyan)
+            else
+                local val=showVal(l)
+                local selc=idx==ui.cfgSel
+                local bg=selc and colors.gray or colors.black
+                local vw=math.min(#val,math.floor(w/2))
+                text(1,yy,string.rep(" ",w),colors.white,bg)
+                text(1,yy,l.label:sub(1,w-vw-1),colors.lightGray,bg)
+                text(w-vw+1,yy,val:sub(1,vw),l.changed and colors.yellow or colors.white,bg)
+                ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w-1,action="cf:sel:"..idx,enabled=true}
+            end
+        end
+        if #L>avail then
+            pill(w,listTop,1,"\24","cf:scroll:-1",colors.gray,ui.cfgScroll>0,colors.white)
+            pill(w,listBot,1,"\25","cf:scroll:1",colors.gray,ui.cfgScroll<#L-avail,colors.white)
+        end
+        -- Bearbeiten
+        local l=L[ui.cfgSel]
+        local msgOk=cfgEntry.msg and os.clock()-(cfgEntry.at or 0)<20
+        if msgOk then text(1,editY,tostring(cfgEntry.msg):sub(1,w),cfgEntry.ok==false and colors.orange or colors.lime)
+        elseif l then text(1,editY,(l.k and (l.k..": ") or "")..tostring(l.label):sub(1,w),colors.gray) end
+        local ey=editY+1
+        if l and l.kind~="title" then
+            local v=l.value
+            if l.kind=="job" or (l.opts and type(v)=="string") then
+                local q=math.floor(w/4)
+                pill(1,ey,q,"\27","cf:opt:-1",colors.blue,true,colors.white)
+                local vs=showVal(l);text(q+1+math.floor((w-2*q-#vs)/2),ey,vs:sub(1,w-2*q),colors.yellow)
+                pill(w-q+1,ey,q,"\26","cf:opt:1",colors.blue,true,colors.white)
+            elseif type(v)=="boolean" then
+                pill(1,ey,w,v and "ja  (tippen = nein)" or "nein  (tippen = ja)","cf:toggle",colors.blue,true,colors.white)
+            elseif type(v)=="number" then
+                local q=math.floor(w/4)
+                for i,st in ipairs({{"-10",-10},{"-1",-1},{"+1",1},{"+10",10}}) do
+                    pill(1+(i-1)*q,ey,i==4 and w-3*q or q-1,st[1],"cf:add:"..st[2],colors.blue,true,colors.white)
+                end
+            else
+                text(1,ey,(ui.kbd and "Tastatur: tippen, Back = loeschen" or "Text: am Pocket/PC tippen"):sub(1,w-8),colors.lightGray)
+                pill(w-6,ey,7,"Leeren","cf:clear",colors.gray,true,colors.white)
+            end
+        end
+        local ed=ui.cfgEdits[id]
+        local dirty=ed and (ed.job or ed.name or next(ed.values or {}))
+        local half=math.floor(w/2)
+        pill(1,foot-1,half-1,"Speichern","cf:save",colors.green,dirty and link and sel.online and true or false,colors.white)
+        pill(half+1,foot-1,w-half,"Verwerfen","cf:discard",colors.gray,dirty and true or false,colors.white)
+    end
+    local function cfgEdit(id) ui.cfgEdits[id]=ui.cfgEdits[id] or {values={}};return ui.cfgEdits[id] end
+    local function cfgSet(l,v)
+        l.value=v;l.changed=true          -- sofort sichtbar (auch ohne Neuzeichnen dazwischen)
+        local ed=cfgEdit(ui.selected)
+        if l.kind=="job" then ed.job=v
+        elseif l.kind=="name" then ed.name=v
+        else
+            ed.values[l.sec]=ed.values[l.sec] or {}
+            if v==l.orig then ed.values[l.sec][l.k]=nil;if not next(ed.values[l.sec]) then ed.values[l.sec]=nil end
+            else ed.values[l.sec][l.k]=v end
+        end
+    end
+    -- Aktionen der Fernsteuerung -> nil oder {id=,payload=} (an die Turtle)
+    function ui.remoteAction(a)
+        local id=ui.selected;if not id then return end
+        if a:match("^rc:") then return {id=id,payload={op=a:sub(4)}} end
+        local L=ui.cfgLinesCache or {}
+        local l=L[ui.cfgSel or 0]
+        if a:match("^cf:sel:") then ui.cfgSel=tonumber(a:sub(8));return end
+        if a:match("^cf:scroll:") then ui.cfgScroll=(ui.cfgScroll or 0)+tonumber(a:sub(11));return end
+        if a=="cf:discard" then ui.cfgEdits[id]=nil;return end
+        if a=="cf:save" then
+            local ed=ui.cfgEdits[id];if not ed then return end
+            ui.cfgEdits[id]=nil
+            return {id=id,payload={op="setconfig",job=ed.job,name=ed.name,values=ed.values}}
+        end
+        if not l or l.kind=="title" then return end
+        if a=="cf:toggle" and type(l.value)=="boolean" then cfgSet(l,not l.value)
+        elseif a:match("^cf:add:") and type(l.value)=="number" then cfgSet(l,l.value+tonumber(a:sub(8)))
+        elseif a:match("^cf:opt:") then
+            local opts=l.opts;if not opts then return end
+            local i=1;for k,o in ipairs(opts) do if o==l.value then i=k end end
+            i=(i-1+tonumber(a:sub(8)))%#opts+1;cfgSet(l,opts[i])
+        elseif a=="cf:clear" and (l.kind=="name" or type(l.value)=="string") then cfgSet(l,"")
+        end
+    end
+    -- Texteingabe im Einstellungs-Reiter (freie Texte, z.B. keepOres, Name)
+    local function cfgTextField()
+        if ui.detailView~="config" or not ui.selected then return end
+        local l=(ui.cfgLinesCache or {})[ui.cfgSel or 0]
+        if l and (l.kind=="name" or (l.kind=="field" and type(l.value)=="string" and not l.opts)) then return l end
+    end
+    function ui.textInput() return ui.filter=="store" or cfgTextField()~=nil end
     function ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,y0)
         ui.ids={};ui.selected=nil
         local stores={}
@@ -1061,7 +1271,14 @@ function M.new(screen,cfg)
         if not a then return end
         if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
-        elseif a=="chests" then ui.chestView=not ui.chestView;ui.chestScroll=0;return
+        elseif type(a)=="string" and (a:match("^rc:") or a:match("^cf:")) then return ui.remoteAction(a)
+        elseif a=="dv:info" then ui.detailView=nil;return
+        elseif a=="dv:drive" then ui.detailView="drive";return
+        elseif a=="dv:config" then
+            ui.detailView="config";ui.cfgSel=nil;ui.cfgScroll=0
+            if ui.selected then return {id=ui.selected,payload={op="getconfig"}} end
+            return
+        elseif a=="chests" then ui.detailView=ui.detailView~="chests" and "chests" or nil;ui.chestView=ui.detailView=="chests";ui.chestScroll=0;return
         elseif a=="cup" or a=="cdown" or (ui.chestView and ui.selected and (a=="up" or a=="down" or a=="pageprev" or a=="pagenext")) then
             local d=(a=="cup" or a=="up" or a=="pageprev") and -2 or 2
             if a=="pageprev" or a=="pagenext" then d=d*4 end
@@ -1077,9 +1294,9 @@ function M.new(screen,cfg)
             return
         elseif a=="help" then ui.help=not ui.help
         elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
-        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected;ui.chestView=nil
+        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected;ui.chestView=nil;ui.detailView=nil
         elseif a=="group" then
-            if ui.chestView then ui.chestView=nil;return end
+            if ui.detailView then ui.detailView=nil;ui.chestView=nil;return end
             ui.cursor=ui.selected or ui.cursor;ui.selected=nil;ui.followCursor=true
         elseif a=="pageprev" then ui.page=math.max(1,ui.page-1)
         elseif a=="pagenext" then ui.page=math.min((ui.filter=="store" and ui.storePages) or ui.pages or 1,ui.page+1)
@@ -1117,6 +1334,27 @@ function M.new(screen,cfg)
         if not name then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.selected and ui.detailView=="drive" then
+            local K={up="rc:forward",down="rc:back",left="rc:left",right="rc:right",pageUp="rc:up",pageDown="rc:down"}
+            if K[name] then return K[name] end
+            if name=="backspace" then return "group" end
+        end
+        if ui.selected and ui.detailView=="config" then
+            local tf=cfgTextField()
+            if name=="backspace" and tf then
+                local v=tostring(tf.value or "");if #v>0 then cfgSet(tf,v:sub(1,-2));return "redraw" end
+                return "group"
+            end
+            if name=="up" or name=="down" then
+                local L=ui.cfgLinesCache or {};local i=ui.cfgSel or 1
+                repeat i=i+(name=="down" and 1 or -1) until not L[i] or L[i].kind~="title"
+                if L[i] then ui.cfgSel=i end
+                return "redraw"
+            end
+            if name=="left" then return "cf:opt:-1" end
+            if name=="right" then return "cf:opt:1" end
+            if name=="enter" then return "cf:toggle" end
+        end
         if ui.filter=="store" and name=="left" and ui.storeItem then return "sback" end
         if ui.filter=="store" and ui.storeOnly and (name=="left" or name=="right" or name=="tab") then
             return "sview:"..(ui.storeView=="items" and "chests" or "items")
@@ -1131,6 +1369,15 @@ function M.new(screen,cfg)
         if not ch then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.selected and ui.detailView=="drive" then
+            local K={w="rc:forward",s="rc:back",a="rc:left",d="rc:right",f="rc:dig",g="rc:attack"}
+            if K[ch:lower()] then return K[ch:lower()] end
+        end
+        local tf=cfgTextField()
+        if tf and ch:match("^[%w _,%.:%-]$") then cfgSet(tf,(tostring(tf.value or "")..ch):sub(1,48));return "redraw" end
+        if ui.selected and ui.detailView=="config" then
+            if ch=="+" then return "cf:add:1" elseif ch=="-" then return "cf:add:-1" end
+        end
         if ui.filter=="store" and ch:match("^[%w _%-]$") then
             -- Lager: Buchstaben = Suche im Inhalt
             ui.search=((ui.search or "")..ch:lower()):sub(1,24);ui.storeView="items";ui.storeItem=nil;ui.page=1

@@ -1,5 +1,5 @@
 local M={
-    version="3.16.0",
+    version="3.17.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -81,7 +81,7 @@ end
 -- Saubere, kommentierte Config schreiben (nur die Abschnitte, die das Geraet braucht).
 local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete",sugarcane="Zuckerrohr"}
 M.CROP_NAMES=CROP_NAMES
-function M.configText(c)
+function M.configText(c,cap)
     local out={}
     local function q(v)
         if type(v)=="string" then return string.format("%q",v) end
@@ -103,6 +103,7 @@ function M.configText(c)
         out[#out+1]=s
     end
     local function section(name,title,fields,t)
+        if cap then cap[#cap+1]={name=name,title=title,fields=fields} end
         out[#out+1]=""
         out[#out+1]="    -- "..title
         out[#out+1]="    "..name.." = {"
@@ -866,8 +867,16 @@ end
 function M.live(o)
     local L={due=false,lastWindow=os.clock(),every=math.max(1,o.every or 3),lastSent=-1e9}
     local lastSig
-    function L.send(window)
+    local function snapshot()
         local snap=o.snapshot()
+        if o.run then
+            if o.run.mode~="off" and o.run.manual then o.run.manual=nil;o.run.manualMsg=nil end
+            M.manualInfo(o.run,snap)
+        end
+        return snap
+    end
+    function L.send(window)
+        local snap=snapshot()
         if window then snap.window=true end
         L.lastSent=os.clock();lastSig=M.signature(snap)
         pcall(o.transmit,snap)
@@ -893,7 +902,7 @@ function M.live(o)
                 pcall(M.refreshModems)
             end
             if modemOn() then
-                local snap=o.snapshot();local sig=M.signature(snap)
+                local snap=snapshot();local sig=M.signature(snap)
                 if (sig~=lastSig and now-L.lastSent>=0.3) or now-L.lastSent>=2 then
                     L.lastSent=now;lastSig=sig;pcall(o.transmit,snap)
                 end
@@ -902,6 +911,197 @@ function M.live(o)
         end
     end
     return L
+end
+-- ===== Fernsteuerung der Turtles (von Zentrale / Pocket) =====
+-- Auswahlwerte fuer Texteinstellungen (Rest: Zahl, ja/nein oder freier Text)
+M.FIELD_OPTIONS={side={"right","left"},crop={"wheat","carrots","potatoes","beetroot","sugarcane"},
+    mode={"farm","guard","patrol"},attack={"front","up","all"},shape={"room","cylinder","sphere","dome"},
+    direction={"down","up"},seal={"off","liquids","all"},facing={"north","east","south","west"},
+    dimension={"auto","overworld","nether","end"}}
+-- Felder, die die Form/den Auftrag aendern (dann nur an der Basis + Fortschritt neu)
+M.LAYOUT_FIELDS={mining={"length","height","tunnels","gap","side","sideDig"},farm={"length","width","side","crop"},
+    tree={"length","width","side"},mob={"mode","length","width","side"},dig={"shape","width","length","height","side","direction"},
+    build={"floors","drop","creeperOnly"}}
+M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",
+    dig="/toast_dig_state",build="/toast_build_state"}
+-- Einstellungen einer Turtle fuer die Anzeige: Abschnitte mit Feld, Text, Wert, Auswahl
+function M.remoteConfig(c)
+    local cap={}
+    c=M.copy(c);if c.role==nil or c.role=="auto" then c.role="turtle" end
+    pcall(M.configText,c,cap)
+    local secs={}
+    for _,sec in ipairs(cap) do
+        if sec.name==M.JOB_SECTION[c.job] or sec.name=="chunkload" or sec.name=="base" then
+            local t=c[sec.name] or {}
+            local fields={}
+            for _,f in ipairs(sec.fields) do
+                local v=t[f[1]]
+                if type(v)=="number" or type(v)=="boolean" or type(v)=="string" then
+                    fields[#fields+1]={k=f[1],d=f[2],v=v,o=type(v)=="string" and M.FIELD_OPTIONS[f[1]] or nil}
+                end
+            end
+            secs[#secs+1]={name=sec.name,title=sec.title,fields=fields}
+        end
+    end
+    return {job=c.job,name=c.name or "",jobs=M.JOBS,sections=secs}
+end
+-- Turtle-Config pruefen wie der Installer (inkl. Farm/Mine-Pruefung)
+function M.validateTurtle(c)
+    M.load(M.copy(c))
+    if c.job=="farm" or c.job=="mining" then
+        local prefix=c.job=="farm" and "farm" or "mine"
+        dofile("/toast/"..prefix.."_common.lua").load(M.workerConfig(M.copy(c)))
+    end
+end
+-- Neue Werte uebernehmen. o.atHome(): steht an der Basis; o.stopped(): steht still.
+function M.applyRemoteConfig(p,o)
+    if not o.stopped() then return false,"Erst stoppen, dann speichern." end
+    local okr,raw=pcall(dofile,"/toast.config.lua")
+    if not okr or type(raw)~="table" then return false,"Config nicht lesbar" end
+    local c=M.withDefaults(raw)
+    if c.role==nil or c.role=="auto" then c.role="turtle" end      -- sonst fehlen beim Schreiben die Abschnitte
+    local oldJob=c.job
+    local before=M.copy(c)
+    if type(p.name)=="string" then c.name=M.label(p.name) end
+    if type(p.job)=="string" and M.job(p.job) then c.job=p.job end
+    if type(p.values)=="table" then
+        for sn,vals in pairs(p.values) do
+            local sec=c[sn]
+            if type(sec)=="table" and type(vals)=="table" and (sn==M.JOB_SECTION[c.job] or sn=="chunkload" or sn=="base") then
+                for k,v in pairs(vals) do
+                    if sec[k]~=nil and type(sec[k])==type(v) and type(v)~="table" then sec[k]=v end
+                end
+            end
+        end
+    end
+    -- Form/Auftrag geaendert?
+    local layout=c.job~=oldJob
+    local sec=M.JOB_SECTION[c.job]
+    for _,k in ipairs(M.LAYOUT_FIELDS[c.job] or {}) do
+        if c.job==oldJob and tostring(before[sec][k])~=tostring(c[sec][k]) then layout=true end
+    end
+    if layout and not o.atHome() then return false,"Masse/Aufgabe nur an der Basis aendern: erst stoppen und heimfahren lassen." end
+    c.label=nil
+    local ok,why=pcall(M.validateTurtle,c)
+    if not ok then return false,tostring(why):gsub("^[^:]*:%d+: ","") end
+    local f=fs.open("/toast.config.lua","w");if not f then return false,"Config nicht schreibbar" end
+    f.write(M.configText(c));f.close()
+    if layout then
+        for _,j in ipairs({oldJob,c.job}) do
+            local file=M.STATE_FILES[j]
+            if file then for _,pp in ipairs({file,file..".tmp"}) do if fs.exists(pp) then fs.delete(pp) end end end
+        end
+    end
+    M.log("Einstellungen per Funk geaendert"..(layout and " (neuer Auftrag)" or ""))
+    return true,layout and "Gespeichert - neuer Auftrag, Turtle startet neu" or "Gespeichert - Turtle startet neu"
+end
+-- Werkzeug-Namen (links/rechts) fuer die Fernsteuerung
+local function equipped(side)
+    local fn=turtle and (side=="left" and turtle.getEquippedLeft or turtle.getEquippedRight)
+    if fn then local ok,it=pcall(fn);if ok and type(it)=="table" and it.name then return it.name end end
+    local t=peripheral.getType(side)
+    return t
+end
+-- Zusatzwerte im Status, solange ferngesteuert wird
+function M.manualInfo(run,snap)
+    if not (run.manual or run.manualMsg) then return end
+    snap.manual=run.manual==true;snap.mMsg=run.manualMsg
+    if run.manual and turtle then
+        local function look(fn) local ok,e,b=pcall(fn);if ok and e and type(b)=="table" then return b.name end;return "Luft" end
+        snap.mFront=look(turtle.inspect);snap.mUp=look(turtle.inspectUp);snap.mDown=look(turtle.inspectDown)
+        snap.mLeft=equipped("left");snap.mRight=equipped("right")
+    end
+end
+-- Empfang + Ausfuehrung. o = {cfg,job,st,run,save,transmit(msg),ops={op=fn},atHome,stopped}
+-- handle(b) im Funk-Ablauf aufrufen; loop() als eigenen Ablauf mitlaufen lassen
+-- (fuehrt die Schritte aus, damit der Funk dabei nicht blockiert).
+function M.remoteControl(o)
+    local R={queue={}}
+    local NAMES={forward="Vor",back="Zurueck",up="Hoch",down="Runter",left="Links drehen",right="Rechts drehen",
+        dig="Abbauen vorne",digUp="Abbauen oben",digDown="Abbauen unten",attack="Angriff vorne",attackUp="Angriff oben",
+        attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten"}
+    local function sendConfig(ok,msg)
+        local okc,raw=pcall(dofile,"/toast.config.lua")
+        local c=okc and type(raw)=="table" and M.withDefaults(raw) or o.cfg
+        local cf=M.remoteConfig(c)
+        pcall(o.transmit,{kind="config",version=1,id=os.getComputerID(),config=cf,ok=ok,msg=msg})
+    end
+    function R.handle(b)
+        if type(b)~="table" or b.kind~="remote" or not M.serial(b.serial) or type(b.payload)~="table" then return false end
+        o.run.lastContact=os.clock()
+        if b.serial<=(o.st.commandSerial or 0) then return true end
+        o.st.commandSerial=b.serial;pcall(o.save)
+        R.queue[#R.queue+1]=b.payload
+        os.queueEvent("toast_remote")
+        return true
+    end
+    local function run1(p)
+        local run=o.run
+        local op=p.op
+        if op=="getconfig" then sendConfig(nil,nil)
+        elseif op=="setconfig" then
+            local ok,msg=M.applyRemoteConfig(p,o)
+            sendConfig(ok,msg)
+            if ok then sleep(0.5);error("TOAST_UPDATE",0) end
+        elseif op=="manual_on" then
+            if run.mode~="off" then run.manualMsg="Erst stoppen, dann steuern"
+            elseif run.recovery then run.manualMsg="Position unklar: erst an die Basis setzen"
+            else run.manual=true;run.manualMsg="Fernsteuerung an" end
+        elseif op=="manual_off" then run.manual=nil;run.manualMsg="Fernsteuerung aus - faehrt zur Basis"
+        elseif o.ops[op] then
+            if not run.manual then run.manualMsg="Erst 'Steuern' einschalten"
+            else
+                local ok,why=o.ops[op]()
+                run.manualMsg=(ok and "" or "Geht nicht: ")..(NAMES[op] or op)..((not ok and why) and (" - "..tostring(why)) or "")
+            end
+        end
+    end
+    function R.loop()
+        while true do
+            if #R.queue==0 then os.pullEvent("toast_remote") end
+            local p=table.remove(R.queue,1)
+            if p then
+                local ok,why=pcall(run1,p)
+                if not ok then
+                    if tostring(why):find("TOAST_UPDATE",1,true) then error(why,0) end
+                    o.run.manualMsg="Fehler: "..tostring(why)
+                end
+                -- Chunkloader: Werkzeug und Modem teilen sich eine Seite -> Modem
+                -- gleich wieder anlegen, sonst kommt der naechste Befehl nicht an
+                if o.gear and o.gear() then pcall(o.gear().radio) end
+                if o.send then pcall(o.send) end
+            end
+        end
+    end
+    return R
+end
+-- Standard-Schritte fuer die Fernsteuerung. m = {move(kind) -> ok,why (mitgezaehlt),
+-- turn(left) -> ok,why, tool=fn|nil (Werkzeug wieder anlegen), noVertical=true}
+function M.manualOps(m)
+    local function withTool(fn)
+        return function()
+            local ok,why=fn()
+            if not ok and tostring(why):find("No tool",1,true) and m.tool and m.tool() then ok,why=fn() end
+            if not ok and why==nil then why="nichts da" end
+            return ok,why
+        end
+    end
+    local ops={
+        forward=function() return m.move("forward") end,
+        back=function() return m.move("back") end,
+        left=function() return m.turn(true) end,
+        right=function() return m.turn(false) end,
+        dig=withTool(turtle.dig),digUp=withTool(turtle.digUp),digDown=withTool(turtle.digDown),
+        attack=withTool(turtle.attack),attackUp=withTool(turtle.attackUp),attackDown=withTool(turtle.attackDown),
+    }
+    if not m.noVertical then
+        ops.up=function() return m.move("up") end
+        ops.down=function() return m.move("down") end
+    else
+        ops.up=function() return false,"diese Turtle faehrt nur waagrecht" end
+        ops.down=ops.up
+    end
+    return ops
 end
 -- Pocket/Infoscreen: geaenderte Turtles (kind="fleetdelta") in die Flotte uebernehmen
 function M.mergeDelta(fleet,b,max)

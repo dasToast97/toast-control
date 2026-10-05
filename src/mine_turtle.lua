@@ -1117,6 +1117,7 @@ local function finish()
     if st.lastMode then st.lastMode=nil;save() end
 end
 local function idle()
+    if run.manual then status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
     local ok,why=home()
     if not ok then status("Rueckweg blockiert",why);return end
     ok,why=unload()
@@ -1244,7 +1245,7 @@ local function snapshot()
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells,lanes=SIDE and #LANES or nil}
 end
-LIVE=TC.live({snapshot=snapshot,gear=GEAR,every=math.min(CL.report,3),
+LIVE=TC.live({snapshot=snapshot,gear=GEAR,every=math.min(CL.report,3),run=run,
     transmit=function(s) pcall(rednet.send,cfg.controllerId,s,common.protocol) end,
     contact=function() return run.lastContact end,
     onWindow=function(ok) if ok then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end end})
@@ -1256,6 +1257,28 @@ local function reset()
     if run.recovery then status("Position unklar","RESET reicht nicht: an Basis setzen, toast.lua --dock")
     else status("Reset","Fehler geloescht; Turtle faehrt zur Basis.") end
 end
+-- Fernsteuerung (Zentrale/Pocket): Einstellungen + von Hand fahren (ohne Abbau beim Fahren)
+local REMOTE=TC.remoteControl({cfg=cfg,job="mining",st=st,run=run,save=save,gear=function() return GEAR end,
+    transmit=function(msg) pcall(rednet.send,cfg.controllerId,msg,common.protocol) end,
+    send=function() sendStatus() end,
+    atHome=function() return homePosition() end,
+    stopped=function() return run.mode=="off" end,
+    ops=TC.manualOps({
+        move=function(kind)
+            if kind=="back" then
+                local d=st.dir
+                local ok,why=face((d+2)%4);if not ok then return false,why end
+                ok,why=action("move",turtle.forward,function()st.x,st.z=st.x+DX[st.dir],st.z+DZ[st.dir] end)
+                face(d);return ok,why
+            end
+            local fn,update
+            if kind=="up" then fn,update=turtle.up,function()st.y=st.y-1 end
+            elseif kind=="down" then fn,update=turtle.down,function()st.y=st.y+1 end
+            else fn,update=turtle.forward,function()st.x,st.z=st.x+DX[st.dir],st.z+DZ[st.dir] end end
+            return action("move",fn,update)
+        end,
+        turn=function(left) return face((st.dir+((left~=MIRROR) and 3 or 1))%4) end,
+        tool=function() return equipTool() end})})
 local function listener()
     while true do
         local e,a,b,c=os.pullEvent()
@@ -1263,7 +1286,8 @@ local function listener()
         elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and homePosition() then error("TOAST_NEUER_AUFTRAG",0)
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
-            if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
+            if REMOTE.handle(b) then
+            elseif b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
                 -- Status kommt ohnehin alle 2 s; auf den Poll nur antworten, wenn laenger nichts kam
                 if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
             elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
@@ -1296,7 +1320,7 @@ print("Zentrale #"..cfg.controllerId)
 if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
 print("Q: Stopp/Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
-local ok,why=pcall(function()parallel.waitForAll(work,listener,heartbeat)end)
+local ok,why=pcall(function()parallel.waitForAll(work,listener,heartbeat,REMOTE.loop)end)
 if not ok then
     run.mode="off";run.recovery=st.pending~=nil and not resolvePending()
     status(run.recovery and "Position unklar" or "Programm beendet",tostring(why));sendStatus()

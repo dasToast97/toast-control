@@ -543,6 +543,7 @@ local function scan()
     return false
 end
 local function idle()
+    if run.manual then status("Fernsteuerung", "Wird von Hand gesteuert (Zentrale/Pocket)."); return end
     if not isHome() or st.dir ~= 0 then
         local ok, why = home()
         if not ok then status("Rueckweg blockiert", why); return end
@@ -628,7 +629,7 @@ local function snapshot()
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
-LIVE = TC.live({ snapshot = snapshot, gear = GEAR, every = math.min(CL.report, 3),
+LIVE = TC.live({ snapshot = snapshot, gear = GEAR, every = math.min(CL.report, 3), run = run,
     transmit = function(s) pcall(rednet.send, st.controller, s, PROTOCOL) end,
     contact = function() return run.lastContact end,
     onWindow = function(ok) if ok then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end end })
@@ -640,6 +641,24 @@ local function reset()
     if run.recovery then status("Position unklar", "RESET reicht nicht: an Basis setzen, toast.lua --dock")
     else status("Reset", "Fehler geloescht; Turtle faehrt zur Basis.") end
 end
+-- Fernsteuerung (Zentrale/Pocket): Einstellungen + von Hand fahren (nur waagrecht)
+local REMOTE = TC.remoteControl({ cfg = config, job = "farm", st = st, run = run, save = save, gear = function() return GEAR end,
+    transmit = function(msg) pcall(rednet.send, st.controller, msg, PROTOCOL) end,
+    send = function() sendStatus() end,
+    atHome = function() return isHome() end,
+    stopped = function() return run.mode == "off" end,
+    ops = TC.manualOps({ noVertical = true,
+        move = function(kind)
+            local d = st.dir
+            if kind == "back" then
+                local ok, why = face((d + 2) % 4); if not ok then return false, why end
+            end
+            local ok, why = action("move", turtle.forward, function() st.x, st.z = st.x + DX[st.dir], st.z + DZ[st.dir] end)
+            if kind == "back" then face(d) end
+            return ok, why
+        end,
+        turn = function(left) return face((st.dir + ((left ~= MIRROR) and 3 or 1)) % 4) end,
+        tool = function() return equipTool() end }) })
 local function listener()
     while true do
         local event, sender, message, protocol = os.pullEvent()
@@ -650,7 +669,8 @@ local function listener()
         elseif event == "peripheral" or event == "peripheral_detach" then common.refreshModems(); sendStatus()
         elseif event == "rednet_message" and sender == st.controller and protocol == PROTOCOL
             and type(message) == "table" then
-            if message.kind == "poll" then
+            if REMOTE.handle(message) then
+            elseif message.kind == "poll" then
                 run.lastContact = os.clock()
                 if os.clock() - LIVE.lastSent > 2.5 then sendStatus() end
             elseif message.kind == "command" and common.serial(message.serial)
@@ -684,7 +704,7 @@ print("Zentrale #" .. st.controller .. " | " .. crop.label)
 if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
 print("Q: Stopp + Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
-local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat) end)
+local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat, REMOTE.loop) end)
 if not ok then
     run.mode = "off"
     run.recovery = st.pending ~= nil and not resolvePending()

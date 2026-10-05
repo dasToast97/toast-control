@@ -473,6 +473,23 @@ function W.new(o)
         if run.recovery then w.status("Position unklar","RESET reicht nicht: an Basis setzen, toast.lua --dock")
         else w.status("Reset","Fehler geloescht; Turtle geht zur Basis.") end
     end
+    -- Fernsteuerung (Zentrale/Pocket): Einstellungen + von Hand fahren
+    local REMOTE=common.remoteControl({cfg=cfg,job=o.job,st=st,run=run,save=w.save,gear=function() return G end,
+        transmit=function(msg) pcall(rednet.send,st.controller,msg,PROTOCOL) end,
+        send=function() sendStatus() end,
+        atHome=function() return w.isHome() end,
+        stopped=function() return run.mode=="off" end,
+        ops=common.manualOps({
+            move=function(kind)
+                if kind=="back" then
+                    local d=st.dir
+                    local ok,why=w.face((d+2)%4);if not ok then return false,why end
+                    ok,why=w.move("forward",{});w.face(d);return ok,why
+                end
+                return w.move(kind,{})
+            end,
+            turn=function(left) return w.face((st.dir+((left~=MIRROR) and 3 or 1))%4) end,
+            tool=o.tools and function() return w.equipTool(o.tools) end})})
     local function listener()
         while true do
             local e,a,b,c=os.pullEvent()
@@ -480,7 +497,8 @@ function W.new(o)
             elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
-                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
+                if REMOTE.handle(b) then
+                elseif b.kind=="poll" then run.lastContact=os.clock();if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
                 elseif b.kind=="command" and common.serial(b.serial) and common.actions[b.action] then
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
@@ -509,7 +527,7 @@ function W.new(o)
         if os.clock()-lastTool>3 then G.radio() end
     end
     w.chunkTick=chunkTick
-    LIVE=common.live({snapshot=snapshot,gear=G,every=math.min(CL.report,3),tick=chunkTick,
+    LIVE=common.live({snapshot=snapshot,gear=G,every=math.min(CL.report,3),tick=chunkTick,run=run,
         transmit=function(s) pcall(rednet.send,st.controller,s,PROTOCOL) end,
         contact=function() return run.lastContact end})
     local function heartbeat() LIVE.loop() end
@@ -525,6 +543,7 @@ function W.new(o)
         run.waitUntil=0
     end
     local function idle()
+        if run.manual then w.status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
         if o.idleHome then
             local ok,why=o.idleHome()
             if not ok then w.status("Rueckweg blockiert",why);return end
@@ -574,7 +593,7 @@ function W.new(o)
         print("Zentrale #"..st.controller..(info and (" | "..info) or ""))
         print("Q: Stopp + zur Basis. N: neuer Auftrag (gestoppt, an Basis).")
         if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
-        local ok,why=pcall(function() parallel.waitForAll(worker,listener,heartbeat) end)
+        local ok,why=pcall(function() parallel.waitForAll(worker,listener,heartbeat,REMOTE.loop) end)
         if not ok then
             run.mode="off"
             run.recovery=st.pending~=nil and not resolvePending()

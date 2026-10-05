@@ -1,3 +1,20 @@
+# Toast Control 3.17.0
+
+- **Fernsteuerung der Turtles** (Zentrale und Pocket). In den Details einer Turtle
+  gibt es jetzt Reiter: **Info | Steuern | Einst. | Kisten**.
+  - **Steuern:** Turtle stoppen, „Steuern“ tippen, dann von Hand fahren:
+    vor, zurück, links/rechts drehen, hoch, runter, **abbauen** und **angreifen**
+    (vorne/oben/unten). Angezeigt werden die Blöcke vorne/oben/unten und was die
+    Turtle in der Hand hat. Am Pocket/PC auch per Tastatur (W A S D, Pfeile,
+    F = abbauen, G = angreifen). „Beenden“ = sie fährt selbst zur Basis.
+    Fahren baut nichts ab – nur der Abbau-Knopf. Farm-Turtles fahren nur waagrecht.
+  - **Einst.:** Die Einstellungen der Turtle werden abgerufen und angezeigt
+    (Aufgabe, Name, alle Werte der Aufgabe, Chunks, Basis-Koordinaten). Wert
+    antippen: Zahlen mit −10/−1/+1/+10, ja/nein umschalten, Auswahl mit ◄ ►,
+    Text per Tastatur. **Speichern** prüft alles wie der Installer; Fehler werden
+    angezeigt. Die Turtle muss gestoppt sein; Maße oder Aufgabe nur, wenn sie an
+    der Basis steht (dann neuer Auftrag). Danach startet sie mit den neuen Werten.
+
 # Toast Control 3.16.0
 
 - **Anzeige live statt alle paar Sekunden.** Der Funk läuft auf jedem Gerät

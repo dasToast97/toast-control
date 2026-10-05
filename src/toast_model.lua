@@ -1,7 +1,7 @@
 local common=dofile("/toast/toast_common.lua")
 local M={}
 function M.new(cfg)
-    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg,changedIds={}}
+    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg,changedIds={},configs={}}
     local PATH="/toast_control_state"
     local s=common.readState(PATH)
     local serial=common.serial(s.serial) and s.serial or 0
@@ -56,7 +56,7 @@ function M.new(cfg)
                 data={toast=data.toast,pos=data.pos,stats={pct=s.pct,count=s.count,types=s.types,full=s.full,warn=s.warn,size=s.size,used=s.used,lite=true}}
             end
             nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=data} end
-        return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries}}
+        return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries},configs=not lite and m.configs or nil}
     end
     local function node(id,info)
         if type(info)~="table" then return end
@@ -95,6 +95,29 @@ function M.new(cfg)
         if b.window then send(id,{kind="poll"},p) end
         m.changedIds[id]=true
         if changed then save() end
+        return true
+    end
+    -- Fernsteuerung: Einstellungen abrufen/aendern, von Hand fahren (an EINE Turtle)
+    function m.remoteCmd(id,payload)
+        local d=devices[id]
+        if not d or type(payload)~="table" or type(payload.op)~="string" then return false end
+        local e=m.entries[id]
+        serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
+        m.pending[id]={message={kind="remote",serial=serial,payload=payload},at=os.clock(),job=d.job,ttl=15,sentAt=os.clock()}
+        dispatch(id,m.pending[id].message,d.job)
+        m.changedIds[id]=true
+        return true
+    end
+    -- Antwort einer Turtle mit ihren Einstellungen
+    function m.turtleConfig(id,b,p)
+        local job
+        for j,protocol in pairs(common.workerProtocols)do if protocol==p then job=j end end
+        if not job or not devices[id] or type(b)~="table" or b.kind~="config" or b.id~=id or type(b.config)~="table" then return false end
+        m.configs[id]={config=b.config,ok=b.ok,msg=b.msg,at=os.clock()}
+        if b.msg then m.notice=tostring(b.msg) end
+        for pid in pairs(pockets) do
+            send(pid,{kind="turtleconfig",version=1,controllerId=cfg.controllerId,id=id,config=b.config,ok=b.ok,msg=b.msg},common.remoteProtocol)
+        end
         return true
     end
     local function matches(id,d,target)
@@ -170,6 +193,13 @@ function M.new(cfg)
             local n=0;for _ in pairs(pockets)do n=n+1 end
             if n>=64 then return false end
             pockets[id]=true;save()
+        end
+        if b.kind=="remote" and common.serial(b.serial) and common.id(b.target) and type(b.payload)=="table" then
+            if b.serial>(remote[key(id,protocol)] or 0) then
+                remote[key(id,protocol)]=b.serial
+                m.remoteCmd(b.target,b.payload)
+            end
+            m.reply(id,protocol);m.markReply(id);return true
         end
         if b.kind=="command" and common.serial(b.serial) and b.serial>(remote[key(id,protocol)] or 0) then
             local target=b.target

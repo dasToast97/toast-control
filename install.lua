@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.16.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.16.0",
+    version="3.17.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -224,7 +224,7 @@ end
 -- Saubere, kommentierte Config schreiben (nur die Abschnitte, die das Geraet braucht).
 local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete",sugarcane="Zuckerrohr"}
 M.CROP_NAMES=CROP_NAMES
-function M.configText(c)
+function M.configText(c,cap)
     local out={}
     local function q(v)
         if type(v)=="string" then return string.format("%q",v) end
@@ -246,6 +246,7 @@ function M.configText(c)
         out[#out+1]=s
     end
     local function section(name,title,fields,t)
+        if cap then cap[#cap+1]={name=name,title=title,fields=fields} end
         out[#out+1]=""
         out[#out+1]="    -- "..title
         out[#out+1]="    "..name.." = {"
@@ -1009,8 +1010,16 @@ end
 function M.live(o)
     local L={due=false,lastWindow=os.clock(),every=math.max(1,o.every or 3),lastSent=-1e9}
     local lastSig
-    function L.send(window)
+    local function snapshot()
         local snap=o.snapshot()
+        if o.run then
+            if o.run.mode~="off" and o.run.manual then o.run.manual=nil;o.run.manualMsg=nil end
+            M.manualInfo(o.run,snap)
+        end
+        return snap
+    end
+    function L.send(window)
+        local snap=snapshot()
         if window then snap.window=true end
         L.lastSent=os.clock();lastSig=M.signature(snap)
         pcall(o.transmit,snap)
@@ -1036,7 +1045,7 @@ function M.live(o)
                 pcall(M.refreshModems)
             end
             if modemOn() then
-                local snap=o.snapshot();local sig=M.signature(snap)
+                local snap=snapshot();local sig=M.signature(snap)
                 if (sig~=lastSig and now-L.lastSent>=0.3) or now-L.lastSent>=2 then
                     L.lastSent=now;lastSig=sig;pcall(o.transmit,snap)
                 end
@@ -1045,6 +1054,197 @@ function M.live(o)
         end
     end
     return L
+end
+-- ===== Fernsteuerung der Turtles (von Zentrale / Pocket) =====
+-- Auswahlwerte fuer Texteinstellungen (Rest: Zahl, ja/nein oder freier Text)
+M.FIELD_OPTIONS={side={"right","left"},crop={"wheat","carrots","potatoes","beetroot","sugarcane"},
+    mode={"farm","guard","patrol"},attack={"front","up","all"},shape={"room","cylinder","sphere","dome"},
+    direction={"down","up"},seal={"off","liquids","all"},facing={"north","east","south","west"},
+    dimension={"auto","overworld","nether","end"}}
+-- Felder, die die Form/den Auftrag aendern (dann nur an der Basis + Fortschritt neu)
+M.LAYOUT_FIELDS={mining={"length","height","tunnels","gap","side","sideDig"},farm={"length","width","side","crop"},
+    tree={"length","width","side"},mob={"mode","length","width","side"},dig={"shape","width","length","height","side","direction"},
+    build={"floors","drop","creeperOnly"}}
+M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",
+    dig="/toast_dig_state",build="/toast_build_state"}
+-- Einstellungen einer Turtle fuer die Anzeige: Abschnitte mit Feld, Text, Wert, Auswahl
+function M.remoteConfig(c)
+    local cap={}
+    c=M.copy(c);if c.role==nil or c.role=="auto" then c.role="turtle" end
+    pcall(M.configText,c,cap)
+    local secs={}
+    for _,sec in ipairs(cap) do
+        if sec.name==M.JOB_SECTION[c.job] or sec.name=="chunkload" or sec.name=="base" then
+            local t=c[sec.name] or {}
+            local fields={}
+            for _,f in ipairs(sec.fields) do
+                local v=t[f[1]]
+                if type(v)=="number" or type(v)=="boolean" or type(v)=="string" then
+                    fields[#fields+1]={k=f[1],d=f[2],v=v,o=type(v)=="string" and M.FIELD_OPTIONS[f[1]] or nil}
+                end
+            end
+            secs[#secs+1]={name=sec.name,title=sec.title,fields=fields}
+        end
+    end
+    return {job=c.job,name=c.name or "",jobs=M.JOBS,sections=secs}
+end
+-- Turtle-Config pruefen wie der Installer (inkl. Farm/Mine-Pruefung)
+function M.validateTurtle(c)
+    M.load(M.copy(c))
+    if c.job=="farm" or c.job=="mining" then
+        local prefix=c.job=="farm" and "farm" or "mine"
+        dofile("/toast/"..prefix.."_common.lua").load(M.workerConfig(M.copy(c)))
+    end
+end
+-- Neue Werte uebernehmen. o.atHome(): steht an der Basis; o.stopped(): steht still.
+function M.applyRemoteConfig(p,o)
+    if not o.stopped() then return false,"Erst stoppen, dann speichern." end
+    local okr,raw=pcall(dofile,"/toast.config.lua")
+    if not okr or type(raw)~="table" then return false,"Config nicht lesbar" end
+    local c=M.withDefaults(raw)
+    if c.role==nil or c.role=="auto" then c.role="turtle" end      -- sonst fehlen beim Schreiben die Abschnitte
+    local oldJob=c.job
+    local before=M.copy(c)
+    if type(p.name)=="string" then c.name=M.label(p.name) end
+    if type(p.job)=="string" and M.job(p.job) then c.job=p.job end
+    if type(p.values)=="table" then
+        for sn,vals in pairs(p.values) do
+            local sec=c[sn]
+            if type(sec)=="table" and type(vals)=="table" and (sn==M.JOB_SECTION[c.job] or sn=="chunkload" or sn=="base") then
+                for k,v in pairs(vals) do
+                    if sec[k]~=nil and type(sec[k])==type(v) and type(v)~="table" then sec[k]=v end
+                end
+            end
+        end
+    end
+    -- Form/Auftrag geaendert?
+    local layout=c.job~=oldJob
+    local sec=M.JOB_SECTION[c.job]
+    for _,k in ipairs(M.LAYOUT_FIELDS[c.job] or {}) do
+        if c.job==oldJob and tostring(before[sec][k])~=tostring(c[sec][k]) then layout=true end
+    end
+    if layout and not o.atHome() then return false,"Masse/Aufgabe nur an der Basis aendern: erst stoppen und heimfahren lassen." end
+    c.label=nil
+    local ok,why=pcall(M.validateTurtle,c)
+    if not ok then return false,tostring(why):gsub("^[^:]*:%d+: ","") end
+    local f=fs.open("/toast.config.lua","w");if not f then return false,"Config nicht schreibbar" end
+    f.write(M.configText(c));f.close()
+    if layout then
+        for _,j in ipairs({oldJob,c.job}) do
+            local file=M.STATE_FILES[j]
+            if file then for _,pp in ipairs({file,file..".tmp"}) do if fs.exists(pp) then fs.delete(pp) end end end
+        end
+    end
+    M.log("Einstellungen per Funk geaendert"..(layout and " (neuer Auftrag)" or ""))
+    return true,layout and "Gespeichert - neuer Auftrag, Turtle startet neu" or "Gespeichert - Turtle startet neu"
+end
+-- Werkzeug-Namen (links/rechts) fuer die Fernsteuerung
+local function equipped(side)
+    local fn=turtle and (side=="left" and turtle.getEquippedLeft or turtle.getEquippedRight)
+    if fn then local ok,it=pcall(fn);if ok and type(it)=="table" and it.name then return it.name end end
+    local t=peripheral.getType(side)
+    return t
+end
+-- Zusatzwerte im Status, solange ferngesteuert wird
+function M.manualInfo(run,snap)
+    if not (run.manual or run.manualMsg) then return end
+    snap.manual=run.manual==true;snap.mMsg=run.manualMsg
+    if run.manual and turtle then
+        local function look(fn) local ok,e,b=pcall(fn);if ok and e and type(b)=="table" then return b.name end;return "Luft" end
+        snap.mFront=look(turtle.inspect);snap.mUp=look(turtle.inspectUp);snap.mDown=look(turtle.inspectDown)
+        snap.mLeft=equipped("left");snap.mRight=equipped("right")
+    end
+end
+-- Empfang + Ausfuehrung. o = {cfg,job,st,run,save,transmit(msg),ops={op=fn},atHome,stopped}
+-- handle(b) im Funk-Ablauf aufrufen; loop() als eigenen Ablauf mitlaufen lassen
+-- (fuehrt die Schritte aus, damit der Funk dabei nicht blockiert).
+function M.remoteControl(o)
+    local R={queue={}}
+    local NAMES={forward="Vor",back="Zurueck",up="Hoch",down="Runter",left="Links drehen",right="Rechts drehen",
+        dig="Abbauen vorne",digUp="Abbauen oben",digDown="Abbauen unten",attack="Angriff vorne",attackUp="Angriff oben",
+        attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten"}
+    local function sendConfig(ok,msg)
+        local okc,raw=pcall(dofile,"/toast.config.lua")
+        local c=okc and type(raw)=="table" and M.withDefaults(raw) or o.cfg
+        local cf=M.remoteConfig(c)
+        pcall(o.transmit,{kind="config",version=1,id=os.getComputerID(),config=cf,ok=ok,msg=msg})
+    end
+    function R.handle(b)
+        if type(b)~="table" or b.kind~="remote" or not M.serial(b.serial) or type(b.payload)~="table" then return false end
+        o.run.lastContact=os.clock()
+        if b.serial<=(o.st.commandSerial or 0) then return true end
+        o.st.commandSerial=b.serial;pcall(o.save)
+        R.queue[#R.queue+1]=b.payload
+        os.queueEvent("toast_remote")
+        return true
+    end
+    local function run1(p)
+        local run=o.run
+        local op=p.op
+        if op=="getconfig" then sendConfig(nil,nil)
+        elseif op=="setconfig" then
+            local ok,msg=M.applyRemoteConfig(p,o)
+            sendConfig(ok,msg)
+            if ok then sleep(0.5);error("TOAST_UPDATE",0) end
+        elseif op=="manual_on" then
+            if run.mode~="off" then run.manualMsg="Erst stoppen, dann steuern"
+            elseif run.recovery then run.manualMsg="Position unklar: erst an die Basis setzen"
+            else run.manual=true;run.manualMsg="Fernsteuerung an" end
+        elseif op=="manual_off" then run.manual=nil;run.manualMsg="Fernsteuerung aus - faehrt zur Basis"
+        elseif o.ops[op] then
+            if not run.manual then run.manualMsg="Erst 'Steuern' einschalten"
+            else
+                local ok,why=o.ops[op]()
+                run.manualMsg=(ok and "" or "Geht nicht: ")..(NAMES[op] or op)..((not ok and why) and (" - "..tostring(why)) or "")
+            end
+        end
+    end
+    function R.loop()
+        while true do
+            if #R.queue==0 then os.pullEvent("toast_remote") end
+            local p=table.remove(R.queue,1)
+            if p then
+                local ok,why=pcall(run1,p)
+                if not ok then
+                    if tostring(why):find("TOAST_UPDATE",1,true) then error(why,0) end
+                    o.run.manualMsg="Fehler: "..tostring(why)
+                end
+                -- Chunkloader: Werkzeug und Modem teilen sich eine Seite -> Modem
+                -- gleich wieder anlegen, sonst kommt der naechste Befehl nicht an
+                if o.gear and o.gear() then pcall(o.gear().radio) end
+                if o.send then pcall(o.send) end
+            end
+        end
+    end
+    return R
+end
+-- Standard-Schritte fuer die Fernsteuerung. m = {move(kind) -> ok,why (mitgezaehlt),
+-- turn(left) -> ok,why, tool=fn|nil (Werkzeug wieder anlegen), noVertical=true}
+function M.manualOps(m)
+    local function withTool(fn)
+        return function()
+            local ok,why=fn()
+            if not ok and tostring(why):find("No tool",1,true) and m.tool and m.tool() then ok,why=fn() end
+            if not ok and why==nil then why="nichts da" end
+            return ok,why
+        end
+    end
+    local ops={
+        forward=function() return m.move("forward") end,
+        back=function() return m.move("back") end,
+        left=function() return m.turn(true) end,
+        right=function() return m.turn(false) end,
+        dig=withTool(turtle.dig),digUp=withTool(turtle.digUp),digDown=withTool(turtle.digDown),
+        attack=withTool(turtle.attack),attackUp=withTool(turtle.attackUp),attackDown=withTool(turtle.attackDown),
+    }
+    if not m.noVertical then
+        ops.up=function() return m.move("up") end
+        ops.down=function() return m.move("down") end
+    else
+        ops.up=function() return false,"diese Turtle faehrt nur waagrecht" end
+        ops.down=ops.up
+    end
+    return ops
 end
 -- Pocket/Infoscreen: geaenderte Turtles (kind="fleetdelta") in die Flotte uebernehmen
 function M.mergeDelta(fleet,b,max)
@@ -1779,7 +1979,10 @@ local function draw()
     dirty=false
 end
 local function action(a)
-    local cmd=ui.action(a);if cmd then model.command(cmd,ui.target())end;draw()
+    local cmd=ui.action(a)
+    if type(cmd)=="table" then model.remoteCmd(cmd.id,cmd.payload)
+    elseif cmd then model.command(cmd,ui.target()) end
+    draw()
 end
 local quit=false
 local function loop()
@@ -1793,7 +1996,7 @@ local function loop()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" then
-            if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
+            if model.ingest(a,b,c) or model.turtleConfig(a,b,c) or model.remote(a,b,c) then dirty=true end
         elseif e=="timer" and a==timer then lastTick=os.clock();model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="http_success" and AUTO.url and a==AUTO.url then
             AUTO.url=nil
@@ -1875,7 +2078,7 @@ FILES["toast_model.lua"]=[======[
 local common=dofile("/toast/toast_common.lua")
 local M={}
 function M.new(cfg)
-    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg,changedIds={}}
+    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg,changedIds={},configs={}}
     local PATH="/toast_control_state"
     local s=common.readState(PATH)
     local serial=common.serial(s.serial) and s.serial or 0
@@ -1930,7 +2133,7 @@ function M.new(cfg)
                 data={toast=data.toast,pos=data.pos,stats={pct=s.pct,count=s.count,types=s.types,full=s.full,warn=s.warn,size=s.size,used=s.used,lite=true}}
             end
             nentries[id]={role=n.role,label=n.label,online=os.clock()-n.seen<30,data=data} end
-        return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries}}
+        return {ids=ids,entries=entries,nodes={ids=nids,entries=nentries},configs=not lite and m.configs or nil}
     end
     local function node(id,info)
         if type(info)~="table" then return end
@@ -1969,6 +2172,29 @@ function M.new(cfg)
         if b.window then send(id,{kind="poll"},p) end
         m.changedIds[id]=true
         if changed then save() end
+        return true
+    end
+    -- Fernsteuerung: Einstellungen abrufen/aendern, von Hand fahren (an EINE Turtle)
+    function m.remoteCmd(id,payload)
+        local d=devices[id]
+        if not d or type(payload)~="table" or type(payload.op)~="string" then return false end
+        local e=m.entries[id]
+        serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
+        m.pending[id]={message={kind="remote",serial=serial,payload=payload},at=os.clock(),job=d.job,ttl=15,sentAt=os.clock()}
+        dispatch(id,m.pending[id].message,d.job)
+        m.changedIds[id]=true
+        return true
+    end
+    -- Antwort einer Turtle mit ihren Einstellungen
+    function m.turtleConfig(id,b,p)
+        local job
+        for j,protocol in pairs(common.workerProtocols)do if protocol==p then job=j end end
+        if not job or not devices[id] or type(b)~="table" or b.kind~="config" or b.id~=id or type(b.config)~="table" then return false end
+        m.configs[id]={config=b.config,ok=b.ok,msg=b.msg,at=os.clock()}
+        if b.msg then m.notice=tostring(b.msg) end
+        for pid in pairs(pockets) do
+            send(pid,{kind="turtleconfig",version=1,controllerId=cfg.controllerId,id=id,config=b.config,ok=b.ok,msg=b.msg},common.remoteProtocol)
+        end
         return true
     end
     local function matches(id,d,target)
@@ -2044,6 +2270,13 @@ function M.new(cfg)
             local n=0;for _ in pairs(pockets)do n=n+1 end
             if n>=64 then return false end
             pockets[id]=true;save()
+        end
+        if b.kind=="remote" and common.serial(b.serial) and common.id(b.target) and type(b.payload)=="table" then
+            if b.serial>(remote[key(id,protocol)] or 0) then
+                remote[key(id,protocol)]=b.serial
+                m.remoteCmd(b.target,b.payload)
+            end
+            m.reply(id,protocol);m.markReply(id);return true
         end
         if b.kind=="command" and common.serial(b.serial) and b.serial>(remote[key(id,protocol)] or 0) then
             local target=b.target
@@ -2839,12 +3072,19 @@ function M.new(screen,cfg)
             local label,kind=M.state(sel,link)
             local name=(sel.label and sel.label~="" and sel.label or JOB[jobOf(sel)].name).." #"..ui.selected
             local chests=type(d.chestList)=="table" and #d.chestList or 0
-            if chests==0 then ui.chestView=nil end
-            local kl=chests>0 and ((ui.chestView and "Infos" or "Kisten").." ("..chests..")") or nil
-            local nameW=math.min(w-(kl and #kl+3 or 0),#name+(w>=30 and 14 or 4))
-            pill(1,3,nameW,(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
-            if kl then pill(w-#kl-1,3,#kl+2,kl,"chests",ui.chestView and colors.lightBlue or colors.gray,true,ui.chestView and colors.black or colors.white) end
-            if ui.chestView then
+            if chests==0 and ui.detailView=="chests" then ui.detailView=nil end
+            ui.chestView=ui.detailView=="chests"
+            pill(1,3,math.min(w,#name+(w>=30 and 14 or 4)),(w>=30 and "\27 Zurueck  " or "\27 ")..name,"group",colors.gray,true)
+            -- Reiter der Turtle: Info | Steuern | Einstellungen | Kisten
+            local dtabs={{"Info","dv:info",nil},{w>=30 and "Steuern" or "Steuer","dv:drive","drive"},{w>=30 and "Einstellungen" or "Einst.","dv:config","config"}}
+            if chests>0 then dtabs[#dtabs+1]={(w>=30 and "Kisten " or "K")..chests,"chests","chests"} end
+            local tw2=math.floor(w/#dtabs)
+            for i,t in ipairs(dtabs) do
+                local act=ui.detailView==t[3]
+                local width=i==#dtabs and w-(i-1)*tw2 or tw2-1
+                pill(1+(i-1)*tw2,4,width,t[1],t[2],act and colors.lightBlue or colors.gray,true,act and colors.black or colors.white)
+            end
+            if ui.detailView=="chests" then
                 -- Liste der gesetzten Abladekisten (scrollbar)
                 local lines={}
                 for _,k in ipairs(d.chestList) do
@@ -2853,7 +3093,7 @@ function M.new(screen,cfg)
                         or (type(k.rel)=="table" and M.posText({rel=k.rel})) or "Position unbekannt"
                     lines[#lines+1]={p,colors.white}
                 end
-                local top=4
+                local top=5
                 local avail=math.max(2,foot-1-top);avail=avail-avail%2      -- immer ganze Kisten (2 Zeilen)
                 ui.chestMax=math.max(0,#lines-avail)
                 ui.chestScroll=math.max(0,math.min(ui.chestScroll or 0,ui.chestMax))
@@ -2866,15 +3106,19 @@ function M.new(screen,cfg)
                     pill(w,top,1,"\24","cup",colors.gray,ui.chestScroll>0,colors.white)
                     pill(w,top+avail-1,1,"\25","cdown",colors.gray,ui.chestScroll<ui.chestMax,colors.white)
                 end
+            elseif ui.detailView=="drive" then
+                ui.drawDrive(sel,d,link,text,right,fill,pill,button,w,foot)
+            elseif ui.detailView=="config" then
+                ui.drawConfig(sel,d,link,text,right,fill,pill,w,foot,fleet.configs and fleet.configs[ui.selected])
             else
-            fill(4,COLOR[kind])
+            fill(5,COLOR[kind])
             local why=(kind=="fault" or kind=="warn" or kind=="pause") and (d.fault or d.status) or nil
-            text(2,4,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
+            text(2,5,label..(why and (": "..tostring(why)) or ""),colors.black,COLOR[kind])
             -- Detailtext umbrechen (max. 2 Zeilen)
             local det=kind=="off" and "Keine Meldung: Chunk entladen? An der Turtle: toast.lua config -> Chunks -> An der Basis wach = j (oder /forceload)" or tostring(d.detail or "")
-            local y=5
-            while #det>0 and y<=6 do text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
-            y=7
+            local y=6
+            while #det>0 and y<=7 do text(1,y,det:sub(1,w),colors.lightGray);det=det:sub(w+1);y=y+1 end
+            y=8
             -- Fortschrittsbalken (nur wenn es eine Runde gibt)
             if hasProgress(d) then
                 local pc=progress(d)
@@ -3020,7 +3264,206 @@ function M.new(screen,cfg)
         p=num(p);if p>=100 then return colors.red elseif p>=num(warn or 90) then return colors.orange end
         return colors.lime
     end
-    function ui.textInput() return ui.filter=="store" end
+    -- ===== Fernsteuerung: von Hand fahren =====
+    local function bname(n)
+        if not n then return "-" end
+        n=tostring(n):gsub("^[^:]+:",""):gsub("_"," ")
+        return n
+    end
+    function ui.drawDrive(sel,d,link,text,right,fill,pill,button,w,foot)
+        local on=d.manual==true
+        local can=link and sel.online and d.mode=="off" and not d.recovery
+        local y=5
+        if on then
+            fill(y,colors.lime);text(2,y,"Fernsteuerung AN",colors.black,colors.lime)
+            local l=w>=30 and " Beenden + heim " or " Beenden "
+            pill(w-#l+1,y,#l,l,"rc:manual_off",colors.red,link,colors.white)
+        else
+            fill(y,colors.gray);text(2,y,can and "Fernsteuerung aus" or (d.mode~="off" and "Erst stoppen" or "nicht erreichbar"),colors.white,colors.gray)
+            local l=" Steuern "
+            pill(w-#l+1,y,#l,l,"rc:manual_on",colors.green,can,colors.white)
+        end
+        y=y+1
+        if on then
+            text(1,y,"Vorne",colors.lightGray);text(8,y,bname(d.mFront):sub(1,w-8));y=y+1
+            local ou="Oben "..bname(d.mUp):sub(1,math.floor(w/2)-6)
+            text(1,y,ou,colors.lightGray);text(math.floor(w/2)+1,y,("Unten "..bname(d.mDown)):sub(1,w-math.floor(w/2)),colors.lightGray);y=y+1
+            text(1,y,("Hand "..bname(d.mLeft).." / "..bname(d.mRight)):sub(1,w),colors.gray);y=y+1
+        else
+            text(1,y,"Turtle stoppen, dann 'Steuern'.",colors.lightGray);y=y+1
+            text(1,y,"Beenden = sie faehrt zur Basis.",colors.lightGray);y=y+1
+            y=y+1
+        end
+        local msg=tostring(d.mMsg or "")
+        text(1,y,msg:sub(1,w),msg:find("Geht nicht",1,true) and colors.orange or colors.cyan);y=y+1
+        -- Steuerkreuz + Werkzeug (3 Spalten)
+        local rows={
+            {{"\27 Links","left"},{"\24 Vor","forward"},{"Rechts \26","right"}},
+            {{"Hoch","up"},{w>=30 and "\25 Zurueck" or "\25 Zur.","back"},{"Runter","down"}},
+            {{"Abbau \24","digUp"},{"Abbau","dig"},{"Abbau \25","digDown"}},
+            {{"Angriff\24","attackUp"},{"Angriff","attack"},{"Angriff\25","attackDown"}},
+        }
+        local free=foot-1-y
+        local cw=math.floor(w/3)
+        for ri,r in ipairs(rows) do
+            -- Fahrknoepfe doppelt hoch, wenn Platz ist (leichter zu treffen)
+            local bh=(free>=8 or (free>=6 and ri<=2)) and 2 or 1
+            if y+bh-1>foot-1 then break end
+            for i,b in ipairs(r) do
+                local x=1+(i-1)*cw
+                local width=i==3 and w-x+1 or cw
+                local col=(b[2]:find("^dig") and colors.brown) or (b[2]:find("^attack") and colors.red) or colors.blue
+                button(x,y,width,b[1],"rc:"..b[2],col,on and link,bh,true)
+            end
+            y=y+bh
+        end
+    end
+    -- ===== Fernsteuerung: Einstellungen abrufen/aendern =====
+    ui.cfgEdits={}
+    local function cfgLines(cf,id)
+        local ed=ui.cfgEdits[id] or {values={}}
+        local L={}
+        local jobs=cf.jobs or common.JOBS
+        L[#L+1]={kind="job",label="Aufgabe",value=ed.job or cf.job,opts=jobs,changed=ed.job~=nil}
+        L[#L+1]={kind="name",label="Name",value=ed.name or cf.name or "",changed=ed.name~=nil}
+        for _,sec in ipairs(cf.sections or {}) do
+            L[#L+1]={kind="title",label=sec.title or sec.name}
+            for _,f in ipairs(sec.fields or {}) do
+                local ev=ed.values[sec.name] and ed.values[sec.name][f.k]
+                local v=ev;if v==nil then v=f.v end
+                L[#L+1]={kind="field",sec=sec.name,k=f.k,label=f.d or f.k,value=v,opts=f.o,changed=ev~=nil,orig=f.v}
+            end
+        end
+        return L
+    end
+    local function showVal(l)
+        local v=l.value
+        if l.kind=="job" then return common.JOB_NAMES[v] or tostring(v) end
+        if type(v)=="boolean" then return v and "ja" or "nein" end
+        if v=="" then return "-" end
+        return tostring(v)
+    end
+    function ui.drawConfig(sel,d,link,text,right,fill,pill,w,foot,cfgEntry)
+        local id=ui.selected
+        local y=5
+        fill(y,colors.gray);text(2,y,"Einstellungen",colors.white,colors.gray)
+        local rl=w>=30 and " Neu laden " or " Laden "
+        pill(w-#rl+1,y,#rl,rl,"rc:getconfig",colors.blue,link and sel.online,colors.white)
+        y=y+1
+        local cf=cfgEntry and cfgEntry.config
+        if not cf then
+            text(1,y+1,"Lade Einstellungen ...",colors.lightGray)
+            text(1,y+2,link and sel.online and "(Turtle muss erreichbar sein)" or "Turtle nicht erreichbar",colors.gray)
+            return
+        end
+        local L=cfgLines(cf,id)
+        ui.cfgLinesCache=L
+        -- unten: Beschreibung, Bearbeiten, Speichern
+        local editY=foot-3
+        local listTop,listBot=y,editY-1
+        local avail=listBot-listTop+1
+        ui.cfgSel=ui.cfgSel or 1
+        if not L[ui.cfgSel] or L[ui.cfgSel].kind=="title" then
+            for i,l in ipairs(L) do if l.kind~="title" then ui.cfgSel=i;break end end
+        end
+        ui.cfgScroll=ui.cfgScroll or 0
+        if ui.cfgSel<=ui.cfgScroll then ui.cfgScroll=ui.cfgSel-1 end
+        if ui.cfgSel>ui.cfgScroll+avail then ui.cfgScroll=ui.cfgSel-avail end
+        ui.cfgScroll=math.max(0,math.min(ui.cfgScroll,math.max(0,#L-avail)))
+        for i=1,avail do
+            local idx=ui.cfgScroll+i;local l=L[idx];if not l then break end
+            local yy=listTop+i-1
+            if l.kind=="title" then
+                text(1,yy,("- "..l.label):sub(1,w),colors.cyan)
+            else
+                local val=showVal(l)
+                local selc=idx==ui.cfgSel
+                local bg=selc and colors.gray or colors.black
+                local vw=math.min(#val,math.floor(w/2))
+                text(1,yy,string.rep(" ",w),colors.white,bg)
+                text(1,yy,l.label:sub(1,w-vw-1),colors.lightGray,bg)
+                text(w-vw+1,yy,val:sub(1,vw),l.changed and colors.yellow or colors.white,bg)
+                ui.buttons[#ui.buttons+1]={x=1,y=yy,w=w-1,action="cf:sel:"..idx,enabled=true}
+            end
+        end
+        if #L>avail then
+            pill(w,listTop,1,"\24","cf:scroll:-1",colors.gray,ui.cfgScroll>0,colors.white)
+            pill(w,listBot,1,"\25","cf:scroll:1",colors.gray,ui.cfgScroll<#L-avail,colors.white)
+        end
+        -- Bearbeiten
+        local l=L[ui.cfgSel]
+        local msgOk=cfgEntry.msg and os.clock()-(cfgEntry.at or 0)<20
+        if msgOk then text(1,editY,tostring(cfgEntry.msg):sub(1,w),cfgEntry.ok==false and colors.orange or colors.lime)
+        elseif l then text(1,editY,(l.k and (l.k..": ") or "")..tostring(l.label):sub(1,w),colors.gray) end
+        local ey=editY+1
+        if l and l.kind~="title" then
+            local v=l.value
+            if l.kind=="job" or (l.opts and type(v)=="string") then
+                local q=math.floor(w/4)
+                pill(1,ey,q,"\27","cf:opt:-1",colors.blue,true,colors.white)
+                local vs=showVal(l);text(q+1+math.floor((w-2*q-#vs)/2),ey,vs:sub(1,w-2*q),colors.yellow)
+                pill(w-q+1,ey,q,"\26","cf:opt:1",colors.blue,true,colors.white)
+            elseif type(v)=="boolean" then
+                pill(1,ey,w,v and "ja  (tippen = nein)" or "nein  (tippen = ja)","cf:toggle",colors.blue,true,colors.white)
+            elseif type(v)=="number" then
+                local q=math.floor(w/4)
+                for i,st in ipairs({{"-10",-10},{"-1",-1},{"+1",1},{"+10",10}}) do
+                    pill(1+(i-1)*q,ey,i==4 and w-3*q or q-1,st[1],"cf:add:"..st[2],colors.blue,true,colors.white)
+                end
+            else
+                text(1,ey,(ui.kbd and "Tastatur: tippen, Back = loeschen" or "Text: am Pocket/PC tippen"):sub(1,w-8),colors.lightGray)
+                pill(w-6,ey,7,"Leeren","cf:clear",colors.gray,true,colors.white)
+            end
+        end
+        local ed=ui.cfgEdits[id]
+        local dirty=ed and (ed.job or ed.name or next(ed.values or {}))
+        local half=math.floor(w/2)
+        pill(1,foot-1,half-1,"Speichern","cf:save",colors.green,dirty and link and sel.online and true or false,colors.white)
+        pill(half+1,foot-1,w-half,"Verwerfen","cf:discard",colors.gray,dirty and true or false,colors.white)
+    end
+    local function cfgEdit(id) ui.cfgEdits[id]=ui.cfgEdits[id] or {values={}};return ui.cfgEdits[id] end
+    local function cfgSet(l,v)
+        l.value=v;l.changed=true          -- sofort sichtbar (auch ohne Neuzeichnen dazwischen)
+        local ed=cfgEdit(ui.selected)
+        if l.kind=="job" then ed.job=v
+        elseif l.kind=="name" then ed.name=v
+        else
+            ed.values[l.sec]=ed.values[l.sec] or {}
+            if v==l.orig then ed.values[l.sec][l.k]=nil;if not next(ed.values[l.sec]) then ed.values[l.sec]=nil end
+            else ed.values[l.sec][l.k]=v end
+        end
+    end
+    -- Aktionen der Fernsteuerung -> nil oder {id=,payload=} (an die Turtle)
+    function ui.remoteAction(a)
+        local id=ui.selected;if not id then return end
+        if a:match("^rc:") then return {id=id,payload={op=a:sub(4)}} end
+        local L=ui.cfgLinesCache or {}
+        local l=L[ui.cfgSel or 0]
+        if a:match("^cf:sel:") then ui.cfgSel=tonumber(a:sub(8));return end
+        if a:match("^cf:scroll:") then ui.cfgScroll=(ui.cfgScroll or 0)+tonumber(a:sub(11));return end
+        if a=="cf:discard" then ui.cfgEdits[id]=nil;return end
+        if a=="cf:save" then
+            local ed=ui.cfgEdits[id];if not ed then return end
+            ui.cfgEdits[id]=nil
+            return {id=id,payload={op="setconfig",job=ed.job,name=ed.name,values=ed.values}}
+        end
+        if not l or l.kind=="title" then return end
+        if a=="cf:toggle" and type(l.value)=="boolean" then cfgSet(l,not l.value)
+        elseif a:match("^cf:add:") and type(l.value)=="number" then cfgSet(l,l.value+tonumber(a:sub(8)))
+        elseif a:match("^cf:opt:") then
+            local opts=l.opts;if not opts then return end
+            local i=1;for k,o in ipairs(opts) do if o==l.value then i=k end end
+            i=(i-1+tonumber(a:sub(8)))%#opts+1;cfgSet(l,opts[i])
+        elseif a=="cf:clear" and (l.kind=="name" or type(l.value)=="string") then cfgSet(l,"")
+        end
+    end
+    -- Texteingabe im Einstellungs-Reiter (freie Texte, z.B. keepOres, Name)
+    local function cfgTextField()
+        if ui.detailView~="config" or not ui.selected then return end
+        local l=(ui.cfgLinesCache or {})[ui.cfgSel or 0]
+        if l and (l.kind=="name" or (l.kind=="field" and type(l.value)=="string" and not l.opts)) then return l end
+    end
+    function ui.textInput() return ui.filter=="store" or cfgTextField()~=nil end
     function ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,y0)
         ui.ids={};ui.selected=nil
         local stores={}
@@ -3224,7 +3667,14 @@ function M.new(screen,cfg)
         if not a then return end
         if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
-        elseif a=="chests" then ui.chestView=not ui.chestView;ui.chestScroll=0;return
+        elseif type(a)=="string" and (a:match("^rc:") or a:match("^cf:")) then return ui.remoteAction(a)
+        elseif a=="dv:info" then ui.detailView=nil;return
+        elseif a=="dv:drive" then ui.detailView="drive";return
+        elseif a=="dv:config" then
+            ui.detailView="config";ui.cfgSel=nil;ui.cfgScroll=0
+            if ui.selected then return {id=ui.selected,payload={op="getconfig"}} end
+            return
+        elseif a=="chests" then ui.detailView=ui.detailView~="chests" and "chests" or nil;ui.chestView=ui.detailView=="chests";ui.chestScroll=0;return
         elseif a=="cup" or a=="cdown" or (ui.chestView and ui.selected and (a=="up" or a=="down" or a=="pageprev" or a=="pagenext")) then
             local d=(a=="cup" or a=="up" or a=="pageprev") and -2 or 2
             if a=="pageprev" or a=="pagenext" then d=d*4 end
@@ -3240,9 +3690,9 @@ function M.new(screen,cfg)
             return
         elseif a=="help" then ui.help=not ui.help
         elseif a:match("^filter:") then ui.filter=a:sub(8);ui.selected=nil;ui.page=1;ui.cursor=nil
-        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected;ui.chestView=nil
+        elseif a:match("^id:") then ui.selected=tonumber(a:sub(4));ui.cursor=ui.selected;ui.chestView=nil;ui.detailView=nil
         elseif a=="group" then
-            if ui.chestView then ui.chestView=nil;return end
+            if ui.detailView then ui.detailView=nil;ui.chestView=nil;return end
             ui.cursor=ui.selected or ui.cursor;ui.selected=nil;ui.followCursor=true
         elseif a=="pageprev" then ui.page=math.max(1,ui.page-1)
         elseif a=="pagenext" then ui.page=math.min((ui.filter=="store" and ui.storePages) or ui.pages or 1,ui.page+1)
@@ -3280,6 +3730,27 @@ function M.new(screen,cfg)
         if not name then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.selected and ui.detailView=="drive" then
+            local K={up="rc:forward",down="rc:back",left="rc:left",right="rc:right",pageUp="rc:up",pageDown="rc:down"}
+            if K[name] then return K[name] end
+            if name=="backspace" then return "group" end
+        end
+        if ui.selected and ui.detailView=="config" then
+            local tf=cfgTextField()
+            if name=="backspace" and tf then
+                local v=tostring(tf.value or "");if #v>0 then cfgSet(tf,v:sub(1,-2));return "redraw" end
+                return "group"
+            end
+            if name=="up" or name=="down" then
+                local L=ui.cfgLinesCache or {};local i=ui.cfgSel or 1
+                repeat i=i+(name=="down" and 1 or -1) until not L[i] or L[i].kind~="title"
+                if L[i] then ui.cfgSel=i end
+                return "redraw"
+            end
+            if name=="left" then return "cf:opt:-1" end
+            if name=="right" then return "cf:opt:1" end
+            if name=="enter" then return "cf:toggle" end
+        end
         if ui.filter=="store" and name=="left" and ui.storeItem then return "sback" end
         if ui.filter=="store" and ui.storeOnly and (name=="left" or name=="right" or name=="tab") then
             return "sview:"..(ui.storeView=="items" and "chests" or "items")
@@ -3294,6 +3765,15 @@ function M.new(screen,cfg)
         if not ch then return end
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
+        if ui.selected and ui.detailView=="drive" then
+            local K={w="rc:forward",s="rc:back",a="rc:left",d="rc:right",f="rc:dig",g="rc:attack"}
+            if K[ch:lower()] then return K[ch:lower()] end
+        end
+        local tf=cfgTextField()
+        if tf and ch:match("^[%w _,%.:%-]$") then cfgSet(tf,(tostring(tf.value or "")..ch):sub(1,48));return "redraw" end
+        if ui.selected and ui.detailView=="config" then
+            if ch=="+" then return "cf:add:1" elseif ch=="-" then return "cf:add:-1" end
+        end
         if ui.filter=="store" and ch:match("^[%w _%-]$") then
             -- Lager: Buchstaben = Suche im Inhalt
             ui.search=((ui.search or "")..ch:lower()):sub(1,24);ui.storeView="items";ui.storeItem=nil;ui.page=1
@@ -3335,7 +3815,9 @@ local function poll()
 end
 -- Lagerdaten (Kisten/Inhalt) kommen alle 10 s extra; hier an die Flotte haengen
 local storeStats={}
+local configs={}       -- Einstellungen der Turtles (Fernsteuerung), kommen auf Anfrage
 local function withStats(f)
+    if f then f.configs=configs end
     if f and f.nodes and f.nodes.entries then
         for id,e in pairs(f.nodes.entries) do
             if e.role=="storage" and storeStats[id] and e.data then e.data.stats=storeStats[id] end
@@ -3362,7 +3844,13 @@ local function validFleet(f)
 end
 local function action(a)
     local cmd=ui.action(a)
-    if cmd and connected() and common.actions[cmd] then
+    if type(cmd)=="table" and connected() then
+        -- Fernsteuerung: ueber die Zentrale an die Turtle
+        serial=math.max(serial+1,os.epoch("utc"))
+        pcall(common.saveState,PATH,{serial=serial})
+        pending={message={kind="remote",version=1,controllerId=cfg.controllerId,target=cmd.id,payload=cmd.payload,serial=serial},at=os.clock()}
+        send(pending.message)
+    elseif cmd and connected() and common.actions[cmd] then
         local target=ui.target();local eligible=cmd=="stop" or cmd=="reset" or cmd=="update"
         for _,id in ipairs(fleet.ids)do
             local e=fleet.entries[id]
@@ -3395,6 +3883,11 @@ local function loop()
                 soon()
             end
         elseif e=="timer" and a==frameT then frameT=nil;draw()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="turtleconfig" and b.controllerId==cfg.controllerId and common.id(b.id) and type(b.config)=="table" then
+            configs[b.id]={config=b.config,ok=b.ok,msg=b.msg,at=os.clock()}
+            if b.msg then notice=tostring(b.msg) end
+            soon()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
             storeStats=b.stats
@@ -4104,6 +4597,7 @@ local function scan()
     return false
 end
 local function idle()
+    if run.manual then status("Fernsteuerung", "Wird von Hand gesteuert (Zentrale/Pocket)."); return end
     if not isHome() or st.dir ~= 0 then
         local ok, why = home()
         if not ok then status("Rueckweg blockiert", why); return end
@@ -4189,7 +4683,7 @@ local function snapshot()
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
-LIVE = TC.live({ snapshot = snapshot, gear = GEAR, every = math.min(CL.report, 3),
+LIVE = TC.live({ snapshot = snapshot, gear = GEAR, every = math.min(CL.report, 3), run = run,
     transmit = function(s) pcall(rednet.send, st.controller, s, PROTOCOL) end,
     contact = function() return run.lastContact end,
     onWindow = function(ok) if ok then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end end })
@@ -4201,6 +4695,24 @@ local function reset()
     if run.recovery then status("Position unklar", "RESET reicht nicht: an Basis setzen, toast.lua --dock")
     else status("Reset", "Fehler geloescht; Turtle faehrt zur Basis.") end
 end
+-- Fernsteuerung (Zentrale/Pocket): Einstellungen + von Hand fahren (nur waagrecht)
+local REMOTE = TC.remoteControl({ cfg = config, job = "farm", st = st, run = run, save = save, gear = function() return GEAR end,
+    transmit = function(msg) pcall(rednet.send, st.controller, msg, PROTOCOL) end,
+    send = function() sendStatus() end,
+    atHome = function() return isHome() end,
+    stopped = function() return run.mode == "off" end,
+    ops = TC.manualOps({ noVertical = true,
+        move = function(kind)
+            local d = st.dir
+            if kind == "back" then
+                local ok, why = face((d + 2) % 4); if not ok then return false, why end
+            end
+            local ok, why = action("move", turtle.forward, function() st.x, st.z = st.x + DX[st.dir], st.z + DZ[st.dir] end)
+            if kind == "back" then face(d) end
+            return ok, why
+        end,
+        turn = function(left) return face((st.dir + ((left ~= MIRROR) and 3 or 1)) % 4) end,
+        tool = function() return equipTool() end }) })
 local function listener()
     while true do
         local event, sender, message, protocol = os.pullEvent()
@@ -4211,7 +4723,8 @@ local function listener()
         elseif event == "peripheral" or event == "peripheral_detach" then common.refreshModems(); sendStatus()
         elseif event == "rednet_message" and sender == st.controller and protocol == PROTOCOL
             and type(message) == "table" then
-            if message.kind == "poll" then
+            if REMOTE.handle(message) then
+            elseif message.kind == "poll" then
                 run.lastContact = os.clock()
                 if os.clock() - LIVE.lastSent > 2.5 then sendStatus() end
             elseif message.kind == "command" and common.serial(message.serial)
@@ -4245,7 +4758,7 @@ print("Zentrale #" .. st.controller .. " | " .. crop.label)
 if GEAR then print("Chunkloader: " .. CL.chunks .. " Chunk(s), ca. " .. TC.chunkFuelPerHour(CL.chunks) .. " Fuel/h beim Arbeiten") end
 print("Q: Stopp + Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
-local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat) end)
+local ok, why = pcall(function() parallel.waitForAll(worker, listener, heartbeat, REMOTE.loop) end)
 if not ok then
     run.mode = "off"
     run.recovery = st.pending ~= nil and not resolvePending()
@@ -5451,6 +5964,7 @@ local function finish()
     if st.lastMode then st.lastMode=nil;save() end
 end
 local function idle()
+    if run.manual then status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
     local ok,why=home()
     if not ok then status("Rueckweg blockiert",why);return end
     ok,why=unload()
@@ -5578,7 +6092,7 @@ local function snapshot()
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells,lanes=SIDE and #LANES or nil}
 end
-LIVE=TC.live({snapshot=snapshot,gear=GEAR,every=math.min(CL.report,3),
+LIVE=TC.live({snapshot=snapshot,gear=GEAR,every=math.min(CL.report,3),run=run,
     transmit=function(s) pcall(rednet.send,cfg.controllerId,s,common.protocol) end,
     contact=function() return run.lastContact end,
     onWindow=function(ok) if ok then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end end})
@@ -5590,6 +6104,28 @@ local function reset()
     if run.recovery then status("Position unklar","RESET reicht nicht: an Basis setzen, toast.lua --dock")
     else status("Reset","Fehler geloescht; Turtle faehrt zur Basis.") end
 end
+-- Fernsteuerung (Zentrale/Pocket): Einstellungen + von Hand fahren (ohne Abbau beim Fahren)
+local REMOTE=TC.remoteControl({cfg=cfg,job="mining",st=st,run=run,save=save,gear=function() return GEAR end,
+    transmit=function(msg) pcall(rednet.send,cfg.controllerId,msg,common.protocol) end,
+    send=function() sendStatus() end,
+    atHome=function() return homePosition() end,
+    stopped=function() return run.mode=="off" end,
+    ops=TC.manualOps({
+        move=function(kind)
+            if kind=="back" then
+                local d=st.dir
+                local ok,why=face((d+2)%4);if not ok then return false,why end
+                ok,why=action("move",turtle.forward,function()st.x,st.z=st.x+DX[st.dir],st.z+DZ[st.dir] end)
+                face(d);return ok,why
+            end
+            local fn,update
+            if kind=="up" then fn,update=turtle.up,function()st.y=st.y-1 end
+            elseif kind=="down" then fn,update=turtle.down,function()st.y=st.y+1 end
+            else fn,update=turtle.forward,function()st.x,st.z=st.x+DX[st.dir],st.z+DZ[st.dir] end end
+            return action("move",fn,update)
+        end,
+        turn=function(left) return face((st.dir+((left~=MIRROR) and 3 or 1))%4) end,
+        tool=function() return equipTool() end})})
 local function listener()
     while true do
         local e,a,b,c=os.pullEvent()
@@ -5597,7 +6133,8 @@ local function listener()
         elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and homePosition() then error("TOAST_NEUER_AUFTRAG",0)
         elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
-            if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
+            if REMOTE.handle(b) then
+            elseif b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
                 -- Status kommt ohnehin alle 2 s; auf den Poll nur antworten, wenn laenger nichts kam
                 if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
             elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
@@ -5630,7 +6167,7 @@ print("Zentrale #"..cfg.controllerId)
 if GEAR then print("Chunkloader: "..CL.chunks.." Chunk(s), ca. "..TC.chunkFuelPerHour(CL.chunks).." Fuel/h beim Arbeiten") end
 print("Q: Stopp/Heimfahrt. N: neuer Auftrag (gestoppt, an Basis).")
 if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
-local ok,why=pcall(function()parallel.waitForAll(work,listener,heartbeat)end)
+local ok,why=pcall(function()parallel.waitForAll(work,listener,heartbeat,REMOTE.loop)end)
 if not ok then
     run.mode="off";run.recovery=st.pending~=nil and not resolvePending()
     status(run.recovery and "Position unklar" or "Programm beendet",tostring(why));sendStatus()
@@ -6299,6 +6836,23 @@ function W.new(o)
         if run.recovery then w.status("Position unklar","RESET reicht nicht: an Basis setzen, toast.lua --dock")
         else w.status("Reset","Fehler geloescht; Turtle geht zur Basis.") end
     end
+    -- Fernsteuerung (Zentrale/Pocket): Einstellungen + von Hand fahren
+    local REMOTE=common.remoteControl({cfg=cfg,job=o.job,st=st,run=run,save=w.save,gear=function() return G end,
+        transmit=function(msg) pcall(rednet.send,st.controller,msg,PROTOCOL) end,
+        send=function() sendStatus() end,
+        atHome=function() return w.isHome() end,
+        stopped=function() return run.mode=="off" end,
+        ops=common.manualOps({
+            move=function(kind)
+                if kind=="back" then
+                    local d=st.dir
+                    local ok,why=w.face((d+2)%4);if not ok then return false,why end
+                    ok,why=w.move("forward",{});w.face(d);return ok,why
+                end
+                return w.move(kind,{})
+            end,
+            turn=function(left) return w.face((st.dir+((left~=MIRROR) and 3 or 1))%4) end,
+            tool=o.tools and function() return w.equipTool(o.tools) end})})
     local function listener()
         while true do
             local e,a,b,c=os.pullEvent()
@@ -6306,7 +6860,8 @@ function W.new(o)
             elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
-                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
+                if REMOTE.handle(b) then
+                elseif b.kind=="poll" then run.lastContact=os.clock();if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
                 elseif b.kind=="command" and common.serial(b.serial) and common.actions[b.action] then
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
@@ -6335,7 +6890,7 @@ function W.new(o)
         if os.clock()-lastTool>3 then G.radio() end
     end
     w.chunkTick=chunkTick
-    LIVE=common.live({snapshot=snapshot,gear=G,every=math.min(CL.report,3),tick=chunkTick,
+    LIVE=common.live({snapshot=snapshot,gear=G,every=math.min(CL.report,3),tick=chunkTick,run=run,
         transmit=function(s) pcall(rednet.send,st.controller,s,PROTOCOL) end,
         contact=function() return run.lastContact end})
     local function heartbeat() LIVE.loop() end
@@ -6351,6 +6906,7 @@ function W.new(o)
         run.waitUntil=0
     end
     local function idle()
+        if run.manual then w.status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
         if o.idleHome then
             local ok,why=o.idleHome()
             if not ok then w.status("Rueckweg blockiert",why);return end
@@ -6400,7 +6956,7 @@ function W.new(o)
         print("Zentrale #"..st.controller..(info and (" | "..info) or ""))
         print("Q: Stopp + zur Basis. N: neuer Auftrag (gestoppt, an Basis).")
         if run.recovery then printError(run.detail) elseif resolvedAtStart then print(run.detail) end
-        local ok,why=pcall(function() parallel.waitForAll(worker,listener,heartbeat) end)
+        local ok,why=pcall(function() parallel.waitForAll(worker,listener,heartbeat,REMOTE.loop) end)
         if not ok then
             run.mode="off"
             run.recovery=st.pending~=nil and not resolvePending()
@@ -8172,7 +8728,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.16.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

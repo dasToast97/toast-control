@@ -57,7 +57,10 @@ local function draw()
     dirty=false
 end
 local function action(a)
-    local cmd=ui.action(a);if cmd then model.command(cmd,ui.target())end;draw()
+    local cmd=ui.action(a)
+    if type(cmd)=="table" then model.remoteCmd(cmd.id,cmd.payload)
+    elseif cmd then model.command(cmd,ui.target()) end
+    draw()
 end
 local quit=false
 local function loop()
@@ -71,7 +74,7 @@ local function loop()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" then
-            if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
+            if model.ingest(a,b,c) or model.turtleConfig(a,b,c) or model.remote(a,b,c) then dirty=true end
         elseif e=="timer" and a==timer then lastTick=os.clock();model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="http_success" and AUTO.url and a==AUTO.url then
             AUTO.url=nil

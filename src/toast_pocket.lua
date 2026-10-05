@@ -15,7 +15,9 @@ local function poll()
 end
 -- Lagerdaten (Kisten/Inhalt) kommen alle 10 s extra; hier an die Flotte haengen
 local storeStats={}
+local configs={}       -- Einstellungen der Turtles (Fernsteuerung), kommen auf Anfrage
 local function withStats(f)
+    if f then f.configs=configs end
     if f and f.nodes and f.nodes.entries then
         for id,e in pairs(f.nodes.entries) do
             if e.role=="storage" and storeStats[id] and e.data then e.data.stats=storeStats[id] end
@@ -42,7 +44,13 @@ local function validFleet(f)
 end
 local function action(a)
     local cmd=ui.action(a)
-    if cmd and connected() and common.actions[cmd] then
+    if type(cmd)=="table" and connected() then
+        -- Fernsteuerung: ueber die Zentrale an die Turtle
+        serial=math.max(serial+1,os.epoch("utc"))
+        pcall(common.saveState,PATH,{serial=serial})
+        pending={message={kind="remote",version=1,controllerId=cfg.controllerId,target=cmd.id,payload=cmd.payload,serial=serial},at=os.clock()}
+        send(pending.message)
+    elseif cmd and connected() and common.actions[cmd] then
         local target=ui.target();local eligible=cmd=="stop" or cmd=="reset" or cmd=="update"
         for _,id in ipairs(fleet.ids)do
             local e=fleet.entries[id]
@@ -75,6 +83,11 @@ local function loop()
                 soon()
             end
         elseif e=="timer" and a==frameT then frameT=nil;draw()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="turtleconfig" and b.controllerId==cfg.controllerId and common.id(b.id) and type(b.config)=="table" then
+            configs[b.id]={config=b.config,ok=b.ok,msg=b.msg,at=os.clock()}
+            if b.msg then notice=tostring(b.msg) end
+            soon()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
             storeStats=b.stats
