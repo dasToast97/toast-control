@@ -1,5 +1,5 @@
 local M={
-    version="3.13.7",
+    version="3.13.8",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -175,8 +175,8 @@ function M.configText(c)
         section("dig","Aushub: Form direkt VOR der Basis ausheben",{
             {"shape","\"room\" Quader/Schacht, \"cylinder\", \"sphere\" Kugel, \"dome\" Halbkugel"},
             {"direction","\"down\" nach unten oder \"up\" nach oben"},
-            {"width","Breite bzw. Durchmesser (1-64)"},{"length","nur Quader: Laenge nach vorne (1-64)"},
-            {"height","Quader/Zylinder: Hoehe bzw. Tiefe (1-256)"},
+            {"width","Breite bzw. Durchmesser (1-1024)"},{"length","nur Quader: Laenge nach vorne (1-1024)"},
+            {"height","Quader/Zylinder: Hoehe bzw. Tiefe (1-1024)"},
             {"side","Quader: \"right\" oder \"left\" der Basis"},
             {"seal","\"off\", \"liquids\" (Wasser/Lava zubauen), \"all\" (auch Loecher)"},
             {"drain","true = Wasser/Lava im Raum entfernen (unter Wasser/Lava)"},
@@ -645,7 +645,7 @@ function M.checkDig(d)
     assert(type(d)=="table","dig fehlt.")
     assert(M.DIG_SHAPES[d.shape],"dig.shape: room, cylinder, sphere oder dome.")
     assert(d.direction=="down" or d.direction=="up","dig.direction: down oder up.")
-    assert(M.integer(d.width,1,64) and M.integer(d.length,1,64) and M.integer(d.height,1,256),"dig: width/length 1-64, height 1-256.")
+    assert(M.integer(d.width,1,1024) and M.integer(d.length,1,1024) and M.integer(d.height,1,1024),"dig: width/length/height 1-1024.")
     assert(d.side=="right" or d.side=="left","dig.side: right oder left.")
     assert(d.seal=="off" or d.seal=="liquids" or d.seal=="all","dig.seal: off, liquids oder all.")
     assert(type(d.drain)=="boolean" and type(d.useCoal)=="boolean","dig.drain/useCoal: true oder false.")
@@ -659,10 +659,6 @@ function M.checkDig(d)
     assert(M.integer(d.freeSlots,1,8),"dig.freeSlots: 1 bis 8.")
     assert(d.radioTimeout==0 or M.integer(d.radioTimeout,10,300),"dig.radioTimeout: 0 oder 10 bis 300.")
     assert(type(d.protectedBlocks)=="table","dig.protectedBlocks muss eine Liste sein.")
-    local w=d.width
-    local vol=d.shape=="room" and w*d.length*d.height or d.shape=="cylinder" and w*w*d.height
-        or d.shape=="sphere" and w*w*w or w*w*math.ceil(w/2)
-    assert(vol<=131072,"dig: Form zu gross (hoechstens 131072 Bloecke, jetzt "..vol..").")
     return d
 end
 function M.workerConfig(c)

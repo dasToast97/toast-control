@@ -1,3 +1,15 @@
+# Toast Control 3.13.8
+
+- **Aushub bis 1024 Blöcke:** Breite, Länge, Höhe/Tiefe und Durchmesser jetzt je
+  1 bis 1024 (vorher 64/256 und höchstens 131 072 Blöcke insgesamt). Die Form wird
+  nicht mehr vorab komplett im Speicher aufgelistet, sondern Zelle für Zelle
+  berechnet; Wege durch die Form sucht die Turtle gezielt in Richtung Ziel (A*).
+  Laufende Aufträge machen genau an derselben Stelle weiter.
+- **Aushub tankt genug für hin und zurück:** Ist die nächste Stelle weit weg, tankt
+  die Turtle an der Basis über das Fuel-Ziel hinaus. Reicht die Kohle nicht, wartet
+  sie an der Basis mit „Treibstoff fehlt (braucht X Fuel …)“ statt unterwegs liegen
+  zu bleiben.
+
 # Toast Control 3.13.7
 
 - **Farm: Ertrag zählt jetzt alles.** Bisher nur die Frucht (1 Weizen pro Pflanze),

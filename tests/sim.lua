@@ -209,7 +209,8 @@ function Sim.env(S)
     G.os={clock=function()return S.T end,time=function()return S.gameTime and S.gameTime(S.T) or 0 end,epoch=function()return 1700000000000+math.floor(S.T*1000)end,
         getComputerID=function()return 7 end,getComputerLabel=function()return nil end,date=function()return "SIM" end,
         startTimer=function(t)local id=S.nextTimer;S.nextTimer=id+1;S.timers[id]=S.T+t;return id end,
-        pullEventRaw=function(f)return coroutine.yield(f)end}
+        pullEventRaw=function(f)return coroutine.yield(f)end,
+        queueEvent=function(...)table.insert(S.queue,table.pack(...))end}
     G.os.pullEvent=function(f)local ev=table.pack(coroutine.yield(f));if ev[1]=="terminate" then error("Terminated",0)end;return table.unpack(ev,1,ev.n)end
     G.sleep=function(t)local id=G.os.startTimer(t);repeat local _,p=G.os.pullEvent("timer") until p==id end
     G.turtle=S.turtle;G.pocket=nil

@@ -79,44 +79,97 @@ local function inside(x,i,z)
     if SHAPE=="sphere" then dy=i-(bh-1)/2 else dy=i+(C.width%2==0 and 0.5 or 0) end
     return dx*dx+dy*dy+dz*dz<=R2
 end
-local S=72
+-- Zellen werden NICHT vorab in eine Liste geschrieben (bei 1024x1024 waeren das
+-- Milliarden): Reihenfolge und "gehoert zur Form" werden bei Bedarf berechnet.
+local S=1040
 local function key(x,i,z) return (i*S+x)*S+z end
 local function unkey(k) local z=k%S;local r=(k-z)/S;local x=r%S;return x,(r-x)/S,z end
 local function layer(y) return DOWN and -y or y end
 local function ylev(i) return DOWN and -i or i end
 local BASE=key(0,0,0)
-local ORDER,INDEX={},{}
-local function add(x,i,z) local k=key(x,i,z);if not INDEX[k] then ORDER[#ORDER+1]=k;INDEX[k]=#ORDER end end
 -- Zugang: von der Basis bis zur ersten Zelle der Form (bei runden Formen)
+local ACC,ACCSET={},{}
 do
     local x,i,z=0,0,1
     local xc,zc=math.floor(cx),math.floor(cz)
     local ic=SHAPE=="sphere" and math.floor((bh-1)/2) or 0
-    for _=1,400 do
+    for _=1,4096 do
         if inside(x,i,z) then break end
-        add(x,i,z)
+        local k=key(x,i,z)
+        if not ACCSET[k] then ACC[#ACC+1]=k;ACCSET[k]=true end
         if x~=xc then x=x+(xc>x and 1 or -1)
         elseif i~=ic then i=i+(ic>i and 1 or -1)
         elseif z~=zc then z=z+(zc>z and 1 or -1)
         else break end
     end
 end
-local ACCESS=#ORDER
-local LAYERSTART={}
-for i=0,bh-1 do
-    LAYERSTART[i]=#ORDER+1
-    local cells={}
-    for z=1,bz do
-        local xs={}
-        for x=0,bx-1 do if inside(x,i,z) then xs[#xs+1]=x end end
-        if z%2==0 then for a=1,math.floor(#xs/2) do xs[a],xs[#xs+1-a]=xs[#xs+1-a],xs[a] end end
-        for _,x in ipairs(xs) do cells[#cells+1]={x,z} end
+local ACCESS=#ACC
+-- Reihe z in Ebene i: zusammenhaengender Bereich x0..x1 (Formen sind konvex)
+local function rowRange(i,z)
+    if SHAPE=="room" then return 0,bx-1 end
+    local dz=z-cz;local rem=R2-dz*dz
+    if SHAPE~="cylinder" then
+        local dy=SHAPE=="sphere" and (i-(bh-1)/2) or (i+(C.width%2==0 and 0.5 or 0))
+        rem=rem-dy*dy
     end
-    -- jede zweite Ebene rueckwaerts: Ende der einen = Anfang der naechsten
-    if i%2==1 then for a=1,math.floor(#cells/2) do cells[a],cells[#cells+1-a]=cells[#cells+1-a],cells[a] end end
-    for _,c in ipairs(cells) do add(c[1],i,c[2]) end
+    if rem<0 then return nil end
+    local r=math.sqrt(rem)
+    local x0,x1=math.max(0,math.ceil(cx-r)),math.min(bx-1,math.floor(cx+r))
+    -- Rundungsfehler ausgleichen: exakt an inside() anpassen
+    while x0<=x1 and not inside(x0,i,z) do x0=x0+1 end
+    while x0>0 and inside(x0-1,i,z) do x0=x0-1 end
+    while x1>=x0 and not inside(x1,i,z) do x1=x1-1 end
+    while x1<bx-1 and inside(x1+1,i,z) do x1=x1+1 end
+    if x1<x0 then return nil end
+    return x0,x1
 end
-local N=#ORDER
+-- Zellen je Ebene (vorab nur die Summen, bh Zahlen)
+local LCOUNT,LBEFORE={},{}
+do
+    local total=0
+    for i=0,bh-1 do
+        local n=0
+        -- grosse runde Formen: zwischendurch kurz abgeben (sonst bricht CC nach ~7 s ab)
+        if SHAPE~="room" and i%32==31 then os.queueEvent("toast_form");os.pullEvent("toast_form") end
+        if SHAPE=="room" then n=bx*bz
+        else for z=1,bz do local x0,x1=rowRange(i,z);if x0 then n=n+x1-x0+1 end end end
+        LCOUNT[i],LBEFORE[i]=n,total;total=total+n
+    end
+end
+-- Reihen einer Ebene (nur die aktuelle Ebene wird gemerkt)
+local rowCache={}
+local function rows(i)
+    if rowCache.i==i then return rowCache.r end
+    local r,before={},0
+    for z=1,bz do
+        local x0,x1=rowRange(i,z)
+        if x0 then r[#r+1]={z=z,x0=x0,x1=x1,b=before};before=before+x1-x0+1 end
+    end
+    rowCache={i=i,r=r};return r
+end
+-- Schritt n -> Zelle. Schlangenlinie: gerade Reihen rueckwaerts, jede zweite
+-- Ebene rueckwaerts (Ende der einen = Anfang der naechsten).
+local function cellAt(n)
+    if n<=ACCESS then return ACC[n] end
+    local p=n-ACCESS-1
+    local lo,hi=0,bh-1
+    while lo<hi do local m=math.floor((lo+hi+1)/2);if LBEFORE[m]<=p then lo=m else hi=m-1 end end
+    local i=lo;local q=p-LBEFORE[i]
+    if i%2==1 then q=LCOUNT[i]-1-q end
+    local r=rows(i)
+    local a,c=1,#r
+    while a<c do local m=math.floor((a+c+1)/2);if r[m].b<=q then a=m else c=m-1 end end
+    local row=r[a];local o=q-row.b
+    local x=row.z%2==0 and (row.x1-o) or (row.x0+o)
+    return key(x,i,row.z)
+end
+-- gehoert die Zelle zum Plan (Form oder Zugang)?
+local function inPlan(k)
+    if ACCSET[k] then return true end
+    local x,i,z=unkey(k)
+    return inside(x,i,z)
+end
+local N=ACCESS+(LBEFORE[bh-1] or 0)+(LCOUNT[bh-1] or 0)
 local SHAPE_NAMES={room="Quader",cylinder="Zylinder",sphere="Kugel",dome=DOWN and "Schale" or "Kuppel"}
 local LAYOUT=table.concat({SHAPE,C.width,C.length,C.height,C.side,C.direction},":")
 
@@ -149,6 +202,13 @@ local function keep(name)
 end
 local function fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
 local function homeNeed() return (math.abs(st.x)+math.abs(st.y)+math.abs(st.z))*2+30 end
+-- Fuel fuer hin + zurueck zur naechsten Stelle (grosse Formen: kann ueber fuelTarget liegen)
+local function tripNeed()
+    if st.done or (st.idx or 1)>N then return 0 end
+    local x,i,z=unkey(cellAt(st.idx))
+    return (x+i+z)*2+100
+end
+local function fuelGoal() return math.max(C.fuelTarget,tripNeed()) end
 local function burnCoal(target)
     if not C.useCoal then return end
     for s=1,16 do
@@ -164,12 +224,13 @@ end
 local function wallCount() return WALL and w.count(isWall) or 0 end
 -- Kiste OBEN: Kohle (tanken) und Wandblock holen. Fremdes kommt am Ende zurueck.
 local function supply()
-    burnCoal(C.fuelTarget)
+    local goal=fuelGoal()
+    burnCoal(goal)
     if not w.container(turtle.inspectUp) then return end
     local want=WALL and math.min(WALLSTOCK,math.max(0,w.freeSlots()-3)*64+wallCount()) or 0
     local back={}
     for _=1,30 do
-        local needFuel=fuel()<C.fuelTarget
+        local needFuel=fuel()<goal
         local needWall=WALL~=nil and wallCount()<want
         if not needFuel and not needWall then break end
         if w.freeSlots()<=1 then break end
@@ -178,7 +239,7 @@ local function supply()
         if not turtle.suckUp() then break end
         local it=turtle.getItemDetail(slot)
         if it and W.FUELS[it.name] then
-            while fuel()<C.fuelTarget and turtle.getItemCount(slot)>0 do if not turtle.refuel(1) then break end end
+            while fuel()<goal and turtle.getItemCount(slot)>0 do if not turtle.refuel(1) then break end end
             if turtle.getItemCount(slot)>0 then back[#back+1]=slot end
         elseif not (it and isWall(it.name) and needWall) then back[#back+1]=slot end
     end
@@ -191,8 +252,9 @@ local function base()
     st.total=(st.total or 0)+math.max(0,before-w.items())
     if not ok then return false,title,detail end
     supply()
-    if fuel()<math.min(C.fuelTarget,(bx+bz+bh)*3+60) then
-        return false,"Treibstoff fehlt","Kohle / Holzkohle in die Kiste UEBER der Basis legen."
+    if fuel()<math.max(math.min(C.fuelTarget,(bx+bz+bh)*3+60),tripNeed()) then
+        return false,"Treibstoff fehlt","Kohle / Holzkohle in die Kiste UEBER der Basis legen"
+            ..(tripNeed()>C.fuelTarget and (" (braucht "..tripNeed().." Fuel fuer hin + zurueck)") or ".")
     end
     w.save()
     return true
@@ -249,27 +311,60 @@ local function stepInto(nk)
     return true
 end
 local DIRS6={{1,0,0},{-1,0,0},{0,0,1},{0,0,-1},{0,1,0},{0,-1,0}}
-local function passable(k) return k==BASE or (INDEX[k]~=nil and not st.skip[k]) end
--- Kuerzester Weg durch die Form (nur Zellen der Form + Basis)
+local function passable(k) return k==BASE or (not st.skip[k] and inPlan(k)) end
+-- Kuerzester Weg durch die Form (nur Zellen der Form + Basis). A*-Suche:
+-- auch in riesigen Formen schnell (prueft nur Felder in Richtung Ziel).
 local function path(from,to)
     if from==to then return {} end
-    local prev={[from]=from}
-    local q,h={from},1
-    while q[h] do
-        local k=q[h];h=h+1
-        local x,i,z=unkey(k)
-        for _,d in ipairs(DIRS6) do
-            local nx,ni,nz=x+d[1],i+d[2],z+d[3]
-            if nx>=0 and nx<S and nz>=0 and nz<S and ni>=0 then
-                local nk=key(nx,ni,nz)
-                if not prev[nk] and passable(nk) then
-                    prev[nk]=k
-                    if nk==to then
-                        local p={};local c=nk
-                        while c~=from do table.insert(p,1,c);c=prev[c] end
-                        return p
+    local tx,ti,tz=unkey(to)
+    local function dist(x,i,z) return math.abs(x-tx)+math.abs(i-ti)+math.abs(z-tz) end
+    local heap,g,prev,closed={},{[from]=0},{},{}
+    local function less(a,b) return a[1]<b[1] or (a[1]==b[1] and a[2]<b[2]) end
+    local function push(e)
+        heap[#heap+1]=e;local c=#heap
+        while c>1 do local p=math.floor(c/2);if less(heap[c],heap[p]) then heap[c],heap[p]=heap[p],heap[c];c=p else break end end
+    end
+    local function pop()
+        local top=heap[1];local last=table.remove(heap)
+        if #heap>0 then
+            heap[1]=last;local c=1
+            while true do
+                local l,r,m=2*c,2*c+1,c
+                if heap[l] and less(heap[l],heap[m]) then m=l end
+                if heap[r] and less(heap[r],heap[m]) then m=r end
+                if m==c then break end
+                heap[c],heap[m]=heap[m],heap[c];c=m
+            end
+        end
+        return top
+    end
+    do local x,i,z=unkey(from);local h=dist(x,i,z);push({h,h,from}) end
+    local n=0
+    while #heap>0 do
+        local e=pop();local k=e[3]
+        if not closed[k] then
+            closed[k]=true
+            if k==to then
+                local p={};local c=k
+                while c~=from do table.insert(p,1,c);c=prev[c] end
+                return p
+            end
+            n=n+1
+            if n%500==0 then os.queueEvent("toast_weg");os.pullEvent("toast_weg") end
+            if n>300000 then return nil end
+            local x,i,z=unkey(k)
+            for _,d in ipairs(DIRS6) do
+                local nx,ni,nz=x+d[1],i+d[2],z+d[3]
+                if nx>=0 and nx<S and nz>=0 and nz<S and ni>=0 then
+                    local nk=key(nx,ni,nz)
+                    if not closed[nk] and passable(nk) then
+                        local ng=g[k]+1
+                        if not g[nk] or ng<g[nk] then
+                            g[nk]=ng;prev[nk]=k
+                            local h=dist(nx,ni,nz)
+                            push({ng+h,h,nk})
+                        end
                     end
-                    q[#q+1]=nk
                 end
             end
         end
@@ -338,7 +433,7 @@ local function sealAround()
         if need(e,b) and placeFill(kind) then st.sealed=(st.sealed or 0)+1 end
         return true
     end
-    local function outside(nk) return nk~=BASE and (INDEX[nk]==nil or st.skip[nk]) end
+    local function outside(nk) return nk~=BASE and (st.skip[nk] or not inPlan(nk)) end
     for _,v in ipairs({{"up",1},{"down",-1}}) do
         local nk=key(x,layer(st.y+v[2]),z)
         if layer(st.y+v[2])<0 then nk=-1 end
@@ -387,12 +482,12 @@ round=function()
             local ok,why=resupply();if not ok then w.fail(why);return false end
         end
         if fuel()<homeNeed()+40 then
-            burnCoal(C.fuelTarget)
+            burnCoal(fuelGoal())
             if fuel()<homeNeed()+40 then
                 local ok,why=resupply();if not ok then w.fail(why);return false end
             end
         end
-        local k=ORDER[st.idx]
+        local k=cellAt(st.idx)
         run.scanned=st.idx-1
         if not st.skip[k] then
             local _,ki=unkey(k)

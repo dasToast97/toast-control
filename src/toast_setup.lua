@@ -207,13 +207,13 @@ function S.new(common)
         d.direction=yesno("Nach unten graben? (n = nach oben)",d.direction~="up") and "down" or "up"
         if d.shape=="room" then
             hint("Schacht = z.B. 3 x 3 x 60")
-            d.width=ask("Breite zur Seite (1-64)",d.width,1,64)
-            d.length=ask("Laenge nach vorne (1-64)",d.length,1,64)
-            d.height=ask(d.direction=="up" and "Hoehe (1-256)" or "Tiefe (1-256)",d.height,1,256)
+            d.width=ask("Breite zur Seite (1-1024)",d.width,1,1024)
+            d.length=ask("Laenge nach vorne (1-1024)",d.length,1,1024)
+            d.height=ask(d.direction=="up" and "Hoehe (1-1024)" or "Tiefe (1-1024)",d.height,1,1024)
             if d.width>1 then d.side=askSide("Zur Seite nach",d.side) end
         else
-            d.width=ask("Durchmesser (1-64)",d.width,1,64)
-            if d.shape=="cylinder" then d.height=ask(d.direction=="up" and "Hoehe (1-256)" or "Tiefe (1-256)",d.height,1,256) end
+            d.width=ask("Durchmesser (1-1024)",d.width,1,1024)
+            if d.shape=="cylinder" then d.height=ask(d.direction=="up" and "Hoehe (1-1024)" or "Tiefe (1-1024)",d.height,1,1024) end
         end
         header("Aushub: Waende und Fluessigkeiten")
         hint("1 Waende nicht zubauen")

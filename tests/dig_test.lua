@@ -168,5 +168,28 @@ check("16 verbaut, dann Meldung",st.lined==16 and S.last and tostring(S.last.fau
 check("wartet an der Basis",S.p.x==0 and S.p.y==0 and S.p.z==0)
 check("Erde zurueck in die Kiste",(function() for i=1,S.topN do local t=S.top[i];if t and t.name=="minecraft:dirt" and t.count==5 then return true end end end)())
 
+print("D9 Grosser Raum 30x30 mit verstreuten Erzen: Wege zur Basis und zurueck, nichts vergessen")
+S=new('{shape="room",direction="down",width=30,length=30,height=1,side="right",seal="off",drain=false,keepOres="diamond",useCoal=true,fuelTarget=4000,freeSlots=2,radioTimeout=0,protectedBlocks={}}',
+    function(S) for x=0,29 do for z=1,30 do if (x*7+z*11)%23==0 and not (x==0 and z==1) then S.world[S.key(x,0,z)]="minecraft:diamond_ore" end end end end)
+S.fuel=100000
+Sim.run(S,40000)
+st=state(S)
+local ores,dug,left=0,0,0
+for x=0,29 do for z=1,30 do local b=S.world[S.key(x,0,z)]
+    if b=="minecraft:diamond_ore" then ores=ores+1 elseif b==false then dug=dug+1 else left=left+1 end end end
+check("fertig + zu Hause",st.done==true and S.p.x==0 and S.p.y==0 and S.p.z==0,tail(S))
+check("alles ausser Erzen frei ("..dug.." frei, "..ores.." Erze)",left==0,left)
+check("mehrmals abgeladen (Weg zur Basis + zurueck)",(S.unloads or S.chestBelow or 0)>0,S.chestBelow)
+
+print("D10 Maximalmasse 1024: Config gueltig, Start ohne Speicherproblem")
+S=new('{shape="sphere",direction="down",width=1024,length=1,height=1,side="right",seal="off",drain=false,keepOres="",useCoal=true,fuelTarget=500,freeSlots=2,radioTimeout=0,protectedBlocks={}}')
+Sim.run(S,20)
+local errs=0;for _,l in ipairs(S.log) do if l:find("ERR",1,true) then errs=errs+1 end end
+check("Kugel D1024 laeuft ohne Programmfehler",errs==0,tail(S,8))
+check("Kohle alle: wartet an der Basis statt unterwegs liegen zu bleiben",
+    not (S.last and S.last.fault) or (S.last.fault=="Treibstoff fehlt" and S.p.x==0 and S.p.y==0 and S.p.z==0),
+    tostring(S.last and S.last.fault).." @"..S.p.x..","..S.p.y..","..S.p.z)
+check("Zellenzahl gemeldet (~562 Mio.)",S.last and (S.last.cells or 0)>500000000,S.last and S.last.cells)
+
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end
