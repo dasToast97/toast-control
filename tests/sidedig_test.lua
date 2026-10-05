@@ -58,4 +58,29 @@ print("kleine Mine: seitlich bringt nichts -> normal")
 ok,S=run(3,10,2,true)
 local note=false;for _,l in ipairs(S.log)do if l:find("bringt bei diesen Massen nichts",1,true) then note=true end end
 check("Hinweis + normal fertig",ok and note)
+-- Anzeige im Seitenmodus: Spuren (alle Ebenen) statt Gaenge, mit Prozent
+do
+  local S=Sim.new({config=cfg(9,10,10,"right",true),fuel=500000,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+  S.protocol="toast.mine.v1"
+  local seen
+  S.actions[#S.actions+1]={t=400,fn=function(S) seen=S.last end}
+  Sim.run(S,400)
+  local d=S.last or {}
+  check("Seitenmodus meldet Spurenzahl",type(d.lanes)=="number" and d.lanes>10,tostring(d.lanes))
+  check("Spuren fertig <= Spuren gesamt",(d.rounds or 0)<=(d.lanes or 0),tostring(d.rounds).."/"..tostring(d.lanes))
+  -- Zeile in der Zentrale
+  local S3=Sim.new({config=""})
+  for _,n in ipairs({"toast_common.lua","toast_ui.lua"}) do S3.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a") end
+  local G=Sim.env(S3)
+  do local n=0;local c={};G.colors=setmetatable({},{__index=function(_,k)if not c[k] then n=n+1;c[k]=2^n end;return c[k] end}) end
+  G.textutils.formatTime=function()return "1:00" end;G.os.time=function()return 1 end
+  local UI=G.dofile("/toast/toast_ui.lua")
+  local rows=UI.jobRows and UI.jobRows("mining",{rounds=10,lanes=36,tunnels=10,scanned=100,cells=360})
+  if rows then
+    check("Zeile: Spuren 10 / 36 fertig (27%)",rows[1][1]=="Spuren" and rows[1][2]=="10 / 36 fertig (27%)",rows[1][1].." "..rows[1][2])
+    local r2=UI.jobRows("mining",{rounds=2,tunnels=5,scanned=40,cells=100})
+    check("Normal: Gaenge 2 / 5 fertig (40%)",r2[1][1]=="Gaenge" and r2[1][2]=="2 / 5 fertig (40%)",r2[1][2])
+  else check("UI.jobRows vorhanden",false) end
+end
 print(("\n%d bestanden, %d fehlgeschlagen"):format(pass,fail))
+if fail>0 then os.exit(1) end

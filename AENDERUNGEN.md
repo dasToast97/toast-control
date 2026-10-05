@@ -1,3 +1,11 @@
+# Toast Control 3.13.6
+
+- **Mining mit „Seiten mitabbauen“: richtige Fortschrittsanzeige.** Die Turtle
+  fährt dann in Spuren (über alle Ebenen), nicht in Gängen. Die Anzeige zählte die
+  Spuren gegen die Gänge-Zahl und stand z.B. schon bei „25 / 25 fertig“, obwohl erst
+  die Bodenebene frei war. Jetzt: „Spuren 25 / 75 fertig (33%)“. Im normalen
+  Modus steht ebenfalls die Prozentzahl dabei („Gaenge 2 / 5 fertig (40%)“).
+
 # Toast Control 3.13.5
 
 - **Mining: mehrere Erze hintereinander in der Fahrspur:** Die Turtle umfuhr bisher

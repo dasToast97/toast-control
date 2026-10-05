@@ -1248,7 +1248,7 @@ local function snapshot()
         placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
         chestSpots=st.chestSpots,keptOres=st.keptOres or 0,oresMined=st.oresMined or 0,sealed=st.sealed or 0,drained=st.drained or 0,noFill=st.noFill,
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
-        rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
+        rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells,lanes=SIDE and #LANES or nil}
 end
 local lastSent=-1e9
 sendStatus=function() lastSent=os.clock();pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol) end

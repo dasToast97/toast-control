@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.13.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.13.5",
+    version="3.13.6",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -2091,7 +2091,11 @@ local JOB={
             wait(r,d);return r end},
     mining={name="Mine",plural="Minen",metric="Abgebaut",unit="Bl.",once="1 Gang",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
-        rows=function(d) local r={{"Gaenge",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "").." fertig"},
+        rows=function(d)
+            -- Seitlich mitabbauen: Spuren (alle Ebenen) statt Gaenge zaehlen
+            local total=num(d.lanes)>0 and d.lanes or d.tunnels
+            local pct=num(d.cells)>0 and (" ("..math.floor(math.min(1,num(d.scanned)/num(d.cells))*100).."%)") or ""
+            local r={{num(d.lanes)>0 and "Spuren" or "Gaenge",short(math.min(num(d.rounds),num(total)>0 and num(total) or num(d.rounds)))..(total and (" / "..total) or "").." fertig"..pct},
             {"Abgebaut",short(d.harvested).." Bloecke"},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
             if d.useCoal then r[#r+1]={"Kohle",short(d.coal).." verbrannt"} end
             if d.placeChests then r[#r+1]={"Kisten",short(d.chestsPlaced).." gesetzt, "..short(d.chestsLeft).." dabei"} end
@@ -3146,6 +3150,8 @@ function M.new(screen,cfg)
         a="filter:all",f="filter:farm",m="filter:mining"}
     return ui
 end
+-- fuer Tests: Detailzeilen einer Aufgabe
+function M.jobRows(job,d) local j=JOB[job];return j and j.rows and j.rows(d) end
 return M
 ]======]
 FILES["toast_pocket.lua"]=[======[
@@ -5348,7 +5354,7 @@ local function snapshot()
         placeChests=C.placeChests==true,chestsPlaced=st.chestsPlaced or 0,chestsLeft=C.placeChests and countItems(containers) or nil,
         chestSpots=st.chestSpots,keptOres=st.keptOres or 0,oresMined=st.oresMined or 0,sealed=st.sealed or 0,drained=st.drained or 0,noFill=st.noFill,
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
-        rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells}
+        rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells,lanes=SIDE and #LANES or nil}
 end
 local lastSent=-1e9
 sendStatus=function() lastSent=os.clock();pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol) end
@@ -7339,7 +7345,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.13.5 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

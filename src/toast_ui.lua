@@ -79,7 +79,11 @@ local JOB={
             wait(r,d);return r end},
     mining={name="Mine",plural="Minen",metric="Abgebaut",unit="Bl.",once="1 Gang",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
-        rows=function(d) local r={{"Gaenge",short(d.rounds)..(d.tunnels and (" / "..d.tunnels) or "").." fertig"},
+        rows=function(d)
+            -- Seitlich mitabbauen: Spuren (alle Ebenen) statt Gaenge zaehlen
+            local total=num(d.lanes)>0 and d.lanes or d.tunnels
+            local pct=num(d.cells)>0 and (" ("..math.floor(math.min(1,num(d.scanned)/num(d.cells))*100).."%)") or ""
+            local r={{num(d.lanes)>0 and "Spuren" or "Gaenge",short(math.min(num(d.rounds),num(total)>0 and num(total) or num(d.rounds)))..(total and (" / "..total) or "").." fertig"..pct},
             {"Abgebaut",short(d.harvested).." Bloecke"},{"Abgeladen",short(d.total).." Items"},{"Freie Slots",short(d.freeSlots)}}
             if d.useCoal then r[#r+1]={"Kohle",short(d.coal).." verbrannt"} end
             if d.placeChests then r[#r+1]={"Kisten",short(d.chestsPlaced).." gesetzt, "..short(d.chestsLeft).." dabei"} end
@@ -1134,4 +1138,6 @@ function M.new(screen,cfg)
         a="filter:all",f="filter:farm",m="filter:mining"}
     return ui
 end
+-- fuer Tests: Detailzeilen einer Aufgabe
+function M.jobRows(job,d) local j=JOB[job];return j and j.rows and j.rows(d) end
 return M
