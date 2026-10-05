@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.17.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.17.0",
+    version="3.17.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1162,7 +1162,8 @@ function M.remoteControl(o)
     local R={queue={}}
     local NAMES={forward="Vor",back="Zurueck",up="Hoch",down="Runter",left="Links drehen",right="Rechts drehen",
         dig="Abbauen vorne",digUp="Abbauen oben",digDown="Abbauen unten",attack="Angriff vorne",attackUp="Angriff oben",
-        attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten"}
+        attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten",
+        use="Abbau/Angriff vorne",useUp="Abbau/Angriff oben",useDown="Abbau/Angriff unten"}
     local function sendConfig(ok,msg)
         local okc,raw=pcall(dofile,"/toast.config.lua")
         local c=okc and type(raw)=="table" and M.withDefaults(raw) or o.cfg
@@ -1237,6 +1238,24 @@ function M.manualOps(m)
         dig=withTool(turtle.dig),digUp=withTool(turtle.digUp),digDown=withTool(turtle.digDown),
         attack=withTool(turtle.attack),attackUp=withTool(turtle.attackUp),attackDown=withTool(turtle.attackDown),
     }
+    -- Leertaste & Co.: je nach Werkzeug abbauen oder angreifen
+    -- (Schwert -> erst angreifen; sonst Block da -> abbauen, kein Block -> angreifen)
+    local function sword() return tostring(equipped("left")):find("sword",1,true) or tostring(equipped("right")):find("sword",1,true) end
+    local function smart(detect,dig,attack)
+        return function()
+            if sword() then
+                local ok,why=ops[attack]();if ok then return true end
+                if detect() then return ops[dig]() end
+                return false,"kein Mob da"
+            end
+            if detect() then return ops[dig]() end
+            local ok=ops[attack]();if ok then return true end
+            return false,"nichts da"
+        end
+    end
+    ops.use=smart(turtle.detect,"dig","attack")
+    ops.useUp=smart(turtle.detectUp,"digUp","attackUp")
+    ops.useDown=smart(turtle.detectDown,"digDown","attackDown")
     if not m.noVertical then
         ops.up=function() return m.move("up") end
         ops.down=function() return m.move("down") end
@@ -2144,6 +2163,7 @@ function M.new(cfg)
         m.nodes[id]={role=role,label=common.label(info.name),seen=os.clock(),
             data={toast=tostring(info.toast or "?"),pos=type(info.pos)=="table" and info.pos or nil,stats=type(info.stats)=="table" and info.stats or nil}}
     end
+    local nextRemote          -- (unten definiert) naechsten Fernsteuer-Befehl senden
     function m.ingest(id,b,p)
         local job
         for j,protocol in pairs(common.workerProtocols)do if protocol==p then job=j end end
@@ -2165,7 +2185,7 @@ function M.new(cfg)
         if b.fault and (not old or old.fault~=b.fault) then common.log("Turtle #"..id.." Fehler: "..tostring(b.fault)) end
         m.entries[id]={data=b,seen=os.clock()}
         local pending=m.pending[id]
-        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil;pending=nil end
+        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil;pending=nil;nextRemote(id) end
         -- Befehl offen: sofort nachschicken (Turtle hoert gerade zu, z.B. im Funkfenster)
         if pending and os.clock()-(pending.sentAt or 0)>=0.3 then pending.sentAt=os.clock();dispatch(id,pending.message,pending.job) end
         -- Funkfenster (Chunkloader-Turtle): sofort antworten, dann kann sie gleich weiterarbeiten
@@ -2175,15 +2195,31 @@ function M.new(cfg)
         return true
     end
     -- Fernsteuerung: Einstellungen abrufen/aendern, von Hand fahren (an EINE Turtle)
-    function m.remoteCmd(id,payload)
+    -- Schnelle Tastendruecke: hinten anstellen (hoechstens 6), damit keiner verloren geht
+    m.remoteQueue={}
+    local function sendRemote(id,payload)
         local d=devices[id]
-        if not d or type(payload)~="table" or type(payload.op)~="string" then return false end
         local e=m.entries[id]
         serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
         m.pending[id]={message={kind="remote",serial=serial,payload=payload},at=os.clock(),job=d.job,ttl=15,sentAt=os.clock()}
         dispatch(id,m.pending[id].message,d.job)
         m.changedIds[id]=true
+    end
+    function m.remoteCmd(id,payload)
+        local d=devices[id]
+        if not d or type(payload)~="table" or type(payload.op)~="string" then return false end
+        local p=m.pending[id]
+        if p and p.message.kind=="remote" then
+            local q=m.remoteQueue[id] or {};m.remoteQueue[id]=q
+            if #q<6 then q[#q+1]=payload end
+            return true
+        end
+        sendRemote(id,payload)
         return true
+    end
+    nextRemote=function(id)
+        local q=m.remoteQueue[id]
+        if q and #q>0 and not m.pending[id] then sendRemote(id,table.remove(q,1)) end
     end
     -- Antwort einer Turtle mit ihren Einstellungen
     function m.turtleConfig(id,b,p)
@@ -2301,7 +2337,7 @@ function M.new(cfg)
         end
         local waiting,expired=0,0
         for id,p in pairs(m.pending)do
-            if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1
+            if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1;m.remoteQueue[id]=nil
             else waiting=waiting+1;dispatch(id,p.message,p.job) end
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
@@ -3296,26 +3332,35 @@ function M.new(screen,cfg)
         end
         local msg=tostring(d.mMsg or "")
         text(1,y,msg:sub(1,w),msg:find("Geht nicht",1,true) and colors.orange or colors.cyan);y=y+1
-        -- Steuerkreuz + Werkzeug (3 Spalten)
-        local rows={
-            {{"\27 Links","left"},{"\24 Vor","forward"},{"Rechts \26","right"}},
-            {{"Hoch","up"},{w>=30 and "\25 Zurueck" or "\25 Zur.","back"},{"Runter","down"}},
-            {{"Abbau \24","digUp"},{"Abbau","dig"},{"Abbau \25","digDown"}},
-            {{"Angriff\24","attackUp"},{"Angriff","attack"},{"Angriff\25","attackDown"}},
+        -- Steuerkreuz 3x3 (Tasten in Klammern):
+        --   Hoch(E)      Vor(W)        oben(R)
+        --   Links(A)     Leertaste     Rechts(D)
+        --   Runter(C)    Zurueck(S)    unten(F)
+        -- Mitte/oben/unten = abbauen ODER angreifen, je nach Werkzeug (Schwert = Angriff)
+        local sword=tostring(d.mLeft or ""):find("sword",1,true) or tostring(d.mRight or ""):find("sword",1,true)
+        local use=sword and "Angriff" or "Abbau"
+        local k=ui.kbd
+        local function L(long,short,key) local s=w>=30 and long or short;return k and (s.." "..key) or s end
+        local u3=sword and "Ang" or "Abb"
+        local grid={
+            {{L("Hoch","Hoch","E"),"up",colors.cyan},{L("\24 Vor","\24 Vor","W"),"forward",colors.blue},{L(use.." \24",u3.." \24","R"),"useUp",colors.brown}},
+            {{L("\27 Links","\27 Links","A"),"left",colors.blue},{L(use,sword and "Angr." or "Abbau","[ ]"),"use",sword and colors.red or colors.brown},{L("Rechts \26","Rechts\26","D"),"right",colors.blue}},
+            {{L("Runter","Runter","C"),"down",colors.cyan},{L("\25 Zurueck","\25 Zur.","S"),"back",colors.blue},{L(use.." \25",u3.." \25","F"),"useDown",colors.brown}},
         }
         local free=foot-1-y
+        local bh=free>=9 and 3 or free>=6 and 2 or 1
         local cw=math.floor(w/3)
-        for ri,r in ipairs(rows) do
-            -- Fahrknoepfe doppelt hoch, wenn Platz ist (leichter zu treffen)
-            local bh=(free>=8 or (free>=6 and ri<=2)) and 2 or 1
+        for _,r in ipairs(grid) do
             if y+bh-1>foot-1 then break end
             for i,b in ipairs(r) do
                 local x=1+(i-1)*cw
                 local width=i==3 and w-x+1 or cw
-                local col=(b[2]:find("^dig") and colors.brown) or (b[2]:find("^attack") and colors.red) or colors.blue
-                button(x,y,width,b[1],"rc:"..b[2],col,on and link,bh,true)
+                button(x,y,width,b[1],"rc:"..b[2],b[3],on and link,bh,true)
             end
             y=y+bh
+        end
+        if y<=foot-1 and not k then
+            text(1,y,(w>=36 and "Tastatur: WASD, Leertaste, E/C hoch/runter, R/F" or "WASD Leer E/C R/F"):sub(1,w),colors.gray)
         end
     end
     -- ===== Fernsteuerung: Einstellungen abrufen/aendern =====
@@ -3463,7 +3508,8 @@ function M.new(screen,cfg)
         local l=(ui.cfgLinesCache or {})[ui.cfgSel or 0]
         if l and (l.kind=="name" or (l.kind=="field" and type(l.value)=="string" and not l.opts)) then return l end
     end
-    function ui.textInput() return ui.filter=="store" or cfgTextField()~=nil end
+    -- Texteingabe / Steuermodus: Q beendet dann nicht das Programm
+    function ui.textInput() return ui.filter=="store" or cfgTextField()~=nil or (ui.selected~=nil and ui.detailView=="drive") end
     function ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,y0)
         ui.ids={};ui.selected=nil
         local stores={}
@@ -3731,7 +3777,8 @@ function M.new(screen,cfg)
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
         if ui.selected and ui.detailView=="drive" then
-            local K={up="rc:forward",down="rc:back",left="rc:left",right="rc:right",pageUp="rc:up",pageDown="rc:down"}
+            local K={up="rc:forward",down="rc:back",left="rc:left",right="rc:right",pageUp="rc:up",pageDown="rc:down",
+                space="rc:use",leftShift="rc:down",rightShift="rc:down",leftCtrl="rc:useDown"}
             if K[name] then return K[name] end
             if name=="backspace" then return "group" end
         end
@@ -3766,8 +3813,10 @@ function M.new(screen,cfg)
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
         if ui.selected and ui.detailView=="drive" then
-            local K={w="rc:forward",s="rc:back",a="rc:left",d="rc:right",f="rc:dig",g="rc:attack"}
+            local K={w="rc:forward",s="rc:back",a="rc:left",d="rc:right",e="rc:up",c="rc:down",r="rc:useUp",f="rc:useDown",
+                [" "]="redraw"}           -- Leertaste kommt schon als Taste (space)
             if K[ch:lower()] then return K[ch:lower()] end
+            return "redraw"               -- andere Tasten im Steuermodus nicht als Befehle (z.B. R = Reset)
         end
         local tf=cfgTextField()
         if tf and ch:match("^[%w _,%.:%-]$") then cfgSet(tf,(tostring(tf.value or "")..ch):sub(1,48));return "redraw" end
@@ -8728,7 +8777,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.17.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

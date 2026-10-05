@@ -1,3 +1,18 @@
+# Toast Control 3.17.1
+
+- **Steuern: neues Steuerkreuz + Tastatur** (Zentrale-PC und Pocket):
+  ```
+  Hoch (E)       ▲ Vor (W)      Abbau ▲ (R)
+  ◄ Links (A)    Leertaste      Rechts ► (D)
+  Runter (C)     ▼ Zurück (S)   Abbau ▼ (F)
+  ```
+  Auch Pfeiltasten, Bild↑/↓ bzw. Shift = hoch/runter.
+  **Leertaste / Mitte = abbauen ODER angreifen, je nach Werkzeug:** mit Schwert
+  greift sie an, sonst baut sie ab (kein Block da → Angriff). R/F dasselbe oben/unten.
+  Im Steuermodus beendet Q das Programm nicht mehr versehentlich.
+- **Schnelle Tastendrücke gehen nicht mehr verloren:** Die Zentrale stellt sie an
+  (bis 6) und schickt sie nacheinander, sobald die Turtle den vorigen bestätigt.
+
 # Toast Control 3.17.0
 
 - **Fernsteuerung der Turtles** (Zentrale und Pocket). In den Details einer Turtle

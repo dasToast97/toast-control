@@ -1,5 +1,5 @@
 local M={
-    version="3.17.0",
+    version="3.17.1",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1019,7 +1019,8 @@ function M.remoteControl(o)
     local R={queue={}}
     local NAMES={forward="Vor",back="Zurueck",up="Hoch",down="Runter",left="Links drehen",right="Rechts drehen",
         dig="Abbauen vorne",digUp="Abbauen oben",digDown="Abbauen unten",attack="Angriff vorne",attackUp="Angriff oben",
-        attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten"}
+        attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten",
+        use="Abbau/Angriff vorne",useUp="Abbau/Angriff oben",useDown="Abbau/Angriff unten"}
     local function sendConfig(ok,msg)
         local okc,raw=pcall(dofile,"/toast.config.lua")
         local c=okc and type(raw)=="table" and M.withDefaults(raw) or o.cfg
@@ -1094,6 +1095,24 @@ function M.manualOps(m)
         dig=withTool(turtle.dig),digUp=withTool(turtle.digUp),digDown=withTool(turtle.digDown),
         attack=withTool(turtle.attack),attackUp=withTool(turtle.attackUp),attackDown=withTool(turtle.attackDown),
     }
+    -- Leertaste & Co.: je nach Werkzeug abbauen oder angreifen
+    -- (Schwert -> erst angreifen; sonst Block da -> abbauen, kein Block -> angreifen)
+    local function sword() return tostring(equipped("left")):find("sword",1,true) or tostring(equipped("right")):find("sword",1,true) end
+    local function smart(detect,dig,attack)
+        return function()
+            if sword() then
+                local ok,why=ops[attack]();if ok then return true end
+                if detect() then return ops[dig]() end
+                return false,"kein Mob da"
+            end
+            if detect() then return ops[dig]() end
+            local ok=ops[attack]();if ok then return true end
+            return false,"nichts da"
+        end
+    end
+    ops.use=smart(turtle.detect,"dig","attack")
+    ops.useUp=smart(turtle.detectUp,"digUp","attackUp")
+    ops.useDown=smart(turtle.detectDown,"digDown","attackDown")
     if not m.noVertical then
         ops.up=function() return m.move("up") end
         ops.down=function() return m.move("down") end

@@ -126,7 +126,7 @@ do
         local r=ui.action("dv:drive");ui.draw(model.fleet(),true,"")
         local t=sc.text()
         if size[3]=="Pocket" then print(t) end
-        check(size[3]..": Steuern-Reiter mit Steuerkreuz",t:find("Fernsteuerung AN",1,true) and t:find("Vor",1,true) and t:find("Abbau",1,true) and t:find("Angriff",1,true),t)
+        check(size[3]..": Steuern-Reiter mit Steuerkreuz",t:find("Fernsteuerung AN",1,true) and t:find("Vor",1,true) and t:find("Abbau",1,true) and t:find("Hoch",1,true) and t:find("Runter",1,true),t)
         local fwd;for _,b in ipairs(ui.buttons) do if b.action=="rc:forward" then fwd=b end end
         local cmd=fwd and ui.action(ui.click(fwd.x,fwd.y))
         check(size[3]..": 'Vor' tippen -> Befehl an Turtle 12",type(cmd)=="table" and cmd.id==12 and cmd.payload.op=="forward")
@@ -158,6 +158,8 @@ do
     local got;for _,m in ipairs(sent) do if m.id==12 and m.msg.kind=="remote" and m.msg.payload.op=="forward" then got=true end end
     check("Befehl gesendet (Protokoll Aushub)",got)
     model.remote(30,{kind="hello",role="pocket",version=1,controllerId=4,info={role="pocket",name="P"}},common.remoteProtocol)
+    -- vorigen Befehl bestaetigen, sonst steht der naechste in der Warteschlange
+    model.ingest(12,{kind="status",version=2,id=12,status="Bereit",ack=model.pending[12].message.serial,controllerId=4},"toast.dig.v1")
     sent={}
     model.remote(30,{kind="remote",version=1,controllerId=4,target=12,payload={op="left"},serial=99999999999999},common.remoteProtocol)
     got=nil;for _,m in ipairs(sent) do if m.id==12 and m.msg.kind=="remote" and m.msg.payload.op=="left" then got=true end end
@@ -204,5 +206,36 @@ Sim.run(S,6)
 local okc8,c8=pcall(load(S.files["/toast.config.lua"]))
 check("Config gueltig, Mine-Laenge 8, Aufgabe Mine, Hoehe unveraendert",okc8 and c8 and c8.job=="mining" and c8.mine and c8.mine.length==8 and c8.mine.height==3,
     okc8 and c8 and c8.mine and c8.mine.length or tostring(c8))
+print("R9 Leertaste-Logik + Warteschlange")
+do
+    -- Aushub-Turtle (Spitzhacke): Leertaste baut ab, ohne Block greift sie an
+    S=Sim.new({config=CFG,fuel=4000})
+    S.protocol="toast.dig.v1"
+    S.world[S.key(0,0,1)]="minecraft:dirt"
+    remote(S,2,{op="manual_on"});remote(S,3,{op="use"});remote(S,4,{op="use"});remote(S,5,{op="useUp"})
+    Sim.run(S,7)
+    check("Leertaste: Erde vorne abgebaut",S.world[S.key(0,0,1)]==false)
+    local u=lastWith(S,function(m) return m.kind=="status" and m.mMsg and m.mMsg:find("vorne",1,true) end)
+    check("zweimal Leertaste ohne Block: Meldung 'nichts da'",u and u.mMsg:find("nichts da",1,true),u and u.mMsg)
+    check("oben (Stein) abgebaut",S.world[S.key(0,-1,0)]==false)
+    -- Zentrale: 3 schnelle Befehle -> nacheinander
+    local S3=Sim.new({config=""});local G=Sim.env(S3)
+    for _,n in ipairs({"toast_common.lua","toast_model.lua"}) do S3.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a") end
+    G.os.getComputerID=function() return 4 end;G.turtle=nil
+    local sent={};G.rednet.send=function(id,msg,p) sent[#sent+1]={id=id,msg=msg,p=p};return true end
+    G.rednet.broadcast=function() end
+    local common=G.dofile("/toast/toast_common.lua")
+    local model=G.dofile("/toast/toast_model.lua").new(common.load({role="controller",controllerId=4}))
+    model.ingest(12,{kind="status",version=2,id=12,status="Bereit",ack=0,controllerId=4},"toast.dig.v1")
+    model.remoteCmd(12,{op="forward"});model.remoteCmd(12,{op="forward"});model.remoteCmd(12,{op="left"})
+    local ops={};for _,m in ipairs(sent) do if m.msg.kind=="remote" then ops[#ops+1]=m.msg.payload.op end end
+    check("erst nur der erste Befehl unterwegs",#ops==1 and ops[1]=="forward",table.concat(ops,","))
+    local s1=model.pending[12].message.serial
+    model.ingest(12,{kind="status",version=2,id=12,status="Bereit",ack=s1,controllerId=4},"toast.dig.v1")
+    local s2=model.pending[12] and model.pending[12].message
+    check("nach Bestaetigung kommt der zweite",s2 and s2.payload.op=="forward" and s2.serial>s1)
+    model.ingest(12,{kind="status",version=2,id=12,status="Bereit",ack=s2.serial,controllerId=4},"toast.dig.v1")
+    check("dann der dritte (links)",model.pending[12] and model.pending[12].message.payload.op=="left")
+end
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end

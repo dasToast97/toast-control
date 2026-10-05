@@ -67,6 +67,7 @@ function M.new(cfg)
         m.nodes[id]={role=role,label=common.label(info.name),seen=os.clock(),
             data={toast=tostring(info.toast or "?"),pos=type(info.pos)=="table" and info.pos or nil,stats=type(info.stats)=="table" and info.stats or nil}}
     end
+    local nextRemote          -- (unten definiert) naechsten Fernsteuer-Befehl senden
     function m.ingest(id,b,p)
         local job
         for j,protocol in pairs(common.workerProtocols)do if protocol==p then job=j end end
@@ -88,7 +89,7 @@ function M.new(cfg)
         if b.fault and (not old or old.fault~=b.fault) then common.log("Turtle #"..id.." Fehler: "..tostring(b.fault)) end
         m.entries[id]={data=b,seen=os.clock()}
         local pending=m.pending[id]
-        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil;pending=nil end
+        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil;pending=nil;nextRemote(id) end
         -- Befehl offen: sofort nachschicken (Turtle hoert gerade zu, z.B. im Funkfenster)
         if pending and os.clock()-(pending.sentAt or 0)>=0.3 then pending.sentAt=os.clock();dispatch(id,pending.message,pending.job) end
         -- Funkfenster (Chunkloader-Turtle): sofort antworten, dann kann sie gleich weiterarbeiten
@@ -98,15 +99,31 @@ function M.new(cfg)
         return true
     end
     -- Fernsteuerung: Einstellungen abrufen/aendern, von Hand fahren (an EINE Turtle)
-    function m.remoteCmd(id,payload)
+    -- Schnelle Tastendruecke: hinten anstellen (hoechstens 6), damit keiner verloren geht
+    m.remoteQueue={}
+    local function sendRemote(id,payload)
         local d=devices[id]
-        if not d or type(payload)~="table" or type(payload.op)~="string" then return false end
         local e=m.entries[id]
         serial=math.max(serial+1,os.epoch("utc"),e and common.number(e.data.ack)+1 or 0)
         m.pending[id]={message={kind="remote",serial=serial,payload=payload},at=os.clock(),job=d.job,ttl=15,sentAt=os.clock()}
         dispatch(id,m.pending[id].message,d.job)
         m.changedIds[id]=true
+    end
+    function m.remoteCmd(id,payload)
+        local d=devices[id]
+        if not d or type(payload)~="table" or type(payload.op)~="string" then return false end
+        local p=m.pending[id]
+        if p and p.message.kind=="remote" then
+            local q=m.remoteQueue[id] or {};m.remoteQueue[id]=q
+            if #q<6 then q[#q+1]=payload end
+            return true
+        end
+        sendRemote(id,payload)
         return true
+    end
+    nextRemote=function(id)
+        local q=m.remoteQueue[id]
+        if q and #q>0 and not m.pending[id] then sendRemote(id,table.remove(q,1)) end
     end
     -- Antwort einer Turtle mit ihren Einstellungen
     function m.turtleConfig(id,b,p)
@@ -224,7 +241,7 @@ function M.new(cfg)
         end
         local waiting,expired=0,0
         for id,p in pairs(m.pending)do
-            if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1
+            if os.clock()-p.at>=(p.ttl or cfg.network.commandTimeout) then m.pending[id]=nil;expired=expired+1;m.remoteQueue[id]=nil
             else waiting=waiting+1;dispatch(id,p.message,p.job) end
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"

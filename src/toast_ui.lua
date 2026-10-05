@@ -900,26 +900,35 @@ function M.new(screen,cfg)
         end
         local msg=tostring(d.mMsg or "")
         text(1,y,msg:sub(1,w),msg:find("Geht nicht",1,true) and colors.orange or colors.cyan);y=y+1
-        -- Steuerkreuz + Werkzeug (3 Spalten)
-        local rows={
-            {{"\27 Links","left"},{"\24 Vor","forward"},{"Rechts \26","right"}},
-            {{"Hoch","up"},{w>=30 and "\25 Zurueck" or "\25 Zur.","back"},{"Runter","down"}},
-            {{"Abbau \24","digUp"},{"Abbau","dig"},{"Abbau \25","digDown"}},
-            {{"Angriff\24","attackUp"},{"Angriff","attack"},{"Angriff\25","attackDown"}},
+        -- Steuerkreuz 3x3 (Tasten in Klammern):
+        --   Hoch(E)      Vor(W)        oben(R)
+        --   Links(A)     Leertaste     Rechts(D)
+        --   Runter(C)    Zurueck(S)    unten(F)
+        -- Mitte/oben/unten = abbauen ODER angreifen, je nach Werkzeug (Schwert = Angriff)
+        local sword=tostring(d.mLeft or ""):find("sword",1,true) or tostring(d.mRight or ""):find("sword",1,true)
+        local use=sword and "Angriff" or "Abbau"
+        local k=ui.kbd
+        local function L(long,short,key) local s=w>=30 and long or short;return k and (s.." "..key) or s end
+        local u3=sword and "Ang" or "Abb"
+        local grid={
+            {{L("Hoch","Hoch","E"),"up",colors.cyan},{L("\24 Vor","\24 Vor","W"),"forward",colors.blue},{L(use.." \24",u3.." \24","R"),"useUp",colors.brown}},
+            {{L("\27 Links","\27 Links","A"),"left",colors.blue},{L(use,sword and "Angr." or "Abbau","[ ]"),"use",sword and colors.red or colors.brown},{L("Rechts \26","Rechts\26","D"),"right",colors.blue}},
+            {{L("Runter","Runter","C"),"down",colors.cyan},{L("\25 Zurueck","\25 Zur.","S"),"back",colors.blue},{L(use.." \25",u3.." \25","F"),"useDown",colors.brown}},
         }
         local free=foot-1-y
+        local bh=free>=9 and 3 or free>=6 and 2 or 1
         local cw=math.floor(w/3)
-        for ri,r in ipairs(rows) do
-            -- Fahrknoepfe doppelt hoch, wenn Platz ist (leichter zu treffen)
-            local bh=(free>=8 or (free>=6 and ri<=2)) and 2 or 1
+        for _,r in ipairs(grid) do
             if y+bh-1>foot-1 then break end
             for i,b in ipairs(r) do
                 local x=1+(i-1)*cw
                 local width=i==3 and w-x+1 or cw
-                local col=(b[2]:find("^dig") and colors.brown) or (b[2]:find("^attack") and colors.red) or colors.blue
-                button(x,y,width,b[1],"rc:"..b[2],col,on and link,bh,true)
+                button(x,y,width,b[1],"rc:"..b[2],b[3],on and link,bh,true)
             end
             y=y+bh
+        end
+        if y<=foot-1 and not k then
+            text(1,y,(w>=36 and "Tastatur: WASD, Leertaste, E/C hoch/runter, R/F" or "WASD Leer E/C R/F"):sub(1,w),colors.gray)
         end
     end
     -- ===== Fernsteuerung: Einstellungen abrufen/aendern =====
@@ -1067,7 +1076,8 @@ function M.new(screen,cfg)
         local l=(ui.cfgLinesCache or {})[ui.cfgSel or 0]
         if l and (l.kind=="name" or (l.kind=="field" and type(l.value)=="string" and not l.opts)) then return l end
     end
-    function ui.textInput() return ui.filter=="store" or cfgTextField()~=nil end
+    -- Texteingabe / Steuermodus: Q beendet dann nicht das Programm
+    function ui.textInput() return ui.filter=="store" or cfgTextField()~=nil or (ui.selected~=nil and ui.detailView=="drive") end
     function ui.drawStore(nodes,link,text,right,fill,pill,w,h,notice,y0)
         ui.ids={};ui.selected=nil
         local stores={}
@@ -1335,7 +1345,8 @@ function M.new(screen,cfg)
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
         if ui.selected and ui.detailView=="drive" then
-            local K={up="rc:forward",down="rc:back",left="rc:left",right="rc:right",pageUp="rc:up",pageDown="rc:down"}
+            local K={up="rc:forward",down="rc:back",left="rc:left",right="rc:right",pageUp="rc:up",pageDown="rc:down",
+                space="rc:use",leftShift="rc:down",rightShift="rc:down",leftCtrl="rc:useDown"}
             if K[name] then return K[name] end
             if name=="backspace" then return "group" end
         end
@@ -1370,8 +1381,10 @@ function M.new(screen,cfg)
         ui.kbd=true
         if ui.help then ui.help=false;return "redraw" end
         if ui.selected and ui.detailView=="drive" then
-            local K={w="rc:forward",s="rc:back",a="rc:left",d="rc:right",f="rc:dig",g="rc:attack"}
+            local K={w="rc:forward",s="rc:back",a="rc:left",d="rc:right",e="rc:up",c="rc:down",r="rc:useUp",f="rc:useDown",
+                [" "]="redraw"}           -- Leertaste kommt schon als Taste (space)
             if K[ch:lower()] then return K[ch:lower()] end
+            return "redraw"               -- andere Tasten im Steuermodus nicht als Befehle (z.B. R = Reset)
         end
         local tf=cfgTextField()
         if tf and ch:match("^[%w _,%.:%-]$") then cfgSet(tf,(tostring(tf.value or "")..ch):sub(1,48));return "redraw" end
