@@ -479,7 +479,7 @@ function W.new(o)
         send=function() sendStatus() end,
         atHome=function() return w.isHome() end,
         stopped=function() return run.mode=="off" end,
-        ops=common.manualOps({
+        ops=common.manualOps({run=run,
             move=function(kind)
                 if kind=="back" then
                     local d=st.dir

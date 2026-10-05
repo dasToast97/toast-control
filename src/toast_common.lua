@@ -1,5 +1,5 @@
 local M={
-    version="3.17.1",
+    version="3.17.2",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -995,6 +995,14 @@ function M.applyRemoteConfig(p,o)
     M.log("Einstellungen per Funk geaendert"..(layout and " (neuer Auftrag)" or ""))
     return true,layout and "Gespeichert - neuer Auftrag, Turtle startet neu" or "Gespeichert - Turtle startet neu"
 end
+-- Werkzeuge, Modems, Chunkloader, Brennstoff: nicht zum Bauen verwenden
+function M.isGearItem(n)
+    n=tostring(n)
+    for _,p in ipairs({"_pickaxe","_sword","_axe","_shovel","_hoe","modem","chunkloader","minecraft:coal","charcoal","bucket"}) do
+        if n:find(p,1,true) then return true end
+    end
+    return false
+end
 -- Werkzeug-Namen (links/rechts) fuer die Fernsteuerung
 local function equipped(side)
     local fn=turtle and (side=="left" and turtle.getEquippedLeft or turtle.getEquippedRight)
@@ -1010,6 +1018,7 @@ function M.manualInfo(run,snap)
         local function look(fn) local ok,e,b=pcall(fn);if ok and e and type(b)=="table" then return b.name end;return "Luft" end
         snap.mFront=look(turtle.inspect);snap.mUp=look(turtle.inspectUp);snap.mDown=look(turtle.inspectDown)
         snap.mLeft=equipped("left");snap.mRight=equipped("right")
+        if run.blockInfo then local ok,n,c=pcall(run.blockInfo);if ok then snap.mBlock,snap.mBlockN=n,c end end
     end
 end
 -- Empfang + Ausfuehrung. o = {cfg,job,st,run,save,transmit(msg),ops={op=fn},atHome,stopped}
@@ -1020,7 +1029,7 @@ function M.remoteControl(o)
     local NAMES={forward="Vor",back="Zurueck",up="Hoch",down="Runter",left="Links drehen",right="Rechts drehen",
         dig="Abbauen vorne",digUp="Abbauen oben",digDown="Abbauen unten",attack="Angriff vorne",attackUp="Angriff oben",
         attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten",
-        use="Abbau/Angriff vorne",useUp="Abbau/Angriff oben",useDown="Abbau/Angriff unten"}
+        use="Abbau/Angriff vorne",useUp="Abbau/Angriff oben",useDown="Abbau/Angriff unten",nextblock="Naechster Block"}
     local function sendConfig(ok,msg)
         local okc,raw=pcall(dofile,"/toast.config.lua")
         local c=okc and type(raw)=="table" and M.withDefaults(raw) or o.cfg
@@ -1110,6 +1119,34 @@ function M.manualOps(m)
             return false,"nichts da"
         end
     end
+    -- Bauen: Block aus dem gewaehlten Slot setzen (Werkzeuge/Modem/Kohle werden uebersprungen)
+    local run=m.run or {}
+    local function blockSlot()
+        local s=run.placeSlot
+        local it=s and turtle.getItemDetail(s)
+        if it and not M.isGearItem(it.name) then return s,it end
+        for i=1,16 do local it2=turtle.getItemDetail(i);if it2 and not M.isGearItem(it2.name) then run.placeSlot=i;return i,it2 end end
+    end
+    local function placer(fn)
+        return function()
+            local slot=blockSlot();if not slot then return false,"kein Block im Inventar" end
+            local prev=turtle.getSelectedSlot and turtle.getSelectedSlot()
+            turtle.select(slot);local ok,why=fn();if prev then turtle.select(prev) end
+            if not ok and why==nil then why="da ist schon etwas" end
+            return ok,why
+        end
+    end
+    ops.place=placer(turtle.place);ops.placeUp=placer(turtle.placeUp);ops.placeDown=placer(turtle.placeDown)
+    ops.nextblock=function()
+        local start=run.placeSlot or 0
+        for k=1,16 do
+            local i=(start+k-1)%16+1
+            local it=turtle.getItemDetail(i)
+            if it and not M.isGearItem(it.name) then run.placeSlot=i;return true end
+        end
+        return false,"kein Block im Inventar"
+    end
+    run.blockInfo=function() local s,it=blockSlot();if it then return it.name,it.count end end
     ops.use=smart(turtle.detect,"dig","attack")
     ops.useUp=smart(turtle.detectUp,"digUp","attackUp")
     ops.useDown=smart(turtle.detectDown,"digDown","attackDown")

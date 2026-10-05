@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.17.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.17.1",
+    version="3.17.2",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1138,6 +1138,14 @@ function M.applyRemoteConfig(p,o)
     M.log("Einstellungen per Funk geaendert"..(layout and " (neuer Auftrag)" or ""))
     return true,layout and "Gespeichert - neuer Auftrag, Turtle startet neu" or "Gespeichert - Turtle startet neu"
 end
+-- Werkzeuge, Modems, Chunkloader, Brennstoff: nicht zum Bauen verwenden
+function M.isGearItem(n)
+    n=tostring(n)
+    for _,p in ipairs({"_pickaxe","_sword","_axe","_shovel","_hoe","modem","chunkloader","minecraft:coal","charcoal","bucket"}) do
+        if n:find(p,1,true) then return true end
+    end
+    return false
+end
 -- Werkzeug-Namen (links/rechts) fuer die Fernsteuerung
 local function equipped(side)
     local fn=turtle and (side=="left" and turtle.getEquippedLeft or turtle.getEquippedRight)
@@ -1153,6 +1161,7 @@ function M.manualInfo(run,snap)
         local function look(fn) local ok,e,b=pcall(fn);if ok and e and type(b)=="table" then return b.name end;return "Luft" end
         snap.mFront=look(turtle.inspect);snap.mUp=look(turtle.inspectUp);snap.mDown=look(turtle.inspectDown)
         snap.mLeft=equipped("left");snap.mRight=equipped("right")
+        if run.blockInfo then local ok,n,c=pcall(run.blockInfo);if ok then snap.mBlock,snap.mBlockN=n,c end end
     end
 end
 -- Empfang + Ausfuehrung. o = {cfg,job,st,run,save,transmit(msg),ops={op=fn},atHome,stopped}
@@ -1163,7 +1172,7 @@ function M.remoteControl(o)
     local NAMES={forward="Vor",back="Zurueck",up="Hoch",down="Runter",left="Links drehen",right="Rechts drehen",
         dig="Abbauen vorne",digUp="Abbauen oben",digDown="Abbauen unten",attack="Angriff vorne",attackUp="Angriff oben",
         attackDown="Angriff unten",place="Setzen vorne",placeUp="Setzen oben",placeDown="Setzen unten",
-        use="Abbau/Angriff vorne",useUp="Abbau/Angriff oben",useDown="Abbau/Angriff unten"}
+        use="Abbau/Angriff vorne",useUp="Abbau/Angriff oben",useDown="Abbau/Angriff unten",nextblock="Naechster Block"}
     local function sendConfig(ok,msg)
         local okc,raw=pcall(dofile,"/toast.config.lua")
         local c=okc and type(raw)=="table" and M.withDefaults(raw) or o.cfg
@@ -1253,6 +1262,34 @@ function M.manualOps(m)
             return false,"nichts da"
         end
     end
+    -- Bauen: Block aus dem gewaehlten Slot setzen (Werkzeuge/Modem/Kohle werden uebersprungen)
+    local run=m.run or {}
+    local function blockSlot()
+        local s=run.placeSlot
+        local it=s and turtle.getItemDetail(s)
+        if it and not M.isGearItem(it.name) then return s,it end
+        for i=1,16 do local it2=turtle.getItemDetail(i);if it2 and not M.isGearItem(it2.name) then run.placeSlot=i;return i,it2 end end
+    end
+    local function placer(fn)
+        return function()
+            local slot=blockSlot();if not slot then return false,"kein Block im Inventar" end
+            local prev=turtle.getSelectedSlot and turtle.getSelectedSlot()
+            turtle.select(slot);local ok,why=fn();if prev then turtle.select(prev) end
+            if not ok and why==nil then why="da ist schon etwas" end
+            return ok,why
+        end
+    end
+    ops.place=placer(turtle.place);ops.placeUp=placer(turtle.placeUp);ops.placeDown=placer(turtle.placeDown)
+    ops.nextblock=function()
+        local start=run.placeSlot or 0
+        for k=1,16 do
+            local i=(start+k-1)%16+1
+            local it=turtle.getItemDetail(i)
+            if it and not M.isGearItem(it.name) then run.placeSlot=i;return true end
+        end
+        return false,"kein Block im Inventar"
+    end
+    run.blockInfo=function() local s,it=blockSlot();if it then return it.name,it.count end end
     ops.use=smart(turtle.detect,"dig","attack")
     ops.useUp=smart(turtle.detectUp,"digUp","attackUp")
     ops.useDown=smart(turtle.detectDown,"digDown","attackDown")
@@ -3324,7 +3361,20 @@ function M.new(screen,cfg)
             text(1,y,"Vorne",colors.lightGray);text(8,y,bname(d.mFront):sub(1,w-8));y=y+1
             local ou="Oben "..bname(d.mUp):sub(1,math.floor(w/2)-6)
             text(1,y,ou,colors.lightGray);text(math.floor(w/2)+1,y,("Unten "..bname(d.mDown)):sub(1,w-math.floor(w/2)),colors.lightGray);y=y+1
-            text(1,y,("Hand "..bname(d.mLeft).." / "..bname(d.mRight)):sub(1,w),colors.gray);y=y+1
+            -- Modus: Abbau/Angriff <-> Bauen (Taste B oder Tab), im Bau-Modus Block (Taste T)
+            local build=ui.driveMode=="build"
+            local half=math.floor(w/2)
+            pill(1,y,half-1,(build and "Bauen" or "Abbau/Angriff")..(ui.kbd and " B" or ""),"dm:toggle",build and colors.green or colors.brown,true,colors.white)
+            if build then
+                local nl=(w>=30 and "Naechster Block" or "Block \26")..(ui.kbd and " T" or "")
+                pill(half+1,y,w-half,nl,"rc:nextblock",colors.blue,link,colors.white)
+                y=y+1
+                local bl=d.mBlock and (bname(d.mBlock)..(d.mBlockN and (" x"..d.mBlockN) or "")) or "kein Block (nach 'Steuern' einlegen)"
+                text(1,y,("Setzt: "..bl):sub(1,w),d.mBlock and colors.white or colors.orange)
+            else
+                text(half+1,y,("Hand "..bname(d.mLeft)):sub(1,w-half),colors.gray)
+            end
+            y=y+1
         else
             text(1,y,"Turtle stoppen, dann 'Steuern'.",colors.lightGray);y=y+1
             text(1,y,"Beenden = sie faehrt zur Basis.",colors.lightGray);y=y+1
@@ -3342,9 +3392,11 @@ function M.new(screen,cfg)
         local k=ui.kbd
         local function L(long,short,key) local s=w>=30 and long or short;return k and (s.." "..key) or s end
         local u3=sword and "Ang" or "Abb"
+        local uc=sword and colors.red or colors.brown
+        if ui.driveMode=="build" then use,u3,uc="Setzen","Setz",colors.green end
         local grid={
             {{L("Hoch","Hoch","E"),"up",colors.cyan},{L("\24 Vor","\24 Vor","W"),"forward",colors.blue},{L(use.." \24",u3.." \24","R"),"useUp",colors.brown}},
-            {{L("\27 Links","\27 Links","A"),"left",colors.blue},{L(use,sword and "Angr." or "Abbau","[ ]"),"use",sword and colors.red or colors.brown},{L("Rechts \26","Rechts\26","D"),"right",colors.blue}},
+            {{L("\27 Links","\27 Links","A"),"left",colors.blue},{L(use,ui.driveMode=="build" and "Setzen" or (sword and "Angr." or "Abbau"),"[ ]"),"use",uc},{L("Rechts \26","Rechts\26","D"),"right",colors.blue}},
             {{L("Runter","Runter","C"),"down",colors.cyan},{L("\25 Zurueck","\25 Zur.","S"),"back",colors.blue},{L(use.." \25",u3.." \25","F"),"useDown",colors.brown}},
         }
         local free=foot-1-y
@@ -3360,7 +3412,7 @@ function M.new(screen,cfg)
             y=y+bh
         end
         if y<=foot-1 and not k then
-            text(1,y,(w>=36 and "Tastatur: WASD, Leertaste, E/C hoch/runter, R/F" or "WASD Leer E/C R/F"):sub(1,w),colors.gray)
+            text(1,y,(w>=36 and "Tastatur: WASD, Leer, E/C, R/F, B Modus, T Block" or "WASD Leer E/C R/F B T"):sub(1,w),colors.gray)
         end
     end
     -- ===== Fernsteuerung: Einstellungen abrufen/aendern =====
@@ -3481,7 +3533,13 @@ function M.new(screen,cfg)
     -- Aktionen der Fernsteuerung -> nil oder {id=,payload=} (an die Turtle)
     function ui.remoteAction(a)
         local id=ui.selected;if not id then return end
-        if a:match("^rc:") then return {id=id,payload={op=a:sub(4)}} end
+        if a:match("^rc:") then
+            local op=a:sub(4)
+            if ui.driveMode=="build" then
+                op=({use="place",useUp="placeUp",useDown="placeDown"})[op] or op
+            end
+            return {id=id,payload={op=op}}
+        end
         local L=ui.cfgLinesCache or {}
         local l=L[ui.cfgSel or 0]
         if a:match("^cf:sel:") then ui.cfgSel=tonumber(a:sub(8));return end
@@ -3714,6 +3772,7 @@ function M.new(screen,cfg)
         if a~="reset" and a~="update" then ui.confirm=nil end
         if a=="redraw" then return
         elseif type(a)=="string" and (a:match("^rc:") or a:match("^cf:")) then return ui.remoteAction(a)
+        elseif a=="dm:toggle" then ui.driveMode=ui.driveMode=="build" and "use" or "build";return
         elseif a=="dv:info" then ui.detailView=nil;return
         elseif a=="dv:drive" then ui.detailView="drive";return
         elseif a=="dv:config" then
@@ -3778,7 +3837,7 @@ function M.new(screen,cfg)
         if ui.help then ui.help=false;return "redraw" end
         if ui.selected and ui.detailView=="drive" then
             local K={up="rc:forward",down="rc:back",left="rc:left",right="rc:right",pageUp="rc:up",pageDown="rc:down",
-                space="rc:use",leftShift="rc:down",rightShift="rc:down",leftCtrl="rc:useDown"}
+                space="rc:use",leftShift="rc:down",rightShift="rc:down",leftCtrl="rc:useDown",tab="dm:toggle"}
             if K[name] then return K[name] end
             if name=="backspace" then return "group" end
         end
@@ -3814,7 +3873,7 @@ function M.new(screen,cfg)
         if ui.help then ui.help=false;return "redraw" end
         if ui.selected and ui.detailView=="drive" then
             local K={w="rc:forward",s="rc:back",a="rc:left",d="rc:right",e="rc:up",c="rc:down",r="rc:useUp",f="rc:useDown",
-                [" "]="redraw"}           -- Leertaste kommt schon als Taste (space)
+                b="dm:toggle",t="rc:nextblock",[" "]="redraw"}           -- Leertaste kommt schon als Taste (space)
             if K[ch:lower()] then return K[ch:lower()] end
             return "redraw"               -- andere Tasten im Steuermodus nicht als Befehle (z.B. R = Reset)
         end
@@ -4750,7 +4809,7 @@ local REMOTE = TC.remoteControl({ cfg = config, job = "farm", st = st, run = run
     send = function() sendStatus() end,
     atHome = function() return isHome() end,
     stopped = function() return run.mode == "off" end,
-    ops = TC.manualOps({ noVertical = true,
+    ops = TC.manualOps({ noVertical = true, run = run,
         move = function(kind)
             local d = st.dir
             if kind == "back" then
@@ -6159,7 +6218,7 @@ local REMOTE=TC.remoteControl({cfg=cfg,job="mining",st=st,run=run,save=save,gear
     send=function() sendStatus() end,
     atHome=function() return homePosition() end,
     stopped=function() return run.mode=="off" end,
-    ops=TC.manualOps({
+    ops=TC.manualOps({run=run,
         move=function(kind)
             if kind=="back" then
                 local d=st.dir
@@ -6891,7 +6950,7 @@ function W.new(o)
         send=function() sendStatus() end,
         atHome=function() return w.isHome() end,
         stopped=function() return run.mode=="off" end,
-        ops=common.manualOps({
+        ops=common.manualOps({run=run,
             move=function(kind)
                 if kind=="back" then
                     local d=st.dir
@@ -8777,7 +8836,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.17.1 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.2 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

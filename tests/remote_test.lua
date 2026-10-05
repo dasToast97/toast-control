@@ -237,5 +237,53 @@ do
     model.ingest(12,{kind="status",version=2,id=12,status="Bereit",ack=s2.serial,controllerId=4},"toast.dig.v1")
     check("dann der dritte (links)",model.pending[12] and model.pending[12].message.payload.op=="left")
 end
+print("R10 Bauen: Block setzen vorne/unten, naechster Block, Werkzeug wird nicht verbaut")
+do
+    S=Sim.new({config=CFG,fuel=4000,default=false})
+    S.protocol="toast.dig.v1"
+    S.world[S.key(0,1,0)]="minecraft:chest";S.world[S.key(0,-1,0)]=false
+    S.inv[1]={name="minecraft:diamond_pickaxe",count=1}
+    -- Bloecke erst nach "Steuern" einlegen (vorher laedt sie an der Basis ab)
+    S.actions[#S.actions+1]={t=2.5,fn=function(S) S.inv[2]={name="minecraft:cobblestone",count=10};S.inv[3]={name="minecraft:oak_planks",count=5} end}
+    -- Turtle 1 hoch fahren, damit unten Platz ist
+    remote(S,2,{op="manual_on"});remote(S,3,{op="up"});remote(S,4,{op="place"});remote(S,5,{op="nextblock"});remote(S,6,{op="placeDown"})
+    Sim.run(S,8)
+    check("vorne Bruchstein gesetzt",S.world[S.key(0,-1,1)]=="minecraft:cobblestone",tostring(S.world[S.key(0,-1,1)]))
+    check("unten Holz gesetzt (naechster Block)",S.world[S.key(0,0,0)]=="minecraft:oak_planks",tostring(S.world[S.key(0,0,0)]))
+    local sb=lastWith(S,function(m) return m.kind=="status" and m.mBlock end)
+    check("Status zeigt gewaehlten Block + Anzahl",sb and sb.mBlock=="minecraft:oak_planks" and sb.mBlockN==4,sb and (tostring(sb.mBlock).." "..tostring(sb.mBlockN)))
+    check("Spitzhacke nicht verbaut",S.inv[1] and S.inv[1].name=="minecraft:diamond_pickaxe")
+    -- Oberflaeche: Modus umschalten -> Mitte = Setzen
+    local S3=Sim.new({config=""});local G=Sim.env(S3)
+    for _,n in ipairs({"toast_common.lua","toast_ui.lua"}) do S3.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a") end
+    do local n=0;local c={};G.colors=setmetatable({},{__index=function(_,k)if not c[k] then n=n+1;c[k]=2^n end;return c[k] end}) end
+    G.textutils.formatTime=function()return "9:15" end;G.os.time=function()return 9 end
+    local common=G.dofile("/toast/toast_common.lua")
+    local UI=G.dofile("/toast/toast_ui.lua")
+    local rows={};for y=1,20 do rows[y]=string.rep(" ",26) end;local cx,cy=1,1
+    local sc={getSize=function()return 26,20 end,isColor=function()return true end,setBackgroundColor=function()end,setTextColor=function()end,
+        clear=function()end,setCursorPos=function(x,y)cx,cy=x,y end,setCursorBlink=function()end,
+        write=function(t)if cy<1 or cy>20 then return end;t=tostring(t):gsub("[\128-\255]","="):gsub("[\1-\31]","*");local r=rows[cy];rows[cy]=(r:sub(1,cx-1)..t..r:sub(cx+#t)):sub(1,26);cx=cx+#t end}
+    local ui=UI.new(sc,common.load({role="controller",controllerId=7}))
+    local fleet={ids={12},entries={[12]={job="dig",label="Grabi",online=true,data={status="Bereit",mode="off",manual=true,mBlock="minecraft:cobblestone",mBlockN=9}}}}
+    ui.action("id:12");ui.action("dv:drive")
+    ui.action(ui.char("b"))
+    ui.draw(fleet,true,"")
+    local t=table.concat(rows,"\n")
+    print(t)
+    check("Bau-Modus: Block wird angezeigt",t:find("cobblestone x9",1,true) and t:find("Setzen",1,true),t)
+    local mid;for _,b in ipairs(ui.buttons) do if b.action=="rc:use" then mid=b end end
+    local cmd=ui.action(ui.click(mid.x,mid.y))
+    check("Mitte im Bau-Modus = Block setzen",type(cmd)=="table" and cmd.payload.op=="place")
+    cmd=ui.action(ui.key("space"))
+    check("Leertaste im Bau-Modus = setzen",type(cmd)=="table" and cmd.payload.op=="place")
+    cmd=ui.action(ui.char("r"))
+    check("R im Bau-Modus = oben setzen",type(cmd)=="table" and cmd.payload.op=="placeUp")
+    cmd=ui.action(ui.char("t"))
+    check("T = naechster Block",type(cmd)=="table" and cmd.payload.op=="nextblock")
+    ui.action(ui.key("tab"))
+    cmd=ui.action(ui.key("space"))
+    check("Tab zurueck -> Leertaste baut wieder ab",type(cmd)=="table" and cmd.payload.op=="use")
+end
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end

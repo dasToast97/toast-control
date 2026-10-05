@@ -647,7 +647,7 @@ local REMOTE = TC.remoteControl({ cfg = config, job = "farm", st = st, run = run
     send = function() sendStatus() end,
     atHome = function() return isHome() end,
     stopped = function() return run.mode == "off" end,
-    ops = TC.manualOps({ noVertical = true,
+    ops = TC.manualOps({ noVertical = true, run = run,
         move = function(kind)
             local d = st.dir
             if kind == "back" then

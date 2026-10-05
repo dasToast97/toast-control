@@ -1263,7 +1263,7 @@ local REMOTE=TC.remoteControl({cfg=cfg,job="mining",st=st,run=run,save=save,gear
     send=function() sendStatus() end,
     atHome=function() return homePosition() end,
     stopped=function() return run.mode=="off" end,
-    ops=TC.manualOps({
+    ops=TC.manualOps({run=run,
         move=function(kind)
             if kind=="back" then
                 local d=st.dir

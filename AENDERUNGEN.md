@@ -1,3 +1,14 @@
+# Toast Control 3.17.2
+
+- **Steuern: Bau-Modus zum Blöcke setzen.** Knopf „Abbau/Angriff ↔ Bauen“
+  (Taste **B** oder **Tab**). Im Bau-Modus setzen Mitte/oben/unten bzw.
+  **Leertaste / R / F** einen Block vorne/oben/unten.
+  - Angezeigt wird, welcher Block gesetzt wird („Setzt: cobblestone x9“).
+  - **Nächster Block** (Knopf oder Taste **T**) wechselt zur nächsten Blocksorte
+    im Inventar. Werkzeuge, Modem, Chunkloader, Kohle und Eimer werden nie verbaut.
+  - Blöcke **nach** „Steuern“ in die Turtle legen – vorher lädt sie an der Basis
+    alles in die Kiste ab. Im Steuermodus bleibt alles drin (auch Abgebautes).
+
 # Toast Control 3.17.1
 
 - **Steuern: neues Steuerkreuz + Tastatur** (Zentrale-PC und Pocket):
