@@ -9,7 +9,7 @@ local function runOnce()
     if cfg.label~="" and os.setComputerLabel and os.getComputerLabel()~=cfg.label then
         pcall(os.setComputerLabel,cfg.label)
     end
-    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob" or cfg.job=="dig") then
+    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob" or cfg.job=="dig" or cfg.job=="build") then
         -- Holzfarm / Mobs: eigenes Grundgeruest (toast_worker.lua), liest die Config selbst.
         local nativeRednet=rednet
         local radio={}

@@ -11,7 +11,7 @@ local WORK={["Abbau"]="Baut ab",["Ernte"]="Erntet",["Pflanzen"]="Pflanzt",["Feld
 -- Nur echte Probleme orange; alles andere ist normale Arbeit
 local WARN={"fehlt","voll","blockiert","fehlgeschlagen","unklar","Kein","beendet","Gelaende","Problem","nicht"}
 -- Nachschub fehlt (Lager voll, Treibstoff, Saatgut ...): kein Fehler, nur Pause
-local PAUSE={"voll","Treibstoff","Fuel","Kohle","Saatgut","Fuellmaterial","Wandblock","Ausgabekiste","Lager fehlt"}
+local PAUSE={"voll","Treibstoff","Fuel","Kohle","Saatgut","Fuellmaterial","Wandblock","Ausgabekiste","Lager fehlt","Baumaterial","Stufen fehlen","Falltueren fehlen","Wassereimer","Materialkiste"}
 local function isPause(t)
     t=tostring(t or "")
     for _,k in ipairs(PAUSE) do if t:find(k,1,true) then return true end end
@@ -108,6 +108,17 @@ local JOB={
             if d.lastHit and num(d.hits)>0 then r[#r+1]={"Letzter Mob","vor "..short(d.lastHit).." s"} end
             if d.mobMode=="patrol" then r[#r+1]={"Ziele",short(d.targets).." angefahren"};r[#r+1]={"Tankrunden",short(d.rounds)};wait(r,d) end
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
+    build={name="Mobfarm-Bau",plural="Mobfarm-Bauer",metric="Verbaut",unit="Bl.",once="Bauen",
+        value=function(d) return num(d.placed) end,aux={"Fortschritt",function(d) return num(d.cells)>0 and math.floor(num(d.scanned)/num(d.cells)*100) or 0 end,"%"},
+        rows=function(d) local r={{"Farm",short(d.floors).." Etage(n), Schacht "..short(d.drop)..(d.creeperOnly and ", Creeper" or "")},
+            {"Abschnitt",(d.done and "FERTIG" or tostring(d.phase or "-"))},
+            {"Fortschritt",short(d.scanned).." / "..short(d.cells)},{"Verbaut",short(d.placed).." Bloecke"},
+            {"Dabei",short(d.fill).." Stein, "..short(d.slabs).." Stufen"}}
+            if d.creeperOnly then r[#r+1]={"Falltueren",d.trapFail and "gehen nicht (ohne weiter)" or (short(d.traps).." dabei")} end
+            r[#r+1]={"Wassereimer",short(d.buckets).." dabei"}
+            if d.missing then r[#r+1]={"Fehlt",tostring(d.missing)} end
+            r[#r+1]={"Gesamt",short(d.need).." Stein, "..short(d.needSlab).." Stufen"}
+            return r end},
     dig={name="Aushub",plural="Aushub-Turtles",metric="Abgebaut",unit="Bl.",once="1 Auftrag",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
         rows=function(d) local r={{"Form",(common.DIG_SHAPES[d.shape] or "-")..(d.digDir=="up" and " hoch" or " runter")},
@@ -123,7 +134,7 @@ local JOB={
             r[#r+1]={"Fuellmaterial",d.noFill and "FEHLT" or short(d.fill)}
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }
-local ORDER={"farm","mining","tree","mob","dig"}
+local ORDER={"farm","mining","tree","mob","dig","build"}
 M.JOB=JOB
 local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
 local function hasProgress(d) return num(d.cells)>0 end
@@ -612,7 +623,7 @@ function M.new(screen,cfg)
             local lab=t[1].." "..t[2]
             if #lab>width-2 then
                 -- schmaler Bildschirm (Pocket): Kurzname + Anzahl, z.B. "M3"
-                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",Lager="L",Netz="N"}
+                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",["Mobfarm-Bau"]="B",Lager="L",Netz="N"}
                 local sh=SH[t[1]] or t[1]:sub(1,1)
                 lab=(#t[1]<=width-1) and t[1] or ((#(sh..t[2])<=width-1) and (sh..t[2]) or sh)
             end

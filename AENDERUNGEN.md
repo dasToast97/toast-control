@@ -1,3 +1,24 @@
+# Toast Control 3.15.0
+
+- **Neu: Mobfarm-Bau (Creeper / Schwarzpulver).** Neue Turtle-Aufgabe
+  **6 Mobfarm** (Spitzhacke). Die Turtle baut selbstständig über sich:
+  - einen **1x1-Fallschacht** (Standard 22 hoch: Mobs kommen mit ~1 Herz unten an),
+  - **dunkle Spawn-Etagen** (Standard 2, je 17x17 innen, komplett dicht) mit
+    4 Wasserkanälen, die die Mobs ins Loch in der Mitte schwemmen,
+  - **Bruchsteinstufen** in jeder 3. Reihe: keine Spinnen (die würden das
+    1x1-Loch verstopfen),
+  - **Falltüren an der Decke** („Nur Creeper“): nur 1,81 Blöcke frei – Creeper
+    passen, Zombies/Skelette/Hexen/Endermen nicht.
+  - **Aufbau:** Turtle an die spätere Tötungsstelle, Kiste **unter** ihr (Drops),
+    Kiste **hinter** ihr mit Material (Reihenfolge egal): Bruchstein (auch Stein,
+    Erde, Tiefenschiefer), Bruchsteinstufen, Wassereimer, Falltüren, Kohle.
+  - Material für 2 Etagen ca.: 2 100 Bruchstein (33 Stapel), 128 Stufen,
+    8 Wassereimer, 384 Falltüren, ~60 Kohle. Abraum beim Graben wird mitverbaut.
+  - Fehlt etwas, wartet sie an der Basis („Baumaterial fehlt“ usw., oranges !).
+  - Fertig + **Schwert im Inventar**: sie wird selbst zur Mob-Turtle
+    (Mobfarm, greift nur nach oben an).
+- **Mob-Turtle:** neue Angriffsart „nur oben“ (für Mobfarm-Schächte).
+
 # Toast Control 3.14.0
 
 - **Neu: Zuckerrohr-Farm.** Farm-Turtle, Pflanze **5 Zuckerrohr**.

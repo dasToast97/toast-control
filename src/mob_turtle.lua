@@ -21,7 +21,7 @@ local function keep(name)
     if isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
     return 0
 end
-local DIRS=C.attack=="all" and {"front","up","down"} or {"front"}
+local DIRS=C.attack=="all" and {"front","up","down"} or C.attack=="up" and {"up"} or {"front"}
 local ATTACK={front=turtle.attack,up=turtle.attackUp,down=turtle.attackDown}
 local SUCK={front=turtle.suck,up=turtle.suckUp,down=turtle.suckDown}
 local w,round,idleHome,idleBase

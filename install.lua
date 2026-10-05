@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.14.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.15.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -12,7 +12,7 @@ local function runOnce()
     if cfg.label~="" and os.setComputerLabel and os.getComputerLabel()~=cfg.label then
         pcall(os.setComputerLabel,cfg.label)
     end
-    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob" or cfg.job=="dig") then
+    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob" or cfg.job=="dig" or cfg.job=="build") then
         -- Holzfarm / Mobs: eigenes Grundgeruest (toast_worker.lua), liest die Config selbst.
         local nativeRednet=rednet
         local radio={}
@@ -142,9 +142,9 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.14.0",
+    version="3.15.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
-    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
+    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true,update=true},
     updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
@@ -162,10 +162,10 @@ function M.serial(n) return M.integer(n,1,9007199254740991) end
 function M.number(n) return type(n)=="number" and n==n and n>-math.huge and n<math.huge and n or 0 end
 function M.contains(list,id) for _,v in ipairs(list or {}) do if v==id then return true end end;return false end
 -- Aufgaben einer Turtle. JOBS: Reihenfolge in Menues und Anzeigen.
-M.JOBS={"farm","mining","tree","mob","dig"}
-M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub"}
+M.JOBS={"farm","mining","tree","mob","dig","build"}
+M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub",build="Mobfarm-Bau"}
 -- Config-Abschnitt und Programmdatei je Aufgabe
-M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig"}
+M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig",build="build"}
 function M.job(j) return M.JOB_NAMES[j]~=nil end
 function M.label(v)
     return type(v)=="string" and v:gsub("[%c]"," "):sub(1,48) or ""
@@ -202,13 +202,14 @@ M.DEFAULTS={
     dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
         wallBlock="",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
+    build={floors=2,drop=22,creeperOnly=true,becomeMob=true,fuelTarget=2000,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,storage=true,base=true,gps=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,build=true,storage=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -308,12 +309,19 @@ function M.configText(c)
     elseif role=="turtle" and job=="mob" then
         section("mob","Mobs: Schwert-Turtle",{
             {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Waechter"},
-            {"attack","\"front\" oder \"all\" (auch oben/unten)"},
+            {"attack","\"front\", \"up\" (nur oben, Mobfarm-Schacht) oder \"all\""},
             {"nightOnly","true = nur nachts aktiv (18:30-5:30)"},
             {"length","Waechter: Gebiet nach vorne"},{"width","Waechter: Gebiet zur Seite"},
             {"side","Waechter: Gebiet \"right\" oder \"left\""},{"climb","Waechter: max. Hoehe hoch/runter"},
             {"interval","Waechter: Pause an der Basis in s"},
             {"fuelTarget","Waechter: so voll tanken (= so lange unterwegs)"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
+    elseif role=="turtle" and job=="build" then
+        section("build","Mobfarm-Bau: Schacht + dunkle Etagen UEBER der Turtle",{
+            {"floors","Spawn-Etagen (1-6, je 17x17 innen)"},{"drop","Schachthoehe bis zur Turtle (22 = Mobs fast tot)"},
+            {"creeperOnly","true = Falltueren an die Decke: nur Creeper"},
+            {"becomeMob","true = danach selbst Mob-Turtle (Schwert ins Inventar)"},
+            {"fuelTarget","an der Basis mindestens bis hierhin tanken"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.build)
     elseif role=="turtle" and job=="dig" then
         section("dig","Aushub: Form direkt VOR der Basis ausheben",{
             {"shape","\"room\" Quader/Schacht, \"cylinder\", \"sphere\" Kugel, \"dome\" Halbkugel"},
@@ -412,8 +420,8 @@ function M.load(c)
     assert(type(c.autoUpdate)=="boolean" and M.integer(c.updateEvery,1,1440),"autoUpdate true/false, updateEvery 1 bis 1440 Minuten.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
-        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree, mob oder dig einstellen.")
-        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) end
+        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree, mob, dig oder build einstellen.")
+        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) elseif c.job=="build" then M.checkBuild(c.build) end
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
@@ -773,7 +781,7 @@ end
 function M.checkMob(m)
     assert(type(m)=="table","mob fehlt.")
     assert(m.mode=="farm" or m.mode=="guard" or m.mode=="patrol","mob.mode: farm, guard oder patrol.")
-    assert(m.attack=="front" or m.attack=="all","mob.attack: front oder all.")
+    assert(m.attack=="front" or m.attack=="all" or m.attack=="up","mob.attack: front, up oder all.")
     assert(M.integer(m.length,2,64) and M.integer(m.width,1,64),"mob.length 2-64, mob.width 1-64.")
     assert(M.integer(m.climb,1,32),"mob.climb: 1 bis 32.")
     assert(type(m.nightOnly)=="boolean","mob.nightOnly: true oder false.")
@@ -782,6 +790,15 @@ function M.checkMob(m)
     assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")
     assert(m.radioTimeout==0 or M.integer(m.radioTimeout,10,300),"mob.radioTimeout: 0 oder 10 bis 300.")
     return m
+end
+function M.checkBuild(b)
+    assert(type(b)=="table","build fehlt.")
+    assert(M.integer(b.floors,1,6),"build.floors: 1 bis 6 Etagen.")
+    assert(M.integer(b.drop,4,60),"build.drop: Schachthoehe 4 bis 60.")
+    assert(type(b.creeperOnly)=="boolean" and type(b.becomeMob)=="boolean","build.creeperOnly/becomeMob: true oder false.")
+    assert(M.integer(b.fuelTarget,100,100000),"build.fuelTarget: 100 bis 100000.")
+    assert(b.radioTimeout==0 or M.integer(b.radioTimeout,10,300),"build.radioTimeout: 0 oder 10 bis 300.")
+    return b
 end
 M.DIG_SHAPES={room="Quader",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
 function M.checkDig(d)
@@ -1049,7 +1066,7 @@ function S.new(common)
     local function mobText(m)
         local s=MOB_MODES[m.mode] or m.mode
         if m.mode=="patrol" then s=s.." "..m.length.."x"..m.width.." "..sideName(m.side) end
-        return s..(m.attack=="all" and " +oben/unten" or "")..(m.nightOnly and " nachts" or "")
+        return s..(m.attack=="all" and " +oben/unten" or m.attack=="up" and " nur oben" or "")..(m.nightOnly and " nachts" or "")
     end
     local function chunkText(cl)
         if not cl.enabled then return "aus" end
@@ -1150,7 +1167,10 @@ function S.new(common)
         hint("3 Waechter: faehrt im Gebiet umher")
         local cur=m.mode=="guard" and 2 or m.mode=="patrol" and 3 or 1
         m.mode=({"farm","guard","patrol"})[ask("Art",cur,1,3)]
-        m.attack=yesno("Auch oben/unten angreifen?",m.attack=="all") and "all" or "front"
+        hint("Angriff: 1 nur vorne  2 nur oben")
+        hint("(Mobfarm-Schacht ueber der Turtle)  3 alle")
+        local ca=m.attack=="up" and 2 or m.attack=="all" and 3 or 1
+        m.attack=({"front","up","all"})[ask("Angriff",ca,1,3)]
         hint("Tagsueber Pause, nur nachts aktiv")
         hint("(Spielzeit 18:30 bis 5:30)?")
         m.nightOnly=yesno("Nur nachts?",m.nightOnly==true)
@@ -1171,6 +1191,28 @@ function S.new(common)
         print(cut("Achtung: greift alles direkt vor"))
         print(cut("sich an, auch Spieler."))
         fg(colors.white);sleep(1.5)
+    end
+    local function buildText(b)
+        return b.floors.." Etage(n), Schacht "..b.drop..(b.creeperOnly and " +nur Creeper" or "")..(b.becomeMob and " +danach Mobs" or "")
+    end
+    local function editBuild(c)
+        local b=c.build
+        header("Mobfarm bauen (ueber der Turtle)")
+        hint("Turtle steht dort, wo spaeter die Mobs")
+        hint("ankommen. Kiste UNTER ihr = Drops,")
+        hint("Kiste HINTER ihr = Material + Kohle.")
+        b.floors=ask("Spawn-Etagen (1-6)",b.floors,1,6)
+        hint("Schacht 22: Mobs fallen fast tot an,")
+        hint("die Turtle gibt den Rest.")
+        b.drop=ask("Schachthoehe (4-60)",b.drop,4,60)
+        hint("Falltueren an der Decke: nur Creeper")
+        hint("passen (viel Schwarzpulver).")
+        b.creeperOnly=yesno("Nur Creeper?",b.creeperOnly~=false)
+        b.becomeMob=yesno("Danach selbst Mob-Turtle?",b.becomeMob~=false)
+        local n=b.floors
+        hint("Material ca.: "..(n*832+361+4*(b.drop-1)).." Bruchstein,")
+        hint(n*64 .." Bruchsteinstufen, "..n*4 .." Wassereimer"..(b.creeperOnly and (", "..n*192 .." Falltueren") or ""))
+        sleep(2)
     end
     local SHAPES={"room","cylinder","sphere","dome"}
     local SHAPE_TEXT={room="Quader/Schacht",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
@@ -1381,12 +1423,12 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",storage="Lager (Kisten)"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",build="Alle Mobfarm-Bauer",storage="Lager (Kisten)"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
         print("")
-        local opts={"all","farm","mining","tree","mob","dig","storage"}
+        local opts={"all","farm","mining","tree","mob","dig","build","storage"}
         for i,v in ipairs(opts) do hint(i.." "..showText(v)) end
         local nT=#opts+1
         hint(nT.." Eine bestimmte Turtle")
@@ -1423,7 +1465,7 @@ function S.new(common)
     local function editJob(c,info)
         header("Aufgabe wechseln")
         hint("Jetzt: "..(common.JOB_NAMES[c.job] or "?"))
-        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke"}
+        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke",build="Spitzhacke"}
         for i,j in ipairs(common.JOBS) do
             fg(colors.yellow);write(i.." ");fg(colors.white);print(cut(string.format("%-7s",common.JOB_NAMES[j]).." ("..TOOL[j]..")"))
         end
@@ -1456,6 +1498,8 @@ function S.new(common)
             list[#list+1]={"Baeume",function() return treeText(c.tree) end,function() editTree(c) end}
         elseif role=="turtle" and job=="mob" then
             list[#list+1]={"Mobs",function() return mobText(c.mob) end,function() editMob(c) end}
+        elseif role=="turtle" and job=="build" then
+            list[#list+1]={"Mobfarm",function() return buildText(c.build) end,function() editBuild(c) end}
         elseif role=="turtle" and job=="dig" then
             list[#list+1]={"Aushub",function() return digText(c.dig) end,function() editDig(c) end}
         elseif role=="turtle" then
@@ -1541,10 +1585,11 @@ function S.new(common)
         if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         if job=="dig" then local d=c.dig return table.concat({d.shape,d.width,d.length,d.height,d.side,d.direction},":") end
+        if job=="build" then local b=c.build return table.concat({b.floors,b.drop,tostring(b.creeperOnly)},":") end
         return ""
     end
     -- Neuer Auftrag: Fortschritt der Aufgabe loeschen (Turtle muss an der Basis stehen)
-    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",dig="/toast_dig_state"}
+    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",dig="/toast_dig_state",build="/toast_build_state"}
     function M.newJob(job)
         local file=M.STATE_FILES[job];if not file then return false end
         header("Neuer Auftrag")
@@ -1578,7 +1623,7 @@ function S.new(common)
         return false
     end
     function M.confirmReset(job)
-        if job~="mining" and job~="tree" and job~="mob" and job~="dig" then return end
+        if job~="mining" and job~="tree" and job~="mob" and job~="dig" and job~="build" then return end
         local file="/toast_"..job.."_state"
         if not (fs.exists(file) or fs.exists(file..".tmp")) then return end
         header(job=="mining" and "Neue Minenmasse" or "Neue Masse")
@@ -2021,7 +2066,7 @@ local WORK={["Abbau"]="Baut ab",["Ernte"]="Erntet",["Pflanzen"]="Pflanzt",["Feld
 -- Nur echte Probleme orange; alles andere ist normale Arbeit
 local WARN={"fehlt","voll","blockiert","fehlgeschlagen","unklar","Kein","beendet","Gelaende","Problem","nicht"}
 -- Nachschub fehlt (Lager voll, Treibstoff, Saatgut ...): kein Fehler, nur Pause
-local PAUSE={"voll","Treibstoff","Fuel","Kohle","Saatgut","Fuellmaterial","Wandblock","Ausgabekiste","Lager fehlt"}
+local PAUSE={"voll","Treibstoff","Fuel","Kohle","Saatgut","Fuellmaterial","Wandblock","Ausgabekiste","Lager fehlt","Baumaterial","Stufen fehlen","Falltueren fehlen","Wassereimer","Materialkiste"}
 local function isPause(t)
     t=tostring(t or "")
     for _,k in ipairs(PAUSE) do if t:find(k,1,true) then return true end end
@@ -2118,6 +2163,17 @@ local JOB={
             if d.lastHit and num(d.hits)>0 then r[#r+1]={"Letzter Mob","vor "..short(d.lastHit).." s"} end
             if d.mobMode=="patrol" then r[#r+1]={"Ziele",short(d.targets).." angefahren"};r[#r+1]={"Tankrunden",short(d.rounds)};wait(r,d) end
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
+    build={name="Mobfarm-Bau",plural="Mobfarm-Bauer",metric="Verbaut",unit="Bl.",once="Bauen",
+        value=function(d) return num(d.placed) end,aux={"Fortschritt",function(d) return num(d.cells)>0 and math.floor(num(d.scanned)/num(d.cells)*100) or 0 end,"%"},
+        rows=function(d) local r={{"Farm",short(d.floors).." Etage(n), Schacht "..short(d.drop)..(d.creeperOnly and ", Creeper" or "")},
+            {"Abschnitt",(d.done and "FERTIG" or tostring(d.phase or "-"))},
+            {"Fortschritt",short(d.scanned).." / "..short(d.cells)},{"Verbaut",short(d.placed).." Bloecke"},
+            {"Dabei",short(d.fill).." Stein, "..short(d.slabs).." Stufen"}}
+            if d.creeperOnly then r[#r+1]={"Falltueren",d.trapFail and "gehen nicht (ohne weiter)" or (short(d.traps).." dabei")} end
+            r[#r+1]={"Wassereimer",short(d.buckets).." dabei"}
+            if d.missing then r[#r+1]={"Fehlt",tostring(d.missing)} end
+            r[#r+1]={"Gesamt",short(d.need).." Stein, "..short(d.needSlab).." Stufen"}
+            return r end},
     dig={name="Aushub",plural="Aushub-Turtles",metric="Abgebaut",unit="Bl.",once="1 Auftrag",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
         rows=function(d) local r={{"Form",(common.DIG_SHAPES[d.shape] or "-")..(d.digDir=="up" and " hoch" or " runter")},
@@ -2133,7 +2189,7 @@ local JOB={
             r[#r+1]={"Fuellmaterial",d.noFill and "FEHLT" or short(d.fill)}
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }
-local ORDER={"farm","mining","tree","mob","dig"}
+local ORDER={"farm","mining","tree","mob","dig","build"}
 M.JOB=JOB
 local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
 local function hasProgress(d) return num(d.cells)>0 end
@@ -2622,7 +2678,7 @@ function M.new(screen,cfg)
             local lab=t[1].." "..t[2]
             if #lab>width-2 then
                 -- schmaler Bildschirm (Pocket): Kurzname + Anzahl, z.B. "M3"
-                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",Lager="L",Netz="N"}
+                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",["Mobfarm-Bau"]="B",Lager="L",Netz="N"}
                 local sh=SH[t[1]] or t[1]:sub(1,1)
                 lab=(#t[1]<=width-1) and t[1] or ((#(sh..t[2])<=width-1) and (sh..t[2]) or sh)
             end
@@ -6492,7 +6548,7 @@ local function keep(name)
     if isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
     return 0
 end
-local DIRS=C.attack=="all" and {"front","up","down"} or {"front"}
+local DIRS=C.attack=="all" and {"front","up","down"} or C.attack=="up" and {"up"} or {"front"}
 local ATTACK={front=turtle.attack,up=turtle.attackUp,down=turtle.attackDown}
 local SUCK={front=turtle.suck,up=turtle.suckUp,down=turtle.suckDown}
 local w,round,idleHome,idleBase
@@ -7223,6 +7279,505 @@ pcall(w.equipTool,isTool)
 w.start("TOAST AUSHUB",SHAPE_NAMES[SHAPE].." "..(SHAPE=="room" and (C.width.."x"..C.length.."x"..C.height)
     or SHAPE=="cylinder" and ("D"..C.width.." x "..C.height) or ("D"..C.width))..(DOWN and " runter" or " hoch"))
 ]======]
+FILES["build_turtle.lua"]=[======[
+-- Toast Control: Mobfarm-Bau (vor allem fuer Creeper / Schwarzpulver).
+-- Die Turtle steht an der spaeteren Toetungsstelle und baut ueber sich:
+--   * einen 1x1-Fallschacht (Hoehe build.drop, Standard 22 = Mobs ueberleben
+--     mit ~1 Herz, die Mob-Turtle gibt den Rest)
+--   * build.floors dunkle Spawn-Etagen (innen 17x17, Waende + Decke dicht),
+--     in jeder 4 Wasserkanaele, die die Mobs ins Loch in der Mitte schwemmen
+--   * Bruchsteinstufen in jeder 3. Reihe: keine Spinnen (wuerden im 1x1-Loch
+--     haengen bleiben)
+--   * build.creeperOnly: Falltueren oben an der Decke -> nur 1,81 Bloecke frei:
+--     Creeper (1,7) passen, Zombies/Skelette/Hexen/Endermen nicht.
+-- Kisten: UNTER der Turtle = Ausgabe (spaeter die Drops), HINTER der Turtle =
+-- Material (Bruchstein/Stein/Erde, Wassereimer, Bruchsteinstufen, Falltueren, Kohle).
+-- Fertig + Schwert im Inventar: die Turtle wird selbst zur Mob-Turtle (greift
+-- nur nach oben an).
+local common=dofile("/toast/toast_common.lua")
+local cfg=common.load()
+local C=cfg.build
+local W=dofile("/toast/toast_worker.lua")
+local F,D=C.floors,C.drop
+local CREEPER=C.creeperOnly~=false
+local R=8                      -- Laenge der Wasserkanaele (Wasser fliesst 8 Bloecke)
+local OUT=R+1                  -- Aussenwand
+local B0=D                     -- unterste Etage (Boden)
+local TOP=B0+4*F               -- Dach
+
+-- ===== Bloecke =====
+local FILL={}
+for _,n in ipairs({"cobblestone","cobbled_deepslate","stone","deepslate","dirt","netherrack","andesite","diorite",
+    "granite","tuff","calcite","blackstone","basalt","smooth_basalt","end_stone","coarse_dirt","mossy_cobblestone",
+    "stone_bricks","sandstone","polished_andesite","polished_diorite","polished_granite"}) do FILL["minecraft:"..n]=true end
+local OKSOLID={["minecraft:grass_block"]=true,["minecraft:podzol"]=true,["minecraft:mycelium"]=true,
+    ["minecraft:rooted_dirt"]=true,["minecraft:terracotta"]=true,["minecraft:obsidian"]=true}
+local function isFill(n) return FILL[n]==true end
+local function isSlab(n) return n:find("_slab",1,true)~=nil and not n:find("wooden",1,true) end
+local function isTrap(n) return n:find("_trapdoor",1,true)~=nil end
+local function isWaterBucket(n) return n=="minecraft:water_bucket" end
+local function isBucket(n) return n=="minecraft:bucket" end
+local function isLiquid(n) return n=="minecraft:water" or n=="minecraft:lava" or n:find("flowing_",1,true)~=nil end
+local function isTool(n) return n:find("_pickaxe",1,true)~=nil end
+local function isSword(n) return n:find("_sword",1,true)~=nil end
+local function isContainer(n) return n:find("chest",1,true)~=nil or n:find("barrel",1,true)~=nil or n:find("shulker",1,true)~=nil end
+local function isTurtle(n) return n:find("computercraft:turtle",1,true)~=nil end
+
+-- ===== Bauplan =====
+-- Koordinaten: Turtle (Toetungsstelle) = 0,0,0, y nach oben. Der Schacht steht
+-- direkt ueber der Turtle (x=0,z=0); die Etagen sind um ihn herum zentriert.
+local SOLID,AIR,SRC,SLAB="s","a","w","p"
+local function target(x,y,z)
+    local ax,az=math.abs(x),math.abs(z)
+    if y>=1 and y<B0 then
+        if x==0 and z==0 then return AIR end
+        if ax+az==1 then return SOLID end
+        return nil
+    end
+    if y<B0 or y>TOP or ax>OUT or az>OUT then return nil end
+    if y==TOP then return SOLID end
+    local k=(y-B0)%4                         -- 0 Boden, 1 Spawnflaeche, 2+3 Luft
+    if k==0 then return (x==0 and z==0) and AIR or SOLID end
+    if ax==OUT or az==OUT then return SOLID end
+    if x==0 and z==0 then return AIR end
+    local channel=x==0 or z==0
+    if k==1 then
+        if channel then return math.max(ax,az)==R and SRC or AIR end
+        return SOLID
+    end
+    if k==2 and not channel and az%3==0 then return SLAB end
+    return AIR
+end
+-- Schritte: {t=Art,x,y=Hoehe der Turtle,z}. "cell" bearbeitet den Block UNTER der Turtle.
+local STEPS={}
+local function add(t) STEPS[#STEPS+1]=t end
+local flip=false
+local function layer(y,skipCenter)
+    local r=(y<B0) and 1 or OUT
+    local list={}
+    for zi=-r,r do
+        local z=zi
+        local xs={}
+        for x=-r,r do if target(x,y,z) and not (skipCenter and x==0 and z==0) then xs[#xs+1]=x end end
+        if (zi+r)%2==1 then for a=1,math.floor(#xs/2) do xs[a],xs[#xs+1-a]=xs[#xs+1-a],xs[a] end end
+        for _,x in ipairs(xs) do list[#list+1]={t="cell",x=x,y=y+1,z=z} end
+    end
+    if flip then for a=1,math.floor(#list/2) do list[a],list[#list+1-a]=list[#list+1-a],list[a] end end
+    flip=not flip
+    for _,s in ipairs(list) do add(s) end
+end
+local function water(b)
+    for _,p in ipairs({{R,0},{0,R},{-R,0},{0,-R}}) do add({t="water",x=p[1],y=b+2,z=p[2]}) end
+end
+-- Falltueren: Turtle faehrt in der Etage auf Hoehe b+2 (ueber den Spawnstellen)
+-- und setzt sie nach oben an die Decke. Wege nur durch die Kanaele (x=0) und
+-- die Spawnreihen (die Stufenreihen sind belegt).
+local function traps(b)
+    if not CREEPER then return end
+    for _,sx in ipairs({1,-1}) do for _,sz in ipairs({1,-1}) do
+        for _,pair in ipairs({{1,2},{4,5},{7,8}}) do
+            for x=1,R do add({t="trap",x=sx*x,y=b+2,z=sz*pair[1],corr=true}) end
+            for x=R,1,-1 do add({t="trap",x=sx*x,y=b+2,z=sz*pair[2],corr=true}) end
+        end
+    end end
+end
+for y=1,B0-1 do layer(y) end
+for k=0,F-1 do
+    local b=B0+4*k
+    layer(b)
+    if k>0 then traps(b-4) end
+    layer(b+1);water(b)
+    layer(b+2);layer(b+3)
+end
+layer(TOP,true)
+traps(B0+4*(F-1))
+add({t="cap",x=0,y=TOP-1,z=0})
+local N=#STEPS
+-- Material je Art ab Schritt i
+local function remaining(i)
+    local n={fill=0,slab=0,trap=0,water=0}
+    for k=i or 1,N do
+        local s=STEPS[k]
+        if s.t=="cell" then
+            local tg=target(s.x,s.y-1,s.z)
+            if tg==SOLID then n.fill=n.fill+1 elseif tg==SLAB then n.slab=n.slab+1 end
+        elseif s.t=="trap" then n.trap=n.trap+1
+        elseif s.t=="water" then n.water=n.water+1
+        elseif s.t=="cap" then n.fill=n.fill+1 end
+    end
+    return n
+end
+local TOTAL=remaining(1)
+local LAYOUT=table.concat({"mobfarm",F,D,CREEPER and "c" or "n"},":")
+
+local w,round,idleHome,idleBase
+local opts
+opts={job="build",cfg=cfg,section=C,stateFile="/toast_build_state",args={...},cells=N,layout=LAYOUT,
+    tools=isTool,noTool="Keine Spitzhacke: Diamant-Spitzhacke in die Turtle legen",
+    interval=0,readyText="START: Mobfarm bauen (macht weiter, wo sie war)",
+    extra=function() local s=w and w.st or {}
+        return {floors=F,drop=D,creeperOnly=CREEPER,placed=s.placed or 0,done=s.done,
+            need=TOTAL.fill,needSlab=TOTAL.slab,needTrap=TOTAL.trap,needWater=TOTAL.water,
+            fill=w and w.count(isFill) or 0,slabs=w and w.count(isSlab) or 0,traps=w and w.count(isTrap) or 0,
+            buckets=w and w.count(isWaterBucket) or 0,missing=s.missing,trapFail=s.trapFail,
+            phase=s.phase} end,
+    round=function() return round() end,
+    idleHome=function() return idleHome() end,
+    idleBase=function() return idleBase() end}
+w=W.new(opts)
+local st,run=w.st,w.run
+if st.buildLayout~=LAYOUT then st.buildLayout=LAYOUT;st.idx=1;st.done=nil;w.save() end
+st.idx=st.idx or 1
+if st.done then run.scanned=N;opts.readyText="FERTIG: Mobfarm steht. Schwert ins Inventar -> wird zur Mob-Turtle" end
+
+-- ===== Bewegung =====
+local INSPECT={forward=turtle.inspect,up=turtle.inspectUp,down=turtle.inspectDown}
+local PLACE={forward=turtle.place,up=turtle.placeUp,down=turtle.placeDown}
+local RAWDIG={forward=turtle.dig,up=turtle.digUp,down=turtle.digDown}
+local DIG={}
+for k,f in pairs(RAWDIG) do DIG[k]=function()
+    local ok,why=f()
+    if not ok and tostring(why):find("No tool",1,true) and w.equipTool(isTool) then ok,why=f() end
+    return ok,why
+end end
+local corridor=false        -- in der Etage nur durch Kanal + Spawnreihen fahren
+local MOPT={dig=true,attack=true,canDig=function(n)
+    if isContainer(n) or isTurtle(n) then return false end
+    if corridor and (isSlab(n) or isTrap(n)) then return false end
+    return true end}
+local function fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
+local function line(axis,v)
+    while (axis=="x" and st.x or st.z)~=v do
+        local cur=axis=="x" and st.x or st.z
+        local d=axis=="x" and (v>cur and 1 or 3) or (v>cur and 0 or 2)
+        local ok,why=w.face(d);if not ok then return false,why end
+        ok,why=w.move("forward",MOPT);if not ok then return false,why end
+    end
+    return true
+end
+local function blockedZ(z0,z1)
+    local s=z1>z0 and 1 or -1
+    for z=z0+s,z1,s do if z~=0 and math.abs(z)%3==0 then return true end end
+    return false
+end
+-- waagrecht auf der aktuellen Hoehe
+local function horizontal(x,z)
+    if corridor and st.z~=z and st.x~=0 and blockedZ(st.z,z) then
+        local ok,why=line("x",0);if not ok then return false,why end
+    end
+    if corridor then
+        local ok,why=line("z",z);if not ok then return false,why end
+        return line("x",x)
+    end
+    local ok,why=line("x",x);if not ok then return false,why end
+    return line("z",z)
+end
+-- Hoehe wechseln immer durch die Mittelsaeule (die ist im ganzen Bau frei)
+local function goTo(x,y,z,corr)
+    if st.y~=y then
+        local ok,why=horizontal(0,0);if not ok then return false,why end
+        corridor=false
+        while st.y~=y do
+            ok,why=w.move(st.y<y and "up" or "down",MOPT);if not ok then return false,why end
+        end
+    end
+    corridor=corr==true
+    local ok,why=horizontal(x,z)
+    return ok,why
+end
+local function homeNeed() return math.abs(st.x)+math.abs(st.y)+math.abs(st.z)+20 end
+
+-- ===== Material =====
+local function fuelGoal()
+    -- bis zum naechsten Nachladen: grob Restschritte, mindestens fuelTarget
+    return math.min(turtle.getFuelLimit and turtle.getFuelLimit() or 20000,math.max(C.fuelTarget,(N-st.idx)*2+TOP*2+200))
+end
+local function burn(target)
+    for s=1,16 do
+        local it=turtle.getItemDetail(s)
+        if it and W.FUELS[it.name] then
+            turtle.select(s)
+            while fuel()<target and turtle.getItemCount(s)>0 do if not turtle.refuel(1) then break end end
+        end
+        if fuel()>=target then break end
+    end
+    turtle.select(1)
+end
+local function keep(name)
+    if isTool(name) or isSword(name) or common.MODEM_ITEMS[name] then return 4096 end
+    if isFill(name) or isSlab(name) or isTrap(name) or isWaterBucket(name) then return 4096 end
+    if W.FUELS[name] then return 64 end
+    return 0
+end
+-- Materialkiste HINTER der Turtle (Turtle schaut dabei nach hinten = "front").
+-- Mit der Kisten-Peripherie wird das gewuenschte Item erst nach vorne (Slot 1)
+-- geschoben, dann eingesaugt - so ist die Reihenfolge in der Kiste egal.
+local function chestList()
+    local ok,inv=pcall(peripheral.wrap,"front")
+    if not ok or type(inv)~="table" or type(inv.list)~="function" then return nil end
+    return inv
+end
+local function fetch(match,count)
+    local got=0
+    for _=1,40 do
+        if got>=count then break end
+        local slot;for i=1,16 do if turtle.getItemCount(i)==0 then slot=i;break end end
+        if not slot then break end
+        local inv=chestList()
+        if inv then
+            local okl,list=pcall(inv.list)
+            if not okl or type(list)~="table" then break end
+            local from
+            for s,it in pairs(list) do if match(it.name) and (not from or s<from) then from=s end end
+            if not from then break end
+            if from~=1 then
+                if list[1] then
+                    local size=inv.size and inv.size() or 27
+                    local free;for s=2,size do if not list[s] then free=s;break end end
+                    if not free then break end
+                    pcall(inv.pushItems,"front",1,64,free)
+                end
+                pcall(inv.pushItems,"front",from,64,1)
+            end
+        end
+        turtle.select(slot)
+        if not turtle.suck(math.min(64,count-got)) then break end
+        local it=turtle.getItemDetail(slot)
+        if not it then break end
+        if not match(it.name) then
+            -- falsches Item (ohne Kisten-Peripherie): in die Ausgabekiste
+            turtle.dropDown();if not inv then break end
+        else got=got+it.count end
+    end
+    turtle.select(1)
+    return got
+end
+local function have(match) return w.count(match) end
+-- An der Basis: abladen, leere Eimer zurueck, Material + Kohle holen
+local function base()
+    local ok,title,detail=w.unload(keep)
+    if not ok then return false,title,detail end
+    local need=remaining(st.idx)
+    local okf,why=w.face(2);if not okf then return false,"Drehen",why end
+    if not w.container(turtle.inspect) then w.face(0);return false,"Materialkiste fehlt","Kiste HINTER die Turtle stellen (Bruchstein, Wassereimer, Stufen, Falltueren, Kohle)." end
+    -- leere Eimer zurueck in die Materialkiste
+    for i=1,16 do local it=turtle.getItemDetail(i);if it and isBucket(it.name) then turtle.select(i);turtle.drop() end end
+    -- zu viel Bruchstein dabei (beim Graben eingesammelt): zurueck in die Materialkiste,
+    -- damit Platz bleibt (sonst faehrt sie mit vollem Inventar immer wieder heim)
+    for i=16,1,-1 do
+        if w.freeSlots()>=4 then break end
+        local it=turtle.getItemDetail(i)
+        if it and isFill(it.name) then
+            turtle.select(i)
+            if not turtle.drop() then turtle.dropDown() end
+        end
+    end
+    turtle.select(1)
+    -- Kohle
+    if fuel()<fuelGoal() and have(function(n) return W.FUELS[n]~=nil end)<16 then
+        fetch(function(n) return W.FUELS[n]~=nil end,32);burn(fuelGoal())
+    end
+    -- Sonderteile fuer den naechsten Abschnitt zuerst (Eimer stapeln sich nicht)
+    local nextSpecial
+    for k=st.idx,N do local t=STEPS[k].t;if t=="water" or t=="trap" or (t=="cell" and target(STEPS[k].x,STEPS[k].y-1,STEPS[k].z)==SLAB) then nextSpecial=t=="cell" and "slab" or t;break end end
+    if nextSpecial=="water" and have(isWaterBucket)<math.min(4,need.water) then fetch(isWaterBucket,math.min(4,need.water)-have(isWaterBucket)) end
+    if nextSpecial=="slab" and have(isSlab)<math.min(64,need.slab) then fetch(isSlab,math.min(64,need.slab)-have(isSlab)) end
+    if nextSpecial=="trap" and have(isTrap)<math.min(128,need.trap) then fetch(isTrap,math.min(128,need.trap)-have(isTrap)) end
+    -- Rest mit Baumaterial auffuellen (1 Slot frei lassen fuer Abraum)
+    local stacks=math.max(0,w.freeSlots()-1)
+    if need.fill>have(isFill) and stacks>0 then fetch(isFill,math.min(stacks*64,need.fill-have(isFill))) end
+    w.face(0)
+    burn(fuelGoal())
+    if fuel()<math.min(fuelGoal(),homeNeed()+TOP*2+100) then
+        return false,"Treibstoff fehlt","Kohle in die Kiste HINTER der Turtle legen."
+    end
+    w.save()
+    return true
+end
+local function goHome()
+    if w.isHome() then return w.face(0) end
+    w.status("Rueckkehr","Faehrt zur Basis (Nachschub).")
+    local ok,why=goTo(0,0,0,false);if not ok then return false,"Rueckweg: "..tostring(why) end
+    return w.face(0)
+end
+-- Nachschub holen; fehlt etwas, an der Basis warten bis es da ist
+local MISSING={fill="Baumaterial fehlt",slab="Stufen fehlen",trap="Falltueren fehlen",water="Wassereimer fehlen"}
+local HINT={fill="Bruchstein/Stein/Erde",slab="Bruchsteinstufen",trap="Falltueren (Holz)",water="Wassereimer"}
+local function resupply(kind)
+    local ok,why=goHome();if not ok then return false,why end
+    while true do
+        if not w.active() then return false,"stopped" end
+        local okb,title,detail=base()
+        local match=({fill=isFill,slab=isSlab,trap=isTrap,water=isWaterBucket})[kind]
+        if okb and (not kind or not match or have(match)>0) then st.missing=nil;return true end
+        if okb then
+            local need=remaining(st.idx)
+            title=MISSING[kind];detail=HINT[kind].." in die Kiste HINTER der Turtle legen (noch "..(need[kind] or "?").." gebraucht)."
+        end
+        st.missing=title;w.status(title,detail)
+        for _=1,20 do if not w.active() then return false,"stopped" end;sleep(0.5) end
+    end
+end
+
+-- ===== Bauen =====
+local function placeDown(match)
+    local slot=w.find(match);if not slot then return false,"material" end
+    turtle.select(slot);local ok=turtle.placeDown();turtle.select(1)
+    if ok then st.placed=(st.placed or 0)+1 end
+    return ok
+end
+local function clearDown(keepWater)
+    for _=1,8 do
+        local e,b=turtle.inspectDown()
+        if not e then return true end
+        if isLiquid(b.name) then
+            if keepWater and (b.name=="minecraft:water" or b.name:find("flowing_water",1,true)) then return true end
+            local slot=w.find(isFill);if not slot then return false,"material" end
+            turtle.select(slot);turtle.placeDown();turtle.select(1)
+            DIG.down()
+        elseif isContainer(b.name) or isTurtle(b.name) then return true
+        else
+            if not DIG.down() then return false,"Nicht abbaubar: "..b.name end
+        end
+    end
+    local e,b=turtle.inspectDown()
+    if e and isLiquid(b.name) and not keepWater then return false,"Wasser/Lava nicht wegzubekommen" end
+    return true
+end
+local function doCell(s)
+    local tg=target(s.x,s.y-1,s.z)
+    local e,b=turtle.inspectDown()
+    if tg==SOLID then
+        if e and (isFill(b.name) or OKSOLID[b.name]) then return true end
+        if e then local ok,why=clearDown();if not ok then return false,why end end
+        if not w.find(isFill) then return false,"material" end
+        local ok=placeDown(isFill)
+        if not ok then return false,"Block nicht setzbar" end
+        return true
+    elseif tg==SLAB then
+        if e and isSlab(b.name) and (b.state or {}).type~="top" then return true end
+        if e then local ok,why=clearDown();if not ok then return false,why end end
+        if not w.find(isSlab) then return false,"slab" end
+        if not placeDown(isSlab) then return false,"Stufe nicht setzbar" end
+        local e2,b2=turtle.inspectDown()
+        if e2 and (b2.state or {}).type=="top" then DIG.down();return false,"Stufe landet oben statt unten" end
+        return true
+    else
+        -- Wasser im Kanal (auch fliessendes) beim Ausbessern stehen lassen
+        local y=s.y-1
+        local inChannel=y>=B0 and (y-B0)%4==1 and (s.x==0 or s.z==0) and not (s.x==0 and s.z==0)
+        return clearDown(tg==SRC or inChannel)
+    end
+end
+local function doWater(s)
+    local e,b=turtle.inspectDown()
+    if e and b.name=="minecraft:water" and tonumber((b.state or {}).level or 0)==0 then return true end
+    if e and not isLiquid(b.name) then local ok,why=clearDown();if not ok then return false,why end end
+    local slot=w.find(isWaterBucket);if not slot then return false,"water" end
+    turtle.select(slot);local ok=turtle.placeDown();turtle.select(1)
+    if not ok then return false,"Wasser nicht setzbar" end
+    return true
+end
+local function doTrap(s)
+    if st.trapFail then return true end
+    local e,b=turtle.inspectUp()
+    if e and isTrap(b.name) then return true end
+    if e then return true end                -- unerwartet belegt: lassen
+    local slot=w.find(isTrap);if not slot then return false,"trap" end
+    turtle.select(slot);local ok=turtle.placeUp();turtle.select(1)
+    if not ok then return false,"Falltuer nicht setzbar" end
+    local e2,b2=turtle.inspectUp()
+    if e2 and (b2.state or {}).half=="bottom" then
+        -- haengt unten statt oben: wuerde den Creepern den Platz nehmen -> wieder weg
+        DIG.up();st.trapFail=true;w.save()
+        common.log("Mobfarm: Falltueren lassen sich nicht oben anbringen, ohne Falltueren weiter")
+    else st.placed=(st.placed or 0)+1 end
+    return true
+end
+local function doCap()
+    local e,b=turtle.inspectUp()
+    if e and (isFill(b.name) or OKSOLID[b.name]) then return true end
+    local slot=w.find(isFill);if not slot then return false,"material" end
+    turtle.select(slot);local ok=turtle.placeUp();turtle.select(1)
+    if ok then st.placed=(st.placed or 0)+1 end
+    return ok or false,"Dach nicht setzbar"
+end
+local DO={cell=doCell,water=doWater,trap=doTrap,cap=doCap}
+local PHASE=function(s)
+    if s.y-1<B0 and s.t=="cell" then return "Schacht" end
+    if s.t=="water" then return "Wasser" end
+    if s.t=="trap" then return "Falltueren" end
+    if s.t=="cap" or s.y-1>=TOP then return "Dach" end
+    return "Etage "..(math.floor((s.y-1-B0)/4)+1).."/"..F
+end
+-- Mob-Turtle werden: Schwert anlegen, Aufgabe umstellen, neu starten
+local function becomeMob()
+    if not C.becomeMob or not st.done or not w.isHome() then return false end
+    local slot=w.find(isSword);if not slot then return false end
+    if not w.equipTool(isSword) then return false end
+    w.unload(function(n) if isSword(n) or common.MODEM_ITEMS[n] then return 4096 end;return 0 end)
+    local okc,raw=pcall(dofile,"/toast.config.lua")
+    if not okc or type(raw)~="table" then return false end
+    raw.job="mob";raw.mob=raw.mob or {}
+    local m=common.withDefaults(raw).mob
+    m.mode="farm";m.attack="up";raw.mob=m
+    raw.label=nil
+    local f=fs.open("/toast.config.lua","w");f.write(common.configText(raw));f.close()
+    common.log("Mobfarm fertig: Turtle wird zur Mob-Turtle")
+    error("TOAST_UPDATE",0)
+end
+round=function()
+    if st.done then
+        -- nochmal: alles pruefen und ausbessern
+        st.done=nil;st.idx=1;w.save()
+    end
+    opts.readyText="START: Mobfarm bauen (macht weiter, wo sie war)"
+    if w.isHome() then
+        local ok=resupply(nil);if not ok then return false end
+    end
+    while st.idx<=N do
+        if not w.active() then w.save();return false end
+        local s=STEPS[st.idx]
+        run.scanned=st.idx-1
+        st.phase=PHASE(s)
+        if w.freeSlots()==0 or fuel()<homeNeed()+math.abs(s.y-st.y)+40 then
+            local ok,why=resupply(nil);if not ok then if why~="stopped" then w.fail(why) end;return false end
+        end
+        w.status("Baut",st.phase.." - Schritt "..st.idx.."/"..N)
+        local ok,why=goTo(s.x,s.y,s.z,s.corr)
+        if ok then ok,why=DO[s.t](s) end
+        if ok then
+            st.idx=st.idx+1;w.saveSoon()
+        elseif why=="stopped" then w.save();return false
+        elseif why=="material" or why=="slab" or why=="trap" or why=="water" then
+            local okr,whyr=resupply(why=="material" and "fill" or why)
+            if not okr then if whyr~="stopped" then w.fail(whyr) end;return false end
+        else w.fail(why);return false end
+    end
+    run.scanned=N
+    local okh,whyh=goHome();if not okh then w.fail(whyh);return false end
+    w.unload(keep)
+    st.done=true;st.phase="Fertig";w.save()
+    opts.readyText="FERTIG: Mobfarm steht. Schwert ins Inventar -> wird zur Mob-Turtle"
+    w.status("Fertig","Mobfarm steht. Schwert ins Inventar legen -> wird zur Mob-Turtle.")
+    w.finish()
+    becomeMob()
+    return true
+end
+idleHome=function()
+    if w.isHome() and st.dir==0 then return true end
+    return goHome()
+end
+idleBase=function()
+    if st.done then
+        becomeMob()
+        return true
+    end
+    return w.unload(keep)
+end
+pcall(w.equipTool,isTool)
+w.start("TOAST MOBFARM-BAU",F.." Etage(n), Schacht "..D..(CREEPER and ", nur Creeper" or ""))
+]======]
 FILES["toast_gps.lua"]=[======[
 -- Toast Control: GPS-Sender. Beantwortet GPS-Anfragen (gps locate) von Turtles,
 -- Pockets und Computern mit den eigenen Koordinaten. Man braucht mindestens 4
@@ -7486,7 +8041,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.14.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.15.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -7501,7 +8056,7 @@ for _,a in ipairs(args) do
     if a=="auto" then auto=true;clean=false
     elseif a=="intern" then internal=true
     elseif a=="clean" or a=="neu" then clean=true
-    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="dig" or a=="repeater" then requested=a
+    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="dig" or a=="build" or a=="repeater" then requested=a
     else error("Optional: farm / mining / repeater / clean / auto",0) end
 end
 local code=FILES
@@ -7624,6 +8179,7 @@ local function chooseJob()
     fg(colors.yellow);write("3 ");fg(colors.white);print("Holz      (Baeume, Axt)")
     fg(colors.yellow);write("4 ");fg(colors.white);print("Mobs      (Schwert)")
     fg(colors.yellow);write("5 ");fg(colors.white);print("Aushub    (Raum/Schacht/Kugel, Spitzh.)")
+    fg(colors.yellow);write("6 ");fg(colors.white);print("Mobfarm   (baut Creeper-Farm, Spitzh.)")
     print("")
     while true do
         write("Aufgabe: ")
@@ -7633,6 +8189,7 @@ local function chooseJob()
         if answer=="3" or answer=="tree" or answer=="holz" or answer=="h" then return "tree" end
         if answer=="4" or answer=="mob" or answer=="mobs" then return "mob" end
         if answer=="5" or answer=="dig" or answer=="aushub" or answer=="a" then return "dig" end
+        if answer=="6" or answer=="build" or answer=="mobfarm" or answer=="bau" then return "build" end
     end
 end
 local job
@@ -7724,7 +8281,7 @@ elseif role=="storage" then names[#names+1]="toast_storage.lua";names[#names+1]=
 elseif role=="turtle" then
     -- Alle Turtle-Programme: Aufgabe spaeter ohne Neuinstallation wechselbar
     for _,n in ipairs({"farm_turtle.lua","farm_common.lua","mine_turtle.lua","mine_common.lua",
-        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
+        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","build_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
 else names[#names+1]="repeater.lua" end
 for _,name in ipairs(names)do assert(code[name] and load(code[name],"@"..name),"Installer beschaedigt: "..name) end
 if role=="turtle" and (job=="farm" or job=="mining") then

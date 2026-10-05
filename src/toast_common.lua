@@ -1,7 +1,7 @@
 local M={
-    version="3.14.0",
+    version="3.15.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
-    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
+    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true,update=true},
     updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
@@ -19,10 +19,10 @@ function M.serial(n) return M.integer(n,1,9007199254740991) end
 function M.number(n) return type(n)=="number" and n==n and n>-math.huge and n<math.huge and n or 0 end
 function M.contains(list,id) for _,v in ipairs(list or {}) do if v==id then return true end end;return false end
 -- Aufgaben einer Turtle. JOBS: Reihenfolge in Menues und Anzeigen.
-M.JOBS={"farm","mining","tree","mob","dig"}
-M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub"}
+M.JOBS={"farm","mining","tree","mob","dig","build"}
+M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub",build="Mobfarm-Bau"}
 -- Config-Abschnitt und Programmdatei je Aufgabe
-M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig"}
+M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig",build="build"}
 function M.job(j) return M.JOB_NAMES[j]~=nil end
 function M.label(v)
     return type(v)=="string" and v:gsub("[%c]"," "):sub(1,48) or ""
@@ -59,13 +59,14 @@ M.DEFAULTS={
     dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
         wallBlock="",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
+    build={floors=2,drop=22,creeperOnly=true,becomeMob=true,fuelTarget=2000,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,storage=true,base=true,gps=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,build=true,storage=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -165,12 +166,19 @@ function M.configText(c)
     elseif role=="turtle" and job=="mob" then
         section("mob","Mobs: Schwert-Turtle",{
             {"mode","\"farm\" Mobfarm, \"guard\" Wache, \"patrol\" Waechter"},
-            {"attack","\"front\" oder \"all\" (auch oben/unten)"},
+            {"attack","\"front\", \"up\" (nur oben, Mobfarm-Schacht) oder \"all\""},
             {"nightOnly","true = nur nachts aktiv (18:30-5:30)"},
             {"length","Waechter: Gebiet nach vorne"},{"width","Waechter: Gebiet zur Seite"},
             {"side","Waechter: Gebiet \"right\" oder \"left\""},{"climb","Waechter: max. Hoehe hoch/runter"},
             {"interval","Waechter: Pause an der Basis in s"},
             {"fuelTarget","Waechter: so voll tanken (= so lange unterwegs)"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
+    elseif role=="turtle" and job=="build" then
+        section("build","Mobfarm-Bau: Schacht + dunkle Etagen UEBER der Turtle",{
+            {"floors","Spawn-Etagen (1-6, je 17x17 innen)"},{"drop","Schachthoehe bis zur Turtle (22 = Mobs fast tot)"},
+            {"creeperOnly","true = Falltueren an die Decke: nur Creeper"},
+            {"becomeMob","true = danach selbst Mob-Turtle (Schwert ins Inventar)"},
+            {"fuelTarget","an der Basis mindestens bis hierhin tanken"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.build)
     elseif role=="turtle" and job=="dig" then
         section("dig","Aushub: Form direkt VOR der Basis ausheben",{
             {"shape","\"room\" Quader/Schacht, \"cylinder\", \"sphere\" Kugel, \"dome\" Halbkugel"},
@@ -269,8 +277,8 @@ function M.load(c)
     assert(type(c.autoUpdate)=="boolean" and M.integer(c.updateEvery,1,1440),"autoUpdate true/false, updateEvery 1 bis 1440 Minuten.")
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
-        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree, mob oder dig einstellen.")
-        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) end
+        assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree, mob, dig oder build einstellen.")
+        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) elseif c.job=="build" then M.checkBuild(c.build) end
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
@@ -630,7 +638,7 @@ end
 function M.checkMob(m)
     assert(type(m)=="table","mob fehlt.")
     assert(m.mode=="farm" or m.mode=="guard" or m.mode=="patrol","mob.mode: farm, guard oder patrol.")
-    assert(m.attack=="front" or m.attack=="all","mob.attack: front oder all.")
+    assert(m.attack=="front" or m.attack=="all" or m.attack=="up","mob.attack: front, up oder all.")
     assert(M.integer(m.length,2,64) and M.integer(m.width,1,64),"mob.length 2-64, mob.width 1-64.")
     assert(M.integer(m.climb,1,32),"mob.climb: 1 bis 32.")
     assert(type(m.nightOnly)=="boolean","mob.nightOnly: true oder false.")
@@ -639,6 +647,15 @@ function M.checkMob(m)
     assert(M.integer(m.fuelTarget,100,100000),"mob.fuelTarget: 100 bis 100000.")
     assert(m.radioTimeout==0 or M.integer(m.radioTimeout,10,300),"mob.radioTimeout: 0 oder 10 bis 300.")
     return m
+end
+function M.checkBuild(b)
+    assert(type(b)=="table","build fehlt.")
+    assert(M.integer(b.floors,1,6),"build.floors: 1 bis 6 Etagen.")
+    assert(M.integer(b.drop,4,60),"build.drop: Schachthoehe 4 bis 60.")
+    assert(type(b.creeperOnly)=="boolean" and type(b.becomeMob)=="boolean","build.creeperOnly/becomeMob: true oder false.")
+    assert(M.integer(b.fuelTarget,100,100000),"build.fuelTarget: 100 bis 100000.")
+    assert(b.radioTimeout==0 or M.integer(b.radioTimeout,10,300),"build.radioTimeout: 0 oder 10 bis 300.")
+    return b
 end
 M.DIG_SHAPES={room="Quader",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
 function M.checkDig(d)
