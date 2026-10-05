@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.17.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.17.3",
+    version="3.17.4",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1155,8 +1155,8 @@ local function equipped(side)
 end
 -- Zusatzwerte im Status, solange ferngesteuert wird
 function M.manualInfo(run,snap)
-    if not (run.manual or run.manualMsg) then return end
-    snap.manual=run.manual==true;snap.mMsg=run.manualMsg
+    if not (run.manual or run.manualMsg or run.parked) then return end
+    snap.manual=run.manual==true;snap.mMsg=run.manualMsg;snap.parked=run.parked==true
     if run.manual and turtle then
         local function look(fn) local ok,e,b=pcall(fn);if ok and e and type(b)=="table" then return b.name end;return "Luft" end
         snap.mFront=look(turtle.inspect);snap.mUp=look(turtle.inspectUp);snap.mDown=look(turtle.inspectDown)
@@ -1179,6 +1179,7 @@ function M.remoteControl(o)
         local cf=M.remoteConfig(c)
         pcall(o.transmit,{kind="config",version=1,id=os.getComputerID(),config=cf,ok=ok,msg=msg})
     end
+    o.run.parked=o.st.parked==true or nil      -- geparkt (Fernsteuerung) - auch nach Neustart
     function R.handle(b)
         if type(b)~="table" or b.kind~="remote" or not M.serial(b.serial) or type(b.payload)~="table" then return false end
         o.run.lastContact=os.clock()
@@ -1199,8 +1200,15 @@ function M.remoteControl(o)
         elseif op=="manual_on" then
             if run.mode~="off" then run.manualMsg="Erst stoppen, dann steuern"
             elseif run.recovery then run.manualMsg="Position unklar: erst an die Basis setzen"
-            else run.manual=true;run.manualMsg="Fernsteuerung an" end
-        elseif op=="manual_off" then run.manual=nil;run.manualMsg="Fernsteuerung aus - faehrt zur Basis"
+            else run.manual=true;run.manualMsg="Fernsteuerung an";o.st.parked=nil;run.parked=nil;pcall(o.save) end
+        elseif op=="manual_off" or op=="gohome" then
+            -- zurueck zur Basis (idle faehrt heim)
+            run.manual=nil;o.st.parked=nil;run.parked=nil;pcall(o.save)
+            run.manualMsg="Faehrt zur Basis"
+        elseif op=="manual_park" then
+            -- Steuerung aus, aber hier stehen bleiben (auch nach Neustart)
+            run.manual=nil;o.st.parked=true;run.parked=true;pcall(o.save)
+            run.manualMsg="Bleibt hier stehen"
         elseif o.ops[op] then
             if not run.manual then run.manualMsg="Erst 'Steuern' einschalten"
             else
@@ -3347,10 +3355,29 @@ function M.new(screen,cfg)
         local on=d.manual==true
         local can=link and sel.online and d.mode=="off" and not d.recovery
         local y=5
+        if on and ui.endAsk then
+            -- Beenden: zur Basis oder stehen bleiben?
+            fill(y,colors.orange);text(2,y,"Steuerung beenden?",colors.black,colors.orange);y=y+2
+            text(1,y,"Was soll die Turtle tun?",colors.white);y=y+2
+            local bh=foot-1-y>=8 and 2 or 1
+            button(1,y,w,"Zurueck zur Basis fahren","end:home",colors.blue,link,bh);y=y+bh+1
+            button(1,y,w,"Hier stehen bleiben","end:park",colors.green,link,bh);y=y+bh+1
+            button(1,y,w,"Abbrechen (weiter steuern)","end:cancel",colors.gray,true,bh)
+            return
+        end
         if on then
             fill(y,colors.lime);text(2,y,"Fernsteuerung AN",colors.black,colors.lime)
-            local l=w>=30 and " Beenden + heim " or " Beenden "
-            pill(w-#l+1,y,#l,l,"rc:manual_off",colors.red,link,colors.white)
+            local l=" Beenden "
+            pill(w-#l+1,y,#l,l,"end:ask",colors.red,link,colors.white)
+        elseif d.parked then
+            fill(y,colors.yellow);text(2,y,"Abgestellt",colors.black,colors.yellow)
+            local l=" Steuern "
+            pill(w-#l+1,y,#l,l,"rc:manual_on",colors.green,can,colors.white)
+            y=y+1
+            text(1,y,"Steht, wo du sie abgestellt hast.",colors.lightGray);y=y+1
+            text(1,y,"Start = erst heim, dann Arbeit.",colors.lightGray);y=y+2
+            button(1,y,w,"Zur Basis fahren","rc:gohome",colors.blue,link and sel.online,2)
+            return
         else
             fill(y,colors.gray);text(2,y,can and "Fernsteuerung aus" or (d.mode~="off" and "Erst stoppen" or "nicht erreichbar"),colors.white,colors.gray)
             local l=" Steuern "
@@ -3773,6 +3800,12 @@ function M.new(screen,cfg)
         if a=="redraw" then return
         elseif type(a)=="string" and (a:match("^rc:") or a:match("^cf:")) then return ui.remoteAction(a)
         elseif a=="dm:toggle" then ui.driveMode=ui.driveMode=="build" and "use" or "build";return
+        elseif a=="end:ask" then ui.endAsk=true;return
+        elseif a=="end:cancel" then ui.endAsk=nil;return
+        elseif a=="end:home" or a=="end:park" then
+            ui.endAsk=nil
+            if ui.selected then return {id=ui.selected,payload={op=a=="end:home" and "manual_off" or "manual_park"}} end
+            return
         elseif a=="dv:info" then ui.detailView=nil;return
         elseif a=="dv:drive" then ui.detailView="drive";return
         elseif a=="dv:config" then
@@ -4658,6 +4691,7 @@ lastRadio=os.clock()
 -- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
 local function radioWindow() if LIVE then LIVE.point() end end
 local function scan()
+    if st.parked then st.parked = nil; run.parked = nil; save() end     -- abgestellt: prepare() faehrt erst heim
     run.scanned, run.roundYield, run.roundPlants, run.waitUntil, run.skipped = 0, 0, 0, 0, 0
     -- Angefangene Runde (Stopp, Fehler, Neustart, Nachschub): dort weitermachen
     local first = 1
@@ -4720,6 +4754,7 @@ local function scan()
 end
 local function idle()
     if run.manual then status("Fernsteuerung", "Wird von Hand gesteuert (Zentrale/Pocket)."); return end
+    if st.parked then status("Abgestellt", "Steht, wo sie abgestellt wurde. 'Zur Basis' oder Start = faehrt heim."); return end
     if not isHome() or st.dir ~= 0 then
         local ok, why = home()
         if not ok then status("Rueckweg blockiert", why); return end
@@ -6089,6 +6124,7 @@ local function finish()
 end
 local function idle()
     if run.manual then status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
+    if st.parked then status("Abgestellt","Steht, wo sie abgestellt wurde. 'Zur Basis' oder Start = faehrt heim.");return end
     local ok,why=home()
     if not ok then status("Rueckweg blockiert",why);return end
     ok,why=unload()
@@ -6122,7 +6158,11 @@ local function work()
     while true do
         chunkTick()
         if not run.recovery then
-            if active() then
+            if active() and st.parked then
+                -- war abgestellt: erst zur Basis, dann normal weiter
+                st.parked=nil;run.parked=nil;save()
+                local ok,why=home();if not ok then fail("Rueckweg blockiert: "..tostring(why)) end
+            elseif active() then
                 radioWindow()
                 if st.next>cells then finish();status("Fertig","Neuer Auftrag: an der Turtle N druecken")
                 else
@@ -7031,6 +7071,7 @@ function W.new(o)
     end
     local function idle()
         if run.manual then w.status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
+        if st.parked then w.status("Abgestellt","Steht, wo sie abgestellt wurde. 'Zur Basis' oder Start = faehrt heim.");return end
         if o.idleHome then
             local ok,why=o.idleHome()
             if not ok then w.status("Rueckweg blockiert",why);return end
@@ -7062,6 +7103,10 @@ function W.new(o)
     local function worker()
         while true do
             if run.recovery then sleep(0.5)
+            elseif w.active() and st.parked then
+                -- war abgestellt: erst zur Basis, dann normal weiter
+                st.parked=nil;run.parked=nil;w.save()
+                if o.idleHome then local ok,why=o.idleHome();if not ok then w.fail("Rueckweg blockiert: "..tostring(why)) end end
             elseif w.active() then
                 local complete=o.round()
                 if complete then
@@ -8852,7 +8897,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.17.3 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.4 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

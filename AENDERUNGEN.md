@@ -1,3 +1,13 @@
+# Toast Control 3.17.4
+
+- **Fernsteuerung beenden fragt nach:** „Beenden“ zeigt jetzt
+  **Zurück zur Basis fahren** / **Hier stehen bleiben** / **Abbrechen**.
+  - **Stehen bleiben:** Die Turtle bleibt genau dort („Abgestellt“, gelb) – auch
+    nach Server-/Turtle-Neustart. Im Steuern-Reiter dann: **Zur Basis fahren**
+    oder wieder **Steuern**.
+  - **Start** bei einer abgestellten Turtle: sie fährt erst zur Basis und arbeitet
+    dann normal weiter (Farm: ab dem Feld, wo sie war).
+
 # Toast Control 3.17.3
 
 - **Farm macht dort weiter, wo sie aufgehört hat.** Bisher fing jede Runde nach

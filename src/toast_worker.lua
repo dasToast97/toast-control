@@ -544,6 +544,7 @@ function W.new(o)
     end
     local function idle()
         if run.manual then w.status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
+        if st.parked then w.status("Abgestellt","Steht, wo sie abgestellt wurde. 'Zur Basis' oder Start = faehrt heim.");return end
         if o.idleHome then
             local ok,why=o.idleHome()
             if not ok then w.status("Rueckweg blockiert",why);return end
@@ -575,6 +576,10 @@ function W.new(o)
     local function worker()
         while true do
             if run.recovery then sleep(0.5)
+            elseif w.active() and st.parked then
+                -- war abgestellt: erst zur Basis, dann normal weiter
+                st.parked=nil;run.parked=nil;w.save()
+                if o.idleHome then local ok,why=o.idleHome();if not ok then w.fail("Rueckweg blockiert: "..tostring(why)) end end
             elseif w.active() then
                 local complete=o.round()
                 if complete then

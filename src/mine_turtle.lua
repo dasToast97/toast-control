@@ -1120,6 +1120,7 @@ local function finish()
 end
 local function idle()
     if run.manual then status("Fernsteuerung","Wird von Hand gesteuert (Zentrale/Pocket).");return end
+    if st.parked then status("Abgestellt","Steht, wo sie abgestellt wurde. 'Zur Basis' oder Start = faehrt heim.");return end
     local ok,why=home()
     if not ok then status("Rueckweg blockiert",why);return end
     ok,why=unload()
@@ -1153,7 +1154,11 @@ local function work()
     while true do
         chunkTick()
         if not run.recovery then
-            if active() then
+            if active() and st.parked then
+                -- war abgestellt: erst zur Basis, dann normal weiter
+                st.parked=nil;run.parked=nil;save()
+                local ok,why=home();if not ok then fail("Rueckweg blockiert: "..tostring(why)) end
+            elseif active() then
                 radioWindow()
                 if st.next>cells then finish();status("Fertig","Neuer Auftrag: an der Turtle N druecken")
                 else

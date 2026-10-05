@@ -1,5 +1,5 @@
 local M={
-    version="3.17.3",
+    version="3.17.4",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1012,8 +1012,8 @@ local function equipped(side)
 end
 -- Zusatzwerte im Status, solange ferngesteuert wird
 function M.manualInfo(run,snap)
-    if not (run.manual or run.manualMsg) then return end
-    snap.manual=run.manual==true;snap.mMsg=run.manualMsg
+    if not (run.manual or run.manualMsg or run.parked) then return end
+    snap.manual=run.manual==true;snap.mMsg=run.manualMsg;snap.parked=run.parked==true
     if run.manual and turtle then
         local function look(fn) local ok,e,b=pcall(fn);if ok and e and type(b)=="table" then return b.name end;return "Luft" end
         snap.mFront=look(turtle.inspect);snap.mUp=look(turtle.inspectUp);snap.mDown=look(turtle.inspectDown)
@@ -1036,6 +1036,7 @@ function M.remoteControl(o)
         local cf=M.remoteConfig(c)
         pcall(o.transmit,{kind="config",version=1,id=os.getComputerID(),config=cf,ok=ok,msg=msg})
     end
+    o.run.parked=o.st.parked==true or nil      -- geparkt (Fernsteuerung) - auch nach Neustart
     function R.handle(b)
         if type(b)~="table" or b.kind~="remote" or not M.serial(b.serial) or type(b.payload)~="table" then return false end
         o.run.lastContact=os.clock()
@@ -1056,8 +1057,15 @@ function M.remoteControl(o)
         elseif op=="manual_on" then
             if run.mode~="off" then run.manualMsg="Erst stoppen, dann steuern"
             elseif run.recovery then run.manualMsg="Position unklar: erst an die Basis setzen"
-            else run.manual=true;run.manualMsg="Fernsteuerung an" end
-        elseif op=="manual_off" then run.manual=nil;run.manualMsg="Fernsteuerung aus - faehrt zur Basis"
+            else run.manual=true;run.manualMsg="Fernsteuerung an";o.st.parked=nil;run.parked=nil;pcall(o.save) end
+        elseif op=="manual_off" or op=="gohome" then
+            -- zurueck zur Basis (idle faehrt heim)
+            run.manual=nil;o.st.parked=nil;run.parked=nil;pcall(o.save)
+            run.manualMsg="Faehrt zur Basis"
+        elseif op=="manual_park" then
+            -- Steuerung aus, aber hier stehen bleiben (auch nach Neustart)
+            run.manual=nil;o.st.parked=true;run.parked=true;pcall(o.save)
+            run.manualMsg="Bleibt hier stehen"
         elseif o.ops[op] then
             if not run.manual then run.manualMsg="Erst 'Steuern' einschalten"
             else

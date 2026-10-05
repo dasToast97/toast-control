@@ -285,5 +285,66 @@ do
     cmd=ui.action(ui.key("space"))
     check("Tab zurueck -> Leertaste baut wieder ab",type(cmd)=="table" and cmd.payload.op=="use")
 end
+print("R11 Beenden: stehen bleiben (auch nach Neustart), spaeter 'Zur Basis'")
+do
+    S=Sim.new({config=CFG,fuel=4000})
+    S.protocol="toast.dig.v1"
+    S.world[S.key(0,0,1)]=false;S.world[S.key(0,0,2)]=false
+    remote(S,2,{op="manual_on"});remote(S,3,{op="forward"});remote(S,4,{op="forward"});remote(S,5,{op="manual_park"})
+    local p1
+    S.actions[#S.actions+1]={t=15,fn=function(S) p1={z=S.p.z} end}
+    remote(S,16,{op="gohome"})
+    table.sort(S.actions,function(a,b) return a.t<b.t end)
+    Sim.run(S,30)
+    check("nach 'stehen bleiben' noch auf z=2 (10 s spaeter)",p1 and p1.z==2,p1 and p1.z)
+    local pk=lastWith(S,function(m) return m.kind=="status" and m.parked end)
+    check("Status 'Abgestellt' + parked",pk and pk.status=="Abgestellt",pk and pk.status)
+    check("'Zur Basis' -> wieder zu Hause",S.p.x==0 and S.p.y==0 and S.p.z==0,S.p.x..","..S.p.y..","..S.p.z)
+    -- Neustart, waehrend sie abgestellt ist: bleibt stehen
+    S=Sim.new({config=CFG,fuel=4000})
+    S.protocol="toast.dig.v1"
+    S.world[S.key(0,0,1)]=false
+    remote(S,2,{op="manual_on"});remote(S,3,{op="forward"});remote(S,4,{op="manual_park"})
+    Sim.run(S,8)
+    local files,pos=S.files,{x=S.p.x,y=S.p.y,z=S.p.z,dir=S.p.dir}
+    local S2=Sim.new({config=CFG,fuel=4000});S2.files=files;S2.p=pos;S2.protocol="toast.dig.v1";S2.world[S2.key(0,0,1)]=false
+    Sim.run(S2,10)
+    check("nach Neustart weiterhin abgestellt (nicht heimgefahren)",S2.p.z==1,S2.p.z)
+    -- Start, waehrend abgestellt: erst heim, dann Arbeit
+    S2.actions={{t=S2.T+1,fn=function(S) Sim.cmd(S,"once",50) end}}
+    local S3=Sim.new({config=CFG,fuel=4000,actions={{t=2,fn=function(S) Sim.cmd(S,"once",9999999) end}}})
+    S3.files=files;S3.p={x=pos.x,y=pos.y,z=pos.z,dir=pos.dir};S3.protocol="toast.dig.v1";S3.world[S3.key(0,0,1)]=false
+    Sim.run(S3,200)
+    local stf=load("return "..S3.files["/toast_dig_state"])()
+    check("Start aus 'abgestellt': Auftrag fertig + zu Hause",stf.done==true and S3.p.x==0 and S3.p.z==0 and not stf.parked,tostring(stf.done).." "..S3.p.x..","..S3.p.z)
+end
+print("R12 Oberflaeche: Beenden fragt nach")
+do
+    local S3=Sim.new({config=""});local G=Sim.env(S3)
+    for _,n in ipairs({"toast_common.lua","toast_ui.lua"}) do S3.files["/toast/"..n]=io.open("/home/claude/toast/"..n):read("a") end
+    do local n=0;local c={};G.colors=setmetatable({},{__index=function(_,k)if not c[k] then n=n+1;c[k]=2^n end;return c[k] end}) end
+    G.textutils.formatTime=function()return "9:15" end;G.os.time=function()return 9 end
+    local common=G.dofile("/toast/toast_common.lua")
+    local UI=G.dofile("/toast/toast_ui.lua")
+    local rows={};for y=1,20 do rows[y]=string.rep(" ",26) end;local cx,cy=1,1
+    local sc={getSize=function()return 26,20 end,isColor=function()return true end,setBackgroundColor=function()end,setTextColor=function()end,
+        clear=function() for y=1,20 do rows[y]=string.rep(" ",26) end end,setCursorPos=function(x,y)cx,cy=x,y end,setCursorBlink=function()end,
+        write=function(t)if cy<1 or cy>20 then return end;t=tostring(t):gsub("[\128-\255]","="):gsub("[\1-\31]","*");local r=rows[cy];rows[cy]=(r:sub(1,cx-1)..t..r:sub(cx+#t)):sub(1,26);cx=cx+#t end}
+    local ui=UI.new(sc,common.load({role="controller",controllerId=7}))
+    local fleet={ids={12},entries={[12]={job="dig",label="Grabi",online=true,data={status="Fernsteuerung",mode="off",manual=true}}}}
+    ui.action("id:12");ui.action("dv:drive")
+    local b;ui.draw(fleet,true,"");for _,x in ipairs(ui.buttons) do if x.action=="end:ask" then b=x end end
+    check("Knopf 'Beenden'",b~=nil)
+    ui.action(ui.click(b.x,b.y));ui.draw(fleet,true,"")
+    local t=table.concat(rows,"\n");print(t)
+    check("Abfrage mit 3 Moeglichkeiten",t:find("Zurueck zur Basis",1,true) and t:find("Hier stehen bleiben",1,true) and t:find("Abbrechen",1,true),t)
+    local park;for _,x in ipairs(ui.buttons) do if x.action=="end:park" then park=x end end
+    local cmd=ui.action(ui.click(park.x,park.y))
+    check("'Hier stehen bleiben' -> manual_park",type(cmd)=="table" and cmd.payload.op=="manual_park")
+    fleet.entries[12].data={status="Abgestellt",mode="off",parked=true}
+    ui.draw(fleet,true,"");t=table.concat(rows,"\n")
+    local home;for _,x in ipairs(ui.buttons) do if x.action=="rc:gohome" then home=x end end
+    check("Abgestellt: 'Zur Basis fahren' + 'Steuern'",home and t:find("Abgestellt",1,true) and t:find("Steuern",1,true),t)
+end
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end

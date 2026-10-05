@@ -496,6 +496,7 @@ lastRadio=os.clock()
 -- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
 local function radioWindow() if LIVE then LIVE.point() end end
 local function scan()
+    if st.parked then st.parked = nil; run.parked = nil; save() end     -- abgestellt: prepare() faehrt erst heim
     run.scanned, run.roundYield, run.roundPlants, run.waitUntil, run.skipped = 0, 0, 0, 0, 0
     -- Angefangene Runde (Stopp, Fehler, Neustart, Nachschub): dort weitermachen
     local first = 1
@@ -558,6 +559,7 @@ local function scan()
 end
 local function idle()
     if run.manual then status("Fernsteuerung", "Wird von Hand gesteuert (Zentrale/Pocket)."); return end
+    if st.parked then status("Abgestellt", "Steht, wo sie abgestellt wurde. 'Zur Basis' oder Start = faehrt heim."); return end
     if not isHome() or st.dir ~= 0 then
         local ok, why = home()
         if not ok then status("Rueckweg blockiert", why); return end

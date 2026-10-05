@@ -878,10 +878,29 @@ function M.new(screen,cfg)
         local on=d.manual==true
         local can=link and sel.online and d.mode=="off" and not d.recovery
         local y=5
+        if on and ui.endAsk then
+            -- Beenden: zur Basis oder stehen bleiben?
+            fill(y,colors.orange);text(2,y,"Steuerung beenden?",colors.black,colors.orange);y=y+2
+            text(1,y,"Was soll die Turtle tun?",colors.white);y=y+2
+            local bh=foot-1-y>=8 and 2 or 1
+            button(1,y,w,"Zurueck zur Basis fahren","end:home",colors.blue,link,bh);y=y+bh+1
+            button(1,y,w,"Hier stehen bleiben","end:park",colors.green,link,bh);y=y+bh+1
+            button(1,y,w,"Abbrechen (weiter steuern)","end:cancel",colors.gray,true,bh)
+            return
+        end
         if on then
             fill(y,colors.lime);text(2,y,"Fernsteuerung AN",colors.black,colors.lime)
-            local l=w>=30 and " Beenden + heim " or " Beenden "
-            pill(w-#l+1,y,#l,l,"rc:manual_off",colors.red,link,colors.white)
+            local l=" Beenden "
+            pill(w-#l+1,y,#l,l,"end:ask",colors.red,link,colors.white)
+        elseif d.parked then
+            fill(y,colors.yellow);text(2,y,"Abgestellt",colors.black,colors.yellow)
+            local l=" Steuern "
+            pill(w-#l+1,y,#l,l,"rc:manual_on",colors.green,can,colors.white)
+            y=y+1
+            text(1,y,"Steht, wo du sie abgestellt hast.",colors.lightGray);y=y+1
+            text(1,y,"Start = erst heim, dann Arbeit.",colors.lightGray);y=y+2
+            button(1,y,w,"Zur Basis fahren","rc:gohome",colors.blue,link and sel.online,2)
+            return
         else
             fill(y,colors.gray);text(2,y,can and "Fernsteuerung aus" or (d.mode~="off" and "Erst stoppen" or "nicht erreichbar"),colors.white,colors.gray)
             local l=" Steuern "
@@ -1304,6 +1323,12 @@ function M.new(screen,cfg)
         if a=="redraw" then return
         elseif type(a)=="string" and (a:match("^rc:") or a:match("^cf:")) then return ui.remoteAction(a)
         elseif a=="dm:toggle" then ui.driveMode=ui.driveMode=="build" and "use" or "build";return
+        elseif a=="end:ask" then ui.endAsk=true;return
+        elseif a=="end:cancel" then ui.endAsk=nil;return
+        elseif a=="end:home" or a=="end:park" then
+            ui.endAsk=nil
+            if ui.selected then return {id=ui.selected,payload={op=a=="end:home" and "manual_off" or "manual_park"}} end
+            return
         elseif a=="dv:info" then ui.detailView=nil;return
         elseif a=="dv:drive" then ui.detailView="drive";return
         elseif a=="dv:config" then
