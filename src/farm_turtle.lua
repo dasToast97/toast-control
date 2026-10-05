@@ -127,6 +127,7 @@ local layout = CFG.width .. ":" .. CFG.length .. ":" .. CFG.crop .. (MIRROR and 
 for _,cell in ipairs(CFG.water) do layout = layout .. ":" .. cell.column .. "," .. cell.row end
 assert(not st.layout or st.layout == layout or (st.x == 0 and st.z == 0 and not st.pending),
     "Feldparameter nur an der Basis aendern. Bei versetzter Turtle --dock verwenden.")
+if st.layout ~= layout then st.scanAt = nil end      -- neues Feld: angefangene Runde verwerfen
 st.layout = layout
 assert(st.controller and st.controller >= 0 and st.controller % 1 == 0
     and st.controller ~= os.getComputerID(), "Ungueltige Computer-ID.")
@@ -157,7 +158,7 @@ local function retryable(fault)
     end
     return true
 end
-local function fail(why) run.mode, run.fault, run.retryAt = "off", why, nil end
+local function fail(why) run.mode, run.fault, run.retryAt = "off", why, nil; pcall(TC.log, "Farm gestoppt: " .. tostring(why)) end
 local function finish()
     run.mode, run.lastMode = "off", nil
     if st.lastMode then st.lastMode = nil; save() end
@@ -219,7 +220,9 @@ local function active()
     if run.mode ~= "off" and CFG.radioTimeout > 0 then
         if GEAR then
             if os.clock() - run.lastContact < 3 then run.radioMiss = 0 end
-            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, LIVE and LIVE.every or CL.report))) then
+            -- nur wenn wirklich so lange kein Kontakt war (verpasste Fenster allein reichen nicht)
+            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, LIVE and LIVE.every or CL.report)))
+                and os.clock() - run.lastContact > CFG.radioTimeout then
                 fail("Funkverbindung verloren")
             end
         elseif os.clock() - run.lastContact > CFG.radioTimeout then
@@ -494,8 +497,15 @@ lastRadio=os.clock()
 local function radioWindow() if LIVE then LIVE.point() end end
 local function scan()
     run.scanned, run.roundYield, run.roundPlants, run.waitUntil, run.skipped = 0, 0, 0, 0, 0
+    -- Angefangene Runde (Stopp, Fehler, Neustart, Nachschub): dort weitermachen
+    local first = 1
+    if type(st.scanAt) == "number" and st.scanAt > 1 and st.scanAt <= CFG.width * CFG.length then
+        first = st.scanAt
+        run.scanned, run.roundYield, run.roundPlants, run.skipped = first - 1, st.roundYield or 0, st.roundPlants or 0, st.roundSkipped or 0
+    end
     if not prepare() then return false end
-    for index = 1, CFG.width * CFG.length do
+    if first > 1 then status("Fortsetzen", "Runde geht weiter ab Feld " .. first .. " / " .. CFG.width * CFG.length) end
+    for index = first, CFG.width * CFG.length do
         if not active() then return false end
         local row = math.floor((index - 1) / CFG.width) + 1
         local x = (index - 1) % CFG.width
@@ -527,7 +537,11 @@ local function scan()
         end
         if not done then return false end
         run.scanned = index
+        -- Fortschritt merken (fuer Stopp/Neustart mitten in der Runde)
+        st.scanAt, st.roundYield, st.roundPlants, st.roundSkipped = index + 1, run.roundYield, run.roundPlants, run.skipped
+        save()
     end
+    st.scanAt, st.roundYield, st.roundPlants, st.roundSkipped = nil, nil, nil, nil
     st.rounds = (st.rounds or 0) + 1
     run.retries = 0
     save()

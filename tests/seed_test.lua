@@ -27,4 +27,25 @@ check("kein Fehler",not (S.last and S.last.fault),S.last and S.last.fault)
 check("Ertrag zaehlt Weizen + uebrige Samen (27)",S.last and S.last.total==27,S.last and S.last.total)
 check("davon Samen 18",S.last and S.last.seedsGained==18,S.last and S.last.seedsGained)
 check("Geerntet 9 Pflanzen",S.last and S.last.harvested==9,S.last and S.last.harvested)
+print("Farm: angefangene Runde (gespeichert bei Feld 11) -> START macht dort weiter")
+do
+    local cfg2=cfg:gsub("width=3,length=3","width=4,length=6")
+    local S=Sim.new({config=cfg2,default=false,actions={{t=2,fn=function(S)Sim.cmd(S,"once",10)end}},
+        world=function(S)for x=0,3 do for z=1,6 do S.world[S.key(x,1,z)]="minecraft:wheat_ripe" end end end})
+    S.seedDrops=1
+    S.inv[1]={name="minecraft:wheat_seeds",count=40}
+    S.protocol="toast.farm.v2"
+    S.files["/toast_farm_state"]=[[{x=0,z=0,dir=0,total=5,harvested=10,rounds=3,scanAt=11,roundYield=10,roundPlants=10,controller=4,layout="4:6:wheat"}]]
+    local first
+    local dd=S.turtle.digDown
+    S.turtle.digDown=function(...) if not first then first={x=S.p.x,z=S.p.z} end;return dd(...) end
+    Sim.run(S,120)
+    -- Reihenfolge: Reihe 1 x0..3, Reihe 2 x3..0, Reihe 3 x0..3 -> Feld 11 = Reihe 3, x=2
+    check("erste Ernte bei Feld 11 (Reihe 3, x=2)",first and first.z==3 and first.x==2,first and (first.x..","..first.z))
+    local left=0;for x=0,3 do for z=1,6 do if S.world[S.key(x,1,z)]=="minecraft:wheat_ripe" then left=left+1 end end end
+    check("Felder 1-10 nicht nochmal abgefahren (stehen noch)",left==10,left)
+    check("Runde zu Ende gezaehlt (4 Runden), Zaehler weiter",S.last and S.last.rounds==4 and S.last.harvested==24,S.last and (tostring(S.last.rounds).." "..tostring(S.last.harvested)))
+    local stf=load("return "..S.files["/toast_farm_state"])()
+    check("nach Rundenende kein Fortsetzpunkt mehr",stf.scanAt==nil,stf.scanAt)
+end
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

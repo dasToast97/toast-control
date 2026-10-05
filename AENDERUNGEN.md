@@ -1,3 +1,16 @@
+# Toast Control 3.17.3
+
+- **Farm macht dort weiter, wo sie aufgehört hat.** Bisher fing jede Runde nach
+  Stopp, Fehler, Update oder Neustart wieder beim ersten Feld an. Jetzt merkt sie
+  sich das nächste Feld (auch über Neustarts) und fährt nach START direkt dorthin.
+  Ernte-Zähler der Runde laufen weiter. Neues Feld (andere Maße) = neue Runde.
+- **Kein unnötiges „Funkverbindung verloren“ mehr (Farm + Mine mit Chunkloader):**
+  Verpasste kurze Funkfenster allein stoppen die Turtle nicht mehr – nur wenn
+  wirklich so lange kein Kontakt war wie unter „Ohne Zentrale stoppen nach“
+  eingestellt. Das Funkfenster wartet bis 1 s auf die Antwort.
+- Stoppt eine Farm/Mine wegen eines Fehlers, steht der Grund jetzt auch in
+  `/toast/fehler.log` auf der Turtle.
+
 # Toast Control 3.17.2
 
 - **Steuern: Bau-Modus zum Blöcke setzen.** Knopf „Abbau/Angriff ↔ Bauen“

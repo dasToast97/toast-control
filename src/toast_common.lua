@@ -1,5 +1,5 @@
 local M={
-    version="3.17.2",
+    version="3.17.3",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -889,7 +889,7 @@ function M.live(o)
         if not modemOn() and not o.gear.radio() then return end
         local t0=os.clock()
         L.send(true)
-        while os.clock()-t0<0.6 and (o.contact() or 0)<t0 do sleep(0.05) end
+        while os.clock()-t0<1 and (o.contact() or 0)<t0 do sleep(0.05) end
         if o.onWindow then o.onWindow((o.contact() or 0)>=t0) end
     end
     function L.loop()

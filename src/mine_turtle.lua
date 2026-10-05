@@ -234,6 +234,7 @@ local function retryable(fault)
 end
 local function fail(why)
     run.mode,run.fault,run.retryAt="off",why,nil
+    pcall(TC.log,"Mine gestoppt: "..tostring(why))
 end
 -- Update-Knopf der Zentrale: nur zwischen zwei Schritten ausfuehren (sicherer Punkt)
 local function maybeUpdate()
@@ -251,7 +252,8 @@ local function active()
     if run.mode~="off" and C.radioTimeout>0 then
         if GEAR then
             if os.clock()-run.lastContact<3 then run.radioMiss=0 end
-            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,LIVE and LIVE.every or CL.report))) then fail("Funkverbindung verloren") end
+            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,LIVE and LIVE.every or CL.report)))
+                and os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
         elseif os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
     end
     return run.mode~="off" and not run.recovery
