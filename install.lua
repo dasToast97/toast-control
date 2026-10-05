@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.13.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.13.6",
+    version="3.13.7",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -2085,9 +2085,10 @@ local JOB={
         rows=function(d) local r={{"Runden",short(d.rounds)}}
             if num(d.roundYield)>0 then r[#r+1]={"Diese Runde",short(d.roundYield).." Items"} end
             r[#r+1]={"Geerntet",short(d.harvested).." Pflanzen"};r[#r+1]={"Ertrag",short(d.total).." Items"}
+            if num(d.seedsGained)>0 then r[#r+1]={" davon Samen",short(d.seedsGained)} end
             r[#r+1]={"Saatgut",short(d.seeds)}
-            if d.pause then r[#r+1]={"Pause",(num(d.pause)>=120 and (math.floor(num(d.pause)/60+0.5).." min") or (num(d.pause).." s"))
-                ..(d.lastRipe and (" ("..d.lastRipe.."% reif)") or "")} end
+            if d.pause then r[#r+1]={"Pause",(num(d.pause)>=120 and (math.floor(num(d.pause)/60+0.5).." min") or (num(d.pause).." s"))}
+                if d.lastRipe then r[#r+1]={"Zuletzt reif",d.lastRipe.."%"} end end
             wait(r,d);return r end},
     mining={name="Mine",plural="Minen",metric="Abgebaut",unit="Bl.",once="1 Gang",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
@@ -3787,6 +3788,8 @@ local function visit(x, z)
     if count(crop.seed) == 0 then return false, "resupply" end
     if exists and freeSlots() < 2 then return false, "resupply" end
     local before = count(crop.produce)
+    -- Samen extra zaehlen (Weizen/Rote Bete: Frucht + Samen; Karotte/Kartoffel: beides dasselbe)
+    local seedBefore = crop.seed ~= crop.produce and count(crop.seed) or 0
     if exists then
         status("Ernte", "Reife Pflanzen werden geerntet und neu gepflanzt.")
         local dug, why = turtle.digDown()
@@ -3807,6 +3810,11 @@ local function visit(x, z)
     turtle.select(slot)
     local planted = turtle.placeDown()
     local net = math.max(0, count(crop.produce) - before)
+    -- Ueberschuessige Samen (nach dem Neupflanzen) gehoeren zum Ertrag
+    local seedNet = 0
+    if exists and crop.seed ~= crop.produce then seedNet = math.max(0, count(crop.seed) - seedBefore) end
+    st.seedsGained = (st.seedsGained or 0) + seedNet
+    net = net + seedNet
     st.total, run.roundYield = (st.total or 0) + net, run.roundYield + net
     save()
     -- Kein Acker (z.B. Weg/Erde) blockiert nicht mehr die ganze Runde.
@@ -3957,7 +3965,7 @@ local function snapshot()
         chunks = GEAR and (GEAR.radius > 0 and CL.chunks or 0) or nil,
         chunkFuel = GEAR and math.floor(GEAR.perSecond() * 3600 + 0.5) or nil,
         freeSlots = freeSlots(), x = st.x, z = st.z, total = st.total or 0,
-        harvested = st.harvested or 0, rounds = st.rounds or 0,
+        harvested = st.harvested or 0, rounds = st.rounds or 0, seedsGained = st.seedsGained or 0,
         roundYield = run.roundYield, roundPlants = run.roundPlants,
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
@@ -7345,7 +7353,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.13.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.13.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

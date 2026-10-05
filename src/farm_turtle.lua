@@ -412,6 +412,8 @@ local function visit(x, z)
     if count(crop.seed) == 0 then return false, "resupply" end
     if exists and freeSlots() < 2 then return false, "resupply" end
     local before = count(crop.produce)
+    -- Samen extra zaehlen (Weizen/Rote Bete: Frucht + Samen; Karotte/Kartoffel: beides dasselbe)
+    local seedBefore = crop.seed ~= crop.produce and count(crop.seed) or 0
     if exists then
         status("Ernte", "Reife Pflanzen werden geerntet und neu gepflanzt.")
         local dug, why = turtle.digDown()
@@ -432,6 +434,11 @@ local function visit(x, z)
     turtle.select(slot)
     local planted = turtle.placeDown()
     local net = math.max(0, count(crop.produce) - before)
+    -- Ueberschuessige Samen (nach dem Neupflanzen) gehoeren zum Ertrag
+    local seedNet = 0
+    if exists and crop.seed ~= crop.produce then seedNet = math.max(0, count(crop.seed) - seedBefore) end
+    st.seedsGained = (st.seedsGained or 0) + seedNet
+    net = net + seedNet
     st.total, run.roundYield = (st.total or 0) + net, run.roundYield + net
     save()
     -- Kein Acker (z.B. Weg/Erde) blockiert nicht mehr die ganze Runde.
@@ -582,7 +589,7 @@ local function snapshot()
         chunks = GEAR and (GEAR.radius > 0 and CL.chunks or 0) or nil,
         chunkFuel = GEAR and math.floor(GEAR.perSecond() * 3600 + 0.5) or nil,
         freeSlots = freeSlots(), x = st.x, z = st.z, total = st.total or 0,
-        harvested = st.harvested or 0, rounds = st.rounds or 0,
+        harvested = st.harvested or 0, rounds = st.rounds or 0, seedsGained = st.seedsGained or 0,
         roundYield = run.roundYield, roundPlants = run.roundPlants,
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }

@@ -23,4 +23,8 @@ check("Saatgut behalten (16 = Mindestreserve)",seeds==16,seeds)
 check("Weizen abgeliefert",S.chestNames["minecraft:wheat"]==true)
 check("ueberschuessiges Saatgut abgeliefert",S.chestNames["minecraft:wheat_seeds"]==true)
 check("kein Fehler",not (S.last and S.last.fault),S.last and S.last.fault)
+-- Ertrag: 9 Weizen + je 2 uebrige Samen (3 fallen raus, 1 wird gepflanzt) = 27
+check("Ertrag zaehlt Weizen + uebrige Samen (27)",S.last and S.last.total==27,S.last and S.last.total)
+check("davon Samen 18",S.last and S.last.seedsGained==18,S.last and S.last.seedsGained)
+check("Geerntet 9 Pflanzen",S.last and S.last.harvested==9,S.last and S.last.harvested)
 print(pass.." bestanden, "..failc.." fehlgeschlagen")

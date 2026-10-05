@@ -1,3 +1,11 @@
+# Toast Control 3.13.7
+
+- **Farm: Ertrag zählt jetzt alles.** Bisher nur die Frucht (1 Weizen pro Pflanze),
+  daher war „Ertrag“ immer gleich „Geerntet“. Jetzt zählen die übrigen Samen nach
+  dem Neupflanzen mit (Weizen, Rote Bete); neue Zeile „davon Samen“.
+- **Farm-Details:** Reifegrad steht in eigener Zeile „Zuletzt reif“ (war auf dem
+  Pocket abgeschnitten).
+
 # Toast Control 3.13.6
 
 - **Mining mit „Seiten mitabbauen“: richtige Fortschrittsanzeige.** Die Turtle
