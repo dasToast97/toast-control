@@ -1,3 +1,21 @@
+# Toast Control 3.17.5
+
+- **Mobfarm-Bau: deutlich weniger Fuel** (gemessen, 2 Etagen + Schacht 22):
+  im Freien mit Falltüren 4896 → 3468 Züge (−29 %), im Berg 2556 → 1894 (−26 %).
+  - **Neue Einstellung „Im Berg/Gelände bauen“:**
+    - **nein (Standard):** wie ein 3D-Drucker – Schicht für Schicht nur die Bahnen,
+      wo ein Block hinkommt (Luft wird nicht abgefahren).
+    - **ja:** räumt alle Luftfelder frei (für Bau in Berg/Erde), dabei auch gleich
+      die Lage darüber, damit sie dort nicht nochmal hin muss.
+  - Zur nächsten Lage **direkt hoch** statt jedes Mal über die Mitte.
+  - Reihenfolge je Lage: immer zum **nächstgelegenen** Feld (Wände als Runde).
+  - **Schacht:** Turtle steht im Schacht und setzt die 4 Wände durch Drehen
+    (1 Zug pro Ebene statt ~8).
+  - Wasserquellen im Kreis ab der nächstgelegenen.
+  - Nachladen lässt Platz für Abraum frei (im Berg vorher bis zu ~380 Heimfahrten).
+  - Volle Materialkiste: sie findet trotzdem alles (vorher „Baumaterial fehlt“).
+  - START bei fertiger Farm fährt nicht mehr durch die fertigen Etagen.
+
 # Toast Control 3.17.4
 
 - **Fernsteuerung beenden fragt nach:** „Beenden“ zeigt jetzt

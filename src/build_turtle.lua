@@ -18,6 +18,9 @@ local C=cfg.build
 local W=dofile("/toast/toast_worker.lua")
 local F,D=C.floors,C.drop
 local CREEPER=C.creeperOnly~=false
+-- Im Berg/Gelaende: alle Luftfelder freiraeumen. Sonst (im Freien) wie ein
+-- 3D-Drucker: Schicht fuer Schicht nur die Bahnen, wo ein Block hinkommt.
+local TERRAIN=C.inTerrain==true
 local R=8                      -- Laenge der Wasserkanaele (Wasser fliesst 8 Bloecke)
 local OUT=R+1                  -- Aussenwand
 local B0=D                     -- unterste Etage (Boden)
@@ -66,26 +69,60 @@ local function target(x,y,z)
     if k==2 and not channel and az%3==0 then return SLAB end
     return AIR
 end
--- Schritte: {t=Art,x,y=Hoehe der Turtle,z}. "cell" bearbeitet den Block UNTER der Turtle.
+-- Schritte: {t=Art,x,y=Hoehe der Turtle,z}. "cell" bearbeitet den Block UNTER der Turtle
+-- (und raeumt Luftfelder 2 darueber gleich mit frei).
+-- Sparsam fahren:
+--  * Luftfelder, die schon 2 Lagen tiefer von unten freigeraeumt wurden, werden
+--    nicht noch einmal angefahren (im Freien = fast alle Luftfelder).
+--  * Reihenfolge je Lage: immer zum naechstgelegenen offenen Feld (Ringe werden
+--    als Runde gefahren statt quer durch den Raum).
+--  * Zur naechsten Lage direkt hoch (nicht ueber die Mitte).
+--  * Schacht: Turtle steht IM Schacht und setzt die 4 Waende durch Drehen.
 local STEPS={}
 local function add(t) STEPS[#STEPS+1]=t end
-local flip=false
+local VIS={}                       -- VIS[y]["x,z"] = Lage y wurde dort bearbeitet
+local function k2(x,z) return x..","..z end
+local last={x=0,z=0}
 local function layer(y,skipCenter)
     local r=(y<B0) and 1 or OUT
-    local list={}
-    for zi=-r,r do
-        local z=zi
-        local xs={}
-        for x=-r,r do if target(x,y,z) and not (skipCenter and x==0 and z==0) then xs[#xs+1]=x end end
-        if (zi+r)%2==1 then for a=1,math.floor(#xs/2) do xs[a],xs[#xs+1-a]=xs[#xs+1-a],xs[a] end end
-        for _,x in ipairs(xs) do list[#list+1]={t="cell",x=x,y=y+1,z=z} end
+    local cells={}
+    for z=-r,r do for x=-r,r do
+        local tg=target(x,y,z)
+        if tg and not (skipCenter and x==0 and z==0) and (TERRAIN or tg~=AIR) then
+            local covered=tg==AIR and VIS[y-2] and VIS[y-2][k2(x,z)]
+            if not covered then cells[#cells+1]={x=x,z=z} end
+        end
+    end end
+    VIS[y]={}
+    local cx,cz=last.x,last.z
+    while #cells>0 do
+        local bi,bd=1,math.huge
+        for i,c in ipairs(cells) do
+            local d=math.abs(c.x-cx)+math.abs(c.z-cz)
+            if d<bd then bi,bd=i,d end
+        end
+        local c=table.remove(cells,bi)
+        add({t="cell",x=c.x,y=y+1,z=c.z});VIS[y][k2(c.x,c.z)]=true
+        cx,cz=c.x,c.z
     end
-    if flip then for a=1,math.floor(#list/2) do list[a],list[#list+1-a]=list[#list+1-a],list[a] end end
-    flip=not flip
-    for _,s in ipairs(list) do add(s) end
+    last={x=cx,z=cz}
+end
+local function shaft(y)
+    add({t="wall4",x=0,y=y,z=0})
+    VIS[y]={[k2(0,0)]=true}
+    last={x=0,z=0}
 end
 local function water(b)
-    for _,p in ipairs({{R,0},{0,R},{-R,0},{0,-R}}) do add({t="water",x=p[1],y=b+2,z=p[2]}) end
+    -- im Kreis, beginnend bei der naechstgelegenen Quelle
+    local P={{R,0},{0,R},{-R,0},{0,-R}}
+    local bi,bd=1,math.huge
+    for i,p in ipairs(P) do local d=math.abs(p[1]-last.x)+math.abs(p[2]-last.z);if d<bd then bi,bd=i,d end end
+    local nxt=P[bi%4+1];local prv=P[(bi+2)%4+1]
+    local dir=(math.abs(nxt[1]-last.x)+math.abs(nxt[2]-last.z))<=(math.abs(prv[1]-last.x)+math.abs(prv[2]-last.z)) and 1 or -1
+    for k=0,3 do
+        local p=P[(bi-1+dir*k)%4+1]
+        add({t="water",x=p[1],y=b+2,z=p[2]});last={x=p[1],z=p[2]}
+    end
 end
 -- Falltueren: Turtle faehrt in der Etage auf Hoehe b+2 (ueber den Spawnstellen)
 -- und setzt sie nach oben an die Decke. Wege nur durch die Kanaele (x=0) und
@@ -99,7 +136,7 @@ local function traps(b)
         end
     end end
 end
-for y=1,B0-1 do layer(y) end
+for y=1,B0-1 do shaft(y) end
 for k=0,F-1 do
     local b=B0+4*k
     layer(b)
@@ -111,6 +148,16 @@ layer(TOP,true)
 traps(B0+4*(F-1))
 add({t="cap",x=0,y=TOP-1,z=0})
 local N=#STEPS
+-- hoechste schon gebaute Lage VOR jedem Schritt (darueber ist alles noch frei)
+local HB={}
+do local hb=0
+    for k=1,N do
+        HB[k]=hb
+        local s=STEPS[k]
+        local l=s.t=="cell" and s.y-1 or s.t=="wall4" and s.y or s.t=="water" and s.y-1 or s.t=="trap" and s.y+1 or s.t=="cap" and TOP or 0
+        if l>hb then hb=l end
+    end
+end
 -- Material je Art ab Schritt i
 local function remaining(i)
     local n={fill=0,slab=0,trap=0,water=0}
@@ -121,12 +168,13 @@ local function remaining(i)
             if tg==SOLID then n.fill=n.fill+1 elseif tg==SLAB then n.slab=n.slab+1 end
         elseif s.t=="trap" then n.trap=n.trap+1
         elseif s.t=="water" then n.water=n.water+1
-        elseif s.t=="cap" then n.fill=n.fill+1 end
+        elseif s.t=="cap" then n.fill=n.fill+1
+        elseif s.t=="wall4" then n.fill=n.fill+4 end
     end
     return n
 end
 local TOTAL=remaining(1)
-local LAYOUT=table.concat({"mobfarm",F,D,CREEPER and "c" or "n"},":")
+local LAYOUT=table.concat({"mobfarm",F,D,CREEPER and "c" or "n",TERRAIN and "t" or "p"},":")
 
 local w,round,idleHome,idleBase
 local opts
@@ -191,7 +239,14 @@ local function horizontal(x,z)
     return line("z",z)
 end
 -- Hoehe wechseln immer durch die Mittelsaeule (die ist im ganzen Bau frei)
-local function goTo(x,y,z,corr)
+local function goTo(x,y,z,corr,climb)
+    -- ueber allem Gebauten: direkt hier hoch (spart den Weg zur Mitte und zurueck)
+    if climb and y>st.y then
+        corridor=false
+        while st.y<y do
+            local ok,why=w.move("up",MOPT);if not ok then return false,why end
+        end
+    end
     if st.y~=y then
         local ok,why=horizontal(0,0);if not ok then return false,why end
         corridor=false
@@ -241,6 +296,7 @@ local function fetch(match,count)
         if got>=count then break end
         local slot;for i=1,16 do if turtle.getItemCount(i)==0 then slot=i;break end end
         if not slot then break end
+        local skipSuck=false
         local inv=chestList()
         if inv then
             local okl,list=pcall(inv.list)
@@ -249,23 +305,41 @@ local function fetch(match,count)
             for s,it in pairs(list) do if match(it.name) and (not from or s<from) then from=s end end
             if not from then break end
             if from~=1 then
+                local parked
                 if list[1] then
                     local size=inv.size and inv.size() or 27
                     local free;for s=2,size do if not list[s] then free=s;break end end
-                    if not free then break end
-                    pcall(inv.pushItems,"front",1,64,free)
+                    if free then pcall(inv.pushItems,"front",1,64,free)
+                    else
+                        -- Kiste randvoll: Slot 1 kurz in die Turtle nehmen, danach zuruecklegen
+                        local tmp;for i=16,1,-1 do if turtle.getItemCount(i)==0 and i~=slot then tmp=i;break end end
+                        if not tmp then break end
+                        turtle.select(tmp);if not turtle.suck() then break end
+                        parked=tmp
+                    end
                 end
                 pcall(inv.pushItems,"front",from,64,1)
+                if parked then
+                    turtle.select(slot)
+                    local okS=turtle.suck(math.min(64,count-got))
+                    turtle.select(parked);turtle.drop()
+                    turtle.select(slot)
+                    local it=turtle.getItemDetail(slot)
+                    if not (okS and it and match(it.name)) then break end
+                    got=got+it.count;skipSuck=true
+                end
             end
         end
-        turtle.select(slot)
-        if not turtle.suck(math.min(64,count-got)) then break end
-        local it=turtle.getItemDetail(slot)
-        if not it then break end
-        if not match(it.name) then
-            -- falsches Item (ohne Kisten-Peripherie): in die Ausgabekiste
-            turtle.dropDown();if not inv then break end
-        else got=got+it.count end
+        if not skipSuck then
+            turtle.select(slot)
+            if not turtle.suck(math.min(64,count-got)) then break end
+            local it=turtle.getItemDetail(slot)
+            if not it then break end
+            if not match(it.name) then
+                -- falsches Item (ohne Kisten-Peripherie): in die Ausgabekiste
+                turtle.dropDown();if not inv then break end
+            else got=got+it.count end
+        end
     end
     turtle.select(1)
     return got
@@ -283,7 +357,7 @@ local function base()
     -- zu viel Bruchstein dabei (beim Graben eingesammelt): zurueck in die Materialkiste,
     -- damit Platz bleibt (sonst faehrt sie mit vollem Inventar immer wieder heim)
     for i=16,1,-1 do
-        if w.freeSlots()>=4 then break end
+        if w.freeSlots()>=(TERRAIN and 6 or 3) then break end
         local it=turtle.getItemDetail(i)
         if it and isFill(it.name) then
             turtle.select(i)
@@ -301,9 +375,11 @@ local function base()
     if nextSpecial=="water" and have(isWaterBucket)<math.min(4,need.water) then fetch(isWaterBucket,math.min(4,need.water)-have(isWaterBucket)) end
     if nextSpecial=="slab" and have(isSlab)<math.min(64,need.slab) then fetch(isSlab,math.min(64,need.slab)-have(isSlab)) end
     if nextSpecial=="trap" and have(isTrap)<math.min(128,need.trap) then fetch(isTrap,math.min(128,need.trap)-have(isTrap)) end
-    -- Rest mit Baumaterial auffuellen (1 Slot frei lassen fuer Abraum)
-    local stacks=math.max(0,w.freeSlots()-1)
-    if need.fill>have(isFill) and stacks>0 then fetch(isFill,math.min(stacks*64,need.fill-have(isFill))) end
+    -- Rest mit Baumaterial auffuellen, aber Platz fuer Abraum lassen (sonst muss sie
+    -- im Gelaende nach wenigen Bloecken wieder heim). Hoechstens 8 Stapel dabei.
+    local stacks=math.max(0,w.freeSlots()-(TERRAIN and 5 or 2))
+    local want=math.min(need.fill,8*64)-have(isFill)
+    if want>0 and stacks>0 then fetch(isFill,math.min(stacks*64,want)) end
     w.face(0)
     burn(fuelGoal())
     if fuel()<math.min(fuelGoal(),homeNeed()+TOP*2+100) then
@@ -362,30 +438,73 @@ local function clearDown(keepWater)
     if e and isLiquid(b.name) and not keepWater then return false,"Wasser/Lava nicht wegzubekommen" end
     return true
 end
+local clearUp
 local function doCell(s)
     local tg=target(s.x,s.y-1,s.z)
     local e,b=turtle.inspectDown()
     if tg==SOLID then
-        if e and (isFill(b.name) or OKSOLID[b.name]) then return true end
-        if e then local ok,why=clearDown();if not ok then return false,why end end
-        if not w.find(isFill) then return false,"material" end
-        local ok=placeDown(isFill)
-        if not ok then return false,"Block nicht setzbar" end
-        return true
+        if not (e and (isFill(b.name) or OKSOLID[b.name])) then
+            if e then local ok,why=clearDown();if not ok then return false,why end end
+            if not w.find(isFill) then return false,"material" end
+            local ok=placeDown(isFill)
+            if not ok then return false,"Block nicht setzbar" end
+        end
     elseif tg==SLAB then
-        if e and isSlab(b.name) and (b.state or {}).type~="top" then return true end
-        if e then local ok,why=clearDown();if not ok then return false,why end end
-        if not w.find(isSlab) then return false,"slab" end
-        if not placeDown(isSlab) then return false,"Stufe nicht setzbar" end
-        local e2,b2=turtle.inspectDown()
-        if e2 and (b2.state or {}).type=="top" then DIG.down();return false,"Stufe landet oben statt unten" end
-        return true
+        if not (e and isSlab(b.name) and (b.state or {}).type~="top") then
+            if e then local ok,why=clearDown();if not ok then return false,why end end
+            if not w.find(isSlab) then return false,"slab" end
+            if not placeDown(isSlab) then return false,"Stufe nicht setzbar" end
+            local e2,b2=turtle.inspectDown()
+            if e2 and (b2.state or {}).type=="top" then DIG.down();return false,"Stufe landet oben statt unten" end
+        end
     else
         -- Wasser im Kanal (auch fliessendes) beim Ausbessern stehen lassen
         local y=s.y-1
         local inChannel=y>=B0 and (y-B0)%4==1 and (s.x==0 or s.z==0) and not (s.x==0 and s.z==0)
-        return clearDown(tg==SRC or inChannel)
+        local ok,why=clearDown(tg==SRC or inChannel)
+        if not ok then return false,why end
     end
+    -- Luftfeld 2 weiter oben gleich mit freiraeumen (dann muss die Lage dort nicht nochmal hin)
+    local ta=target(s.x,s.y+1,s.z)
+    if TERRAIN and (ta==AIR or ta==SRC) then
+        local ya=s.y+1
+        clearUp(ta==SRC or (ya>=B0 and (ya-B0)%4==1 and (s.x==0 or s.z==0)))
+    end
+    return true
+end
+-- Feld 2 ueber der Turtle (naechste Lage) gleich mit freiraeumen
+clearUp=function(keepWater)
+    for _=1,8 do
+        local e,b=turtle.inspectUp()
+        if not e then return true end
+        if isLiquid(b.name) then
+            if keepWater and (b.name=="minecraft:water" or b.name:find("flowing_water",1,true)) then return true end
+            local slot=w.find(isFill);if not slot then return true end
+            turtle.select(slot);turtle.placeUp();turtle.select(1)
+            DIG.up()
+        elseif isContainer(b.name) or isTurtle(b.name) or isSlab(b.name) or isTrap(b.name) then return true
+        elseif not DIG.up() then return true end
+    end
+    return true
+end
+-- Schacht: Turtle steht im Schacht und setzt die 4 Waende rundum (Drehen kostet kein Fuel)
+local function doWall4(s)
+    for k=0,3 do
+        local d=(st.dir+k)%4
+        if target(W.DX[d],s.y,W.DZ[d])==SOLID then
+            local ok,why=w.face(d);if not ok then return false,why end
+            local e,b=turtle.inspect()
+            if not (e and (isFill(b.name) or OKSOLID[b.name])) then
+                if e and not isLiquid(b.name) and not isContainer(b.name) and not isTurtle(b.name) then
+                    if not DIG.forward() then return false,"Nicht abbaubar: "..b.name end
+                end
+                local slot=w.find(isFill);if not slot then return false,"material" end
+                turtle.select(slot);local okp=turtle.place();turtle.select(1)
+                if okp then st.placed=(st.placed or 0)+1 else return false,"Block nicht setzbar" end
+            end
+        end
+    end
+    return true
 end
 local function doWater(s)
     local e,b=turtle.inspectDown()
@@ -420,7 +539,7 @@ local function doCap()
     if ok then st.placed=(st.placed or 0)+1 end
     return ok or false,"Dach nicht setzbar"
 end
-local DO={cell=doCell,water=doWater,trap=doTrap,cap=doCap}
+local DO={cell=doCell,water=doWater,trap=doTrap,cap=doCap,wall4=doWall4}
 local PHASE=function(s)
     if s.y-1<B0 and s.t=="cell" then return "Schacht" end
     if s.t=="water" then return "Wasser" end
@@ -446,8 +565,10 @@ local function becomeMob()
 end
 round=function()
     if st.done then
-        -- nochmal: alles pruefen und ausbessern
-        st.done=nil;st.idx=1;w.save()
+        -- Farm steht schon: nicht nochmal durch die fertigen Etagen fahren
+        w.status("Fertig","Mobfarm steht schon. Neu bauen: an der Turtle N (neuer Auftrag).")
+        w.finish();becomeMob()
+        return true
     end
     opts.readyText="START: Mobfarm bauen (macht weiter, wo sie war)"
     if w.isHome() then
@@ -462,7 +583,7 @@ round=function()
             local ok,why=resupply(nil);if not ok then if why~="stopped" then w.fail(why) end;return false end
         end
         w.status("Baut",st.phase.." - Schritt "..st.idx.."/"..N)
-        local ok,why=goTo(s.x,s.y,s.z,s.corr)
+        local ok,why=goTo(s.x,s.y,s.z,s.corr,st.y>HB[st.idx])
         if ok then ok,why=DO[s.t](s) end
         if ok then
             st.idx=st.idx+1;w.saveSoon()

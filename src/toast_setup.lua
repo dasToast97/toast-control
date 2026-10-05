@@ -193,7 +193,7 @@ function S.new(common)
         fg(colors.white);sleep(1.5)
     end
     local function buildText(b)
-        return b.floors.." Etage(n), Schacht "..b.drop..(b.creeperOnly and " +nur Creeper" or "")..(b.becomeMob and " +danach Mobs" or "")
+        return b.floors.." Etage(n), Schacht "..b.drop..(b.creeperOnly and " +nur Creeper" or "")..(b.inTerrain and " +im Berg" or " +frei")..(b.becomeMob and " +danach Mobs" or "")
     end
     local function editBuild(c)
         local b=c.build
@@ -208,6 +208,10 @@ function S.new(common)
         hint("Falltueren an der Decke: nur Creeper")
         hint("passen (viel Schwarzpulver).")
         b.creeperOnly=yesno("Nur Creeper?",b.creeperOnly~=false)
+        hint("Im Berg/Gelaende: raeumt alles frei.")
+        hint("Im Freien: nur Bahnen mit Bloecken")
+        hint("(wie ein 3D-Drucker, spart viel Fuel).")
+        b.inTerrain=yesno("Im Berg/Gelaende bauen?",b.inTerrain==true)
         b.becomeMob=yesno("Danach selbst Mob-Turtle?",b.becomeMob~=false)
         local n=b.floors
         hint("Material ca.: "..(n*832+361+4*(b.drop-1)).." Bruchstein,")
@@ -585,7 +589,7 @@ function S.new(common)
         if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         if job=="dig" then local d=c.dig return table.concat({d.shape,d.width,d.length,d.height,d.side,d.direction},":") end
-        if job=="build" then local b=c.build return table.concat({b.floors,b.drop,tostring(b.creeperOnly)},":") end
+        if job=="build" then local b=c.build return table.concat({b.floors,b.drop,tostring(b.creeperOnly),tostring(b.inTerrain==true)},":") end
         return ""
     end
     -- Neuer Auftrag: Fortschritt der Aufgabe loeschen (Turtle muss an der Basis stehen)

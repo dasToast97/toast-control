@@ -146,7 +146,7 @@ check("danach Mob-Turtle (Schwert gefunden): Mobfarm, Angriff nur oben",okc and 
     okc and newcfg and (tostring(newcfg.job).." "..tostring(newcfg.mob and newcfg.mob.attack)) or "?")
 
 print("B2 2 Etagen, Schacht 22, Wasser/Lava im Weg, Material knapp -> wartet, dann weiter")
-S=Sim.new({config=cfg('{floors=2,drop=22,creeperOnly=false,becomeMob=false,fuelTarget=2000,radioTimeout=0}'),default=false,
+S=Sim.new({config=cfg('{floors=2,drop=22,creeperOnly=false,inTerrain=true,becomeMob=false,fuelTarget=2000,radioTimeout=0}'),default=false,
     fuel=20000,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end},
         {t=2500,fn=function(S) for i=1,S.supplySize do if not S.supply[i] then S.supply[i]={name="minecraft:cobblestone",count=64};break end end
             for _=1,40 do for i=1,S.supplySize do if not S.supply[i] then S.supply[i]={name="minecraft:cobblestone",count=64};break end end end
@@ -177,7 +177,7 @@ print("    Zuege (= Fuel) fuer 2 Etagen + Schacht 22: "..S.moves)
 check("bleibt Bauer (becomeMob aus)",(load(S.files["/toast.config.lua"])()).job=="build")
 
 print("B4 Mitten im Gelaende (alles Stein): graebt sich frei, nutzt den Abraum als Material")
-S=Sim.new({config=cfg('{floors=1,drop=10,creeperOnly=true,becomeMob=false,fuelTarget=2000,radioTimeout=0}'),
+S=Sim.new({config=cfg('{floors=1,drop=10,creeperOnly=true,inTerrain=true,becomeMob=false,fuelTarget=2000,radioTimeout=0}'),
     fuel=20000,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
 S.protocol="toast.build.v1"
 stacks={{"minecraft:coal",64},{"minecraft:coal",64}}
@@ -214,5 +214,24 @@ bad,why=verify(S,1,5,true)
 check("fertig trotz Absturz",st.done==true,tostring(S.last and S.last.status).." "..tail(S))
 check("Bau stimmt",bad==0,bad.." "..why)
 
+print("B5 Im Freien wie ein 3D-Drucker (2 Etagen, Schacht 22): nur Bahnen mit Bloecken")
+S=Sim.new({config=cfg('{floors=2,drop=22,creeperOnly=true,inTerrain=false,becomeMob=false,fuelTarget=2000,radioTimeout=0}'),default=false,
+    fuel=20000,actions={{t=2,fn=function(S)Sim.cmd(S,"start",10)end}}})
+S.protocol="toast.build.v1"
+stacks={{"minecraft:coal",64},{"minecraft:coal",64}}
+for _=1,8 do stacks[#stacks+1]={"minecraft:water_bucket",1} end
+for _=1,6 do stacks[#stacks+1]={"minecraft:oak_trapdoor",64} end
+stacks[#stacks+1]={"minecraft:cobblestone_slab",64};stacks[#stacks+1]={"minecraft:cobblestone_slab",64}
+for _=1,36 do stacks[#stacks+1]={"minecraft:cobblestone",64} end
+setup(S,stacks)
+Sim.env=envWith
+Sim.run(S,60000)
+Sim.env=orig
+st=load("return "..(S.files["/toast_build_state"] or "{}"))()
+bad,why=verify(S,2,22,true)
+check("fertig",st.done==true,tostring(S.last and S.last.status).." "..tostring(S.last and S.last.fault).." "..tail(S))
+check("Bau stimmt Block fuer Block",bad==0,bad.." "..why)
+check("sparsam: unter 3600 Zuege (vorher ~4900)",S.moves<3600,S.moves)
+print("    Zuege (= Fuel) 3D-Drucker, 2 Etagen + Schacht 22: "..S.moves)
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end
