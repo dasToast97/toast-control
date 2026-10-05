@@ -1,3 +1,17 @@
+# Toast Control 3.16.0
+
+- **Anzeige live statt alle paar Sekunden.** Der Funk läuft auf jedem Gerät
+  nebenher, wurde aber nur im 2-Sekunden-Takt weitergegeben (Turtle → Zentrale →
+  Pocket = bis zu 4–6 s, mit Chunkloader bis 10 s). Jetzt:
+  - **Turtles** senden jede Änderung sofort (nach ~0,1 s), sonst alle 2 s ein Lebenszeichen.
+  - **Mit Chunkloader** (Werkzeug und Modem teilen sich eine Seite): alle ~3 s ein
+    kurzes Funkfenster von ~0,1 s statt 2,2 s Warten alle 10 s. Die Zentrale
+    antwortet sofort; offene Befehle (Start/Stopp) gehen gleich mit.
+  - **Zentrale** zeichnet 5x pro Sekunde (vorher 2x) und reicht geänderte Turtles
+    sofort an Pockets und Infoscreens weiter (nur die Änderungen, nicht alles).
+  - **Pockets/Infoscreens** zeigen Änderungen sofort an.
+  - Schutz gegen verlorene Zeitgeber jetzt auch in der Zentrale.
+
 # Toast Control 3.15.0
 
 - **Neu: Mobfarm-Bau (Creeper / Schwarzpulver).** Neue Turtle-Aufgabe

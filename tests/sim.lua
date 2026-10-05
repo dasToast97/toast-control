@@ -214,6 +214,7 @@ function Sim.env(S)
     G.os.pullEvent=function(f)local ev=table.pack(coroutine.yield(f));if ev[1]=="terminate" then error("Terminated",0)end;return table.unpack(ev,1,ev.n)end
     G.sleep=function(t)local id=G.os.startTimer(t);repeat local _,p=G.os.pullEvent("timer") until p==id end
     G.turtle=S.turtle;G.pocket=nil
+    G.TOAST_LIVE_STEP=S.liveStep or 1   -- Simulation: Live-Funk grober (sonst sehr langsam)
     G.peripheral={find=function(t,f)if t=="modem" then local sd=S.modemSide();if not sd then return nil end
             local m={isWireless=function()return true end,_side=sd};if not f or f(sd,m) then return m end end
             if t=="monitor" then return nil end end,

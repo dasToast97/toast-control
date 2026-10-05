@@ -23,7 +23,12 @@ local function withStats(f)
     end
     return f
 end
-local function draw()ui.draw(withStats(fleet) or {ids={},entries={}},connected(),notice)end
+local lastDraw,frameT=-1e9,nil
+local function draw()lastDraw=os.clock();frameT=nil;ui.draw(withStats(fleet) or {ids={},entries={}},connected(),notice)end
+-- Live: hoechstens ~7x pro Sekunde neu zeichnen, Rest sammeln
+local function soon()
+    if os.clock()-lastDraw>=0.15 then draw() elseif not frameT then frameT=os.startTimer(0.15) end
+end
 local function validFleet(f)
     if type(f)~="table" or type(f.ids)~="table" or type(f.entries)~="table" or #f.ids>cfg.network.maxDevices then return false end
     local used={}
@@ -61,7 +66,15 @@ local function loop()
             and b.kind=="fleet" and b.version==1 and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock();serial=math.max(serial,common.number(b.ack))
             if pending and common.number(b.ack)>=pending.message.serial then pending=nil end
-            notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");draw()
+            notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");soon()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="fleetdelta" and b.version==1 and b.controllerId==cfg.controllerId and fleet then
+            if common.mergeDelta(fleet,b,cfg.network.maxDevices) then
+                seen=os.clock()
+                if not pending then notice=tostring(b.notice or "Verbunden") end
+                soon()
+            end
+        elseif e=="timer" and a==frameT then frameT=nil;draw()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
             storeStats=b.stats

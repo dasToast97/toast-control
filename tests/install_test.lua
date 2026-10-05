@@ -154,11 +154,11 @@ S=Sim.new({config=MINECFG,input={"1","n","j","n"}});S.files=keepS
 ok,err=install(S,false,31)
 check("Lager-Update behaelt Rolle",ok and cfgOf(S).role=="storage",err)
 print("O1b Infoscreen zeigt das Lager")
-S=Sim.new({config=MINECFG,input={"1","3","4","4","7","","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","3","4","4","8","","n","n"}});S.files={}
 ok,err=install(S,false,32)
 check("show = storage",ok and cfgOf(S).show=="storage",err)
 print("O2 Infoscreen zeigt bestimmte Turtle")
-S=Sim.new({config=MINECFG,input={"1","3","4","4","8","12","","n","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","3","4","4","9","12","","n","n"}});S.files={}
 ok,err=install(S,false,31)
 kc=ok and cfgOf(S)
 check("show = 12",kc and kc.role=="info" and kc.show==12,err)
@@ -211,7 +211,7 @@ check("Aushub-Config gespeichert",kc and kc.job=="dig" and kc.dig.shape=="cylind
 check("Aushub-Programme installiert",S.files["/toast/dig_turtle.lua"] and S.files["/toast/toast_worker.lua"])
 
 print("U Neue Mob-Turtle: Patrouille 6x3 links")
-S=Sim.new({config=MINECFG,input={"1","4","4","3","3","n","","6","3","l","","","10","","j","n"}});S.files={}
+S=Sim.new({config=MINECFG,input={"1","4","4","3","3","1","","6","3","l","","","10","","j","n"}});S.files={}
 ok,err=install(S,true,7)
 kc=ok and cfgOf(S)
 check("Mob-Config gespeichert",kc and kc.job=="mob" and kc.mob.mode=="patrol" and kc.mob.length==6 and kc.mob.width==3

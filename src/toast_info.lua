@@ -50,7 +50,9 @@ local function storeFleet()
     for _,id in ipairs(nodes.ids or {}) do local e=nodes.entries[id];if e and e.role=="storage" then ids[#ids+1]=id;entries[id]=e end end
     return {ids={},entries={},nodes={ids=ids,entries=entries}}
 end
+local lastDraw,frameT=-1e9,nil
 local function draw()
+    lastDraw=os.clock();frameT=nil
     for _,s in ipairs(screens) do
         local ok,why
         if STORE then
@@ -69,6 +71,10 @@ local function validFleet(f)
     end
     return true
 end
+-- Live: hoechstens ~7x pro Sekunde neu zeichnen
+local function soon()
+    if os.clock()-lastDraw>=0.15 then draw() elseif not frameT then frameT=os.startTimer(0.15) end
+end
 local tick,due=0,0
 local function loop()
     poll();draw()
@@ -79,7 +85,11 @@ local function loop()
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
-            fleet,seen=b.fleet,os.clock()
+            fleet,seen=b.fleet,os.clock();soon()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="fleetdelta" and b.version==1 and b.controllerId==cfg.controllerId then
+            if not STORE and common.mergeDelta(fleet,b,cfg.network.maxDevices) then seen=os.clock();soon() end
+        elseif e=="timer" and a==frameT then frameT=nil;draw()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
             storeStats=b.stats;if STORE then draw() end

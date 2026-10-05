@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.15.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.16.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.15.0",
+    version="3.16.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -987,6 +987,83 @@ function M.gear(cl,tools)
     pcall(dev.setWakeOnWorldLoad,cl.wake)
     return g
 end
+-- ===== Live-Funk der Turtles =====
+-- Laeuft nebenher (eigener Ablauf neben der Arbeit): sendet den Status SOFORT,
+-- wenn sich etwas aendert (hoechstens alle 0,3 s), sonst alle 2 s als Lebenszeichen.
+-- Mit Chunkloader (Werkzeug und Modem teilen sich eine Seite) wird das Modem nur
+-- an sicheren Stellen im Arbeitsablauf kurz angelegt (L.point): Senden, auf die
+-- sofortige Antwort der Zentrale warten (meist < 0,2 s), weiter.
+-- o = {snapshot=fn, transmit=fn(snap), gear=G|nil, every=s, contact=fn()->Zeit,
+--      onWindow=fn(ok)|nil, tick=fn|nil}
+local SKIP={contactAge=true,wait=true,pollToken=true,window=true}
+function M.signature(s)
+    local keys={}
+    for k,v in pairs(s) do if not SKIP[k] and type(v)~="table" and type(v)~="function" then keys[#keys+1]=k end end
+    table.sort(keys)
+    local out={}
+    for i,k in ipairs(keys) do out[i]=k.."="..tostring(s[k]) end
+    -- Listen (z.B. Abladekisten) nur ueber ihre Laenge
+    for k,v in pairs(s) do if type(v)=="table" and not SKIP[k] then out[#out+1]=k.."#"..#v end end
+    return table.concat(out,";")
+end
+function M.live(o)
+    local L={due=false,lastWindow=os.clock(),every=math.max(1,o.every or 3),lastSent=-1e9}
+    local lastSig
+    function L.send(window)
+        local snap=o.snapshot()
+        if window then snap.window=true end
+        L.lastSent=os.clock();lastSig=M.signature(snap)
+        pcall(o.transmit,snap)
+    end
+    local function modemOn() return not o.gear or peripheral.getType(o.gear.other)=="modem" end
+    -- im Arbeitsablauf aufrufen (vor Bewegungen): kurzes Funkfenster, wenn faellig
+    function L.point()
+        if not o.gear or not L.due then return end
+        L.due=false;L.lastWindow=os.clock()
+        if not modemOn() and not o.gear.radio() then return end
+        local t0=os.clock()
+        L.send(true)
+        while os.clock()-t0<0.6 and (o.contact() or 0)<t0 do sleep(0.05) end
+        if o.onWindow then o.onWindow((o.contact() or 0)>=t0) end
+    end
+    function L.loop()
+        local lastRefresh=-1e9
+        while true do
+            local now=os.clock()
+            if now-lastRefresh>=2 then
+                lastRefresh=now
+                if o.tick then pcall(o.tick) end
+                pcall(M.refreshModems)
+            end
+            if modemOn() then
+                local snap=o.snapshot();local sig=M.signature(snap)
+                if (sig~=lastSig and now-L.lastSent>=0.3) or now-L.lastSent>=2 then
+                    L.lastSent=now;lastSig=sig;pcall(o.transmit,snap)
+                end
+            elseif now-L.lastWindow>=L.every then L.due=true end
+            sleep(TOAST_LIVE_STEP or 0.2)
+        end
+    end
+    return L
+end
+-- Pocket/Infoscreen: geaenderte Turtles (kind="fleetdelta") in die Flotte uebernehmen
+function M.mergeDelta(fleet,b,max)
+    if type(fleet)~="table" or type(fleet.ids)~="table" or type(fleet.entries)~="table" or type(b.entries)~="table" then return false end
+    local added=false
+    for id,e in pairs(b.entries) do
+        if M.id(id) and type(e)=="table" and (e.data==nil or type(e.data)=="table") and (M.job(e.job) or e.job=="auto")
+            and type(e.online)=="boolean" then
+            e.label=M.label(e.label)
+            if not fleet.entries[id] then
+                if #fleet.ids>=(max or 256) then break end
+                fleet.ids[#fleet.ids+1]=id;added=true
+            end
+            fleet.entries[id]=e
+        end
+    end
+    if added then table.sort(fleet.ids) end
+    return true
+end
 -- Fehler, bei denen ein automatischer neuer Versuch gefaehrlich waere.
 function M.retryable(fault)
     if type(fault)~="string" or fault=="" then return false end
@@ -1709,14 +1786,15 @@ local function loop()
     rednet.host(common.protocol,"toast-"..cfg.controllerId)
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
-    local frame=os.startTimer(0.5)
+    local frame=os.startTimer(0.2)
+    local lastFrame,lastTick=os.clock(),os.clock()
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
-        elseif e=="timer" and a==timer then model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==timer then lastTick=os.clock();model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="http_success" and AUTO.url and a==AUTO.url then
             AUTO.url=nil
             local remote=b and b.readAll and b.readAll() or "";pcall(b.close)
@@ -1747,11 +1825,14 @@ local function loop()
                     if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
                 end
             end
+            model.flush();lastFrame=os.clock()
             if dirty then draw() end
-            frame=os.startTimer(0.5)
+            frame=os.startTimer(0.2)
         elseif e=="timer" and a==frame then
+            -- 5x pro Sekunde: Aenderungen an Pockets weiterreichen + neu zeichnen
+            model.flush();lastFrame=os.clock()
             if dirty then draw() end
-            frame=os.startTimer(0.5)
+            frame=os.startTimer(0.2)
         elseif e=="peripheral" or e=="peripheral_detach" then
             common.refreshModems()
             local before=screen;bindScreen()
@@ -1767,6 +1848,9 @@ local function loop()
             action(ui.char(a))
         elseif e=="key" then action(ui.key(keys.getName(a)))
         elseif e=="mouse_scroll" then action(a>0 and "down" or "up") end
+        -- Zeitgeber verloren (Peripherie-Aufruf hat ihn verschluckt)? Trotzdem weiter.
+        if os.clock()-lastFrame>1 then lastFrame=os.clock();model.flush();if dirty then draw() end;frame=os.startTimer(0.2) end
+        if os.clock()-lastTick>cfg.network.pollInterval*3 then lastTick=os.clock();model.tick();dirty=true;timer=os.startTimer(cfg.network.pollInterval) end
     end
 end
 local ok,why=pcall(loop)
@@ -1791,7 +1875,7 @@ FILES["toast_model.lua"]=[======[
 local common=dofile("/toast/toast_common.lua")
 local M={}
 function M.new(cfg)
-    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg}
+    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg,changedIds={}}
     local PATH="/toast_control_state"
     local s=common.readState(PATH)
     local serial=common.serial(s.serial) and s.serial or 0
@@ -1878,7 +1962,12 @@ function M.new(cfg)
         if b.fault and (not old or old.fault~=b.fault) then common.log("Turtle #"..id.." Fehler: "..tostring(b.fault)) end
         m.entries[id]={data=b,seen=os.clock()}
         local pending=m.pending[id]
-        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil end
+        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil;pending=nil end
+        -- Befehl offen: sofort nachschicken (Turtle hoert gerade zu, z.B. im Funkfenster)
+        if pending and os.clock()-(pending.sentAt or 0)>=0.3 then pending.sentAt=os.clock();dispatch(id,pending.message,pending.job) end
+        -- Funkfenster (Chunkloader-Turtle): sofort antworten, dann kann sie gleich weiterarbeiten
+        if b.window then send(id,{kind="poll"},p) end
+        m.changedIds[id]=true
         if changed then save() end
         return true
     end
@@ -1908,6 +1997,24 @@ function M.new(cfg)
         return true
     end
     local function key(id,protocol)return protocol..":"..id end
+    -- Live: geaenderte Turtles sofort (hoechstens alle 0,3 s) an Pockets/Infoscreens
+    local lastDelta=-1e9
+    function m.flush()
+        if not next(m.changedIds) then return false end
+        local now=os.clock()
+        if now-lastDelta<0.3 then return false end
+        lastDelta=now
+        local ents,n={},0
+        for id in pairs(m.changedIds) do
+            local d,e=devices[id],m.entries[id]
+            if d then ents[id]={job=d.job,label=d.label,online=m.online(id),data=e and e.data or nil,pending=m.pending[id]~=nil};n=n+1 end
+        end
+        m.changedIds={}
+        if n==0 then return false end
+        local msg={kind="fleetdelta",version=1,controllerId=cfg.controllerId,entries=ents,notice=m.notice}
+        for pid in pairs(pockets) do send(pid,msg,common.remoteProtocol) end
+        return true
+    end
     -- Flotte fuer Pockets/Infoscreens: ohne die grossen Lagerdaten (kommen extra)
     function m.fleetMessage()
         local f=m.fleet("all",true);local labels={}
@@ -1966,7 +2073,8 @@ function M.new(cfg)
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
         elseif waiting==0 and m.notice:find("gesendet ...",1,true) then m.notice="Befehl bestaetigt" end
-        if now-lastFleet>=2 then
+        -- komplette Flotte nur noch alle 5 s (Aenderungen kommen sofort per m.flush)
+        if now-lastFleet>=5 then
             lastFleet=now
             local msg
             for id in pairs(pockets)do
@@ -3235,7 +3343,12 @@ local function withStats(f)
     end
     return f
 end
-local function draw()ui.draw(withStats(fleet) or {ids={},entries={}},connected(),notice)end
+local lastDraw,frameT=-1e9,nil
+local function draw()lastDraw=os.clock();frameT=nil;ui.draw(withStats(fleet) or {ids={},entries={}},connected(),notice)end
+-- Live: hoechstens ~7x pro Sekunde neu zeichnen, Rest sammeln
+local function soon()
+    if os.clock()-lastDraw>=0.15 then draw() elseif not frameT then frameT=os.startTimer(0.15) end
+end
 local function validFleet(f)
     if type(f)~="table" or type(f.ids)~="table" or type(f.entries)~="table" or #f.ids>cfg.network.maxDevices then return false end
     local used={}
@@ -3273,7 +3386,15 @@ local function loop()
             and b.kind=="fleet" and b.version==1 and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
             fleet,seen=b.fleet,os.clock();serial=math.max(serial,common.number(b.ack))
             if pending and common.number(b.ack)>=pending.message.serial then pending=nil end
-            notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");draw()
+            notice=pending and "Warte auf Zentrale..." or tostring(b.notice or "Verbunden");soon()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="fleetdelta" and b.version==1 and b.controllerId==cfg.controllerId and fleet then
+            if common.mergeDelta(fleet,b,cfg.network.maxDevices) then
+                seen=os.clock()
+                if not pending then notice=tostring(b.notice or "Verbunden") end
+                soon()
+            end
+        elseif e=="timer" and a==frameT then frameT=nil;draw()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
             storeStats=b.stats
@@ -3362,7 +3483,9 @@ local function storeFleet()
     for _,id in ipairs(nodes.ids or {}) do local e=nodes.entries[id];if e and e.role=="storage" then ids[#ids+1]=id;entries[id]=e end end
     return {ids={},entries={},nodes={ids=ids,entries=entries}}
 end
+local lastDraw,frameT=-1e9,nil
 local function draw()
+    lastDraw=os.clock();frameT=nil
     for _,s in ipairs(screens) do
         local ok,why
         if STORE then
@@ -3381,6 +3504,10 @@ local function validFleet(f)
     end
     return true
 end
+-- Live: hoechstens ~7x pro Sekunde neu zeichnen
+local function soon()
+    if os.clock()-lastDraw>=0.15 then draw() elseif not frameT then frameT=os.startTimer(0.15) end
+end
 local tick,due=0,0
 local function loop()
     poll();draw()
@@ -3391,7 +3518,11 @@ local function loop()
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="fleet" and b.controllerId==cfg.controllerId and validFleet(b.fleet) then
-            fleet,seen=b.fleet,os.clock()
+            fleet,seen=b.fleet,os.clock();soon()
+        elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
+            and b.kind=="fleetdelta" and b.version==1 and b.controllerId==cfg.controllerId then
+            if not STORE and common.mergeDelta(fleet,b,cfg.network.maxDevices) then seen=os.clock();soon() end
+        elseif e=="timer" and a==frameT then frameT=nil;draw()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.remoteProtocol and type(b)=="table"
             and b.kind=="nodestats" and b.controllerId==cfg.controllerId and type(b.stats)=="table" then
             storeStats=b.stats;if STORE then draw() end
@@ -3485,6 +3616,7 @@ local TC = dofile("/toast_common.lua")
 local CL = TC.chunkConfig(config.chunkload)
 local GEAR
 local lastRadio=os.clock()    -- letztes Funkfenster (Chunkloader)
+local LIVE                    -- Live-Funk (TC.live), wird unten angelegt
 if CL.enabled then
     local why
     GEAR, why = TC.gear(CL, TOOLS)
@@ -3648,7 +3780,7 @@ local function active()
     if run.mode ~= "off" and CFG.radioTimeout > 0 then
         if GEAR then
             if os.clock() - run.lastContact < 3 then run.radioMiss = 0 end
-            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, CL.report))) then
+            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, LIVE and LIVE.every or CL.report))) then
                 fail("Funkverbindung verloren")
             end
         elseif os.clock() - run.lastContact > CFG.radioTimeout then
@@ -3703,6 +3835,7 @@ local function caneAhead()
 end
 local function forward()
     local last
+    if LIVE then LIVE.point() end
     freeMoves = freeMoves + 1
     caneAhead()
     if GEAR and freeMoves >= 2 and GEAR.radio() then lastRadio = os.clock() end
@@ -3919,15 +4052,7 @@ local sendStatus
 lastRadio=os.clock()
 -- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
 -- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
-local function radioWindow()
-    if not GEAR or os.clock() - lastRadio < CL.report then return end
-    if GEAR.radio() then
-        local t0 = os.clock()
-        sendStatus(); sleep(2.2)
-        if run.lastContact >= t0 then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end
-    end
-    lastRadio = os.clock()
-end
+local function radioWindow() if LIVE then LIVE.point() end end
 local function scan()
     run.scanned, run.roundYield, run.roundPlants, run.waitUntil, run.skipped = 0, 0, 0, 0, 0
     if not prepare() then return false end
@@ -4064,8 +4189,11 @@ local function snapshot()
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
-local lastSent = -1e9
-sendStatus = function() lastSent = os.clock(); pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
+LIVE = TC.live({ snapshot = snapshot, gear = GEAR, every = math.min(CL.report, 3),
+    transmit = function(s) pcall(rednet.send, st.controller, s, PROTOCOL) end,
+    contact = function() return run.lastContact end,
+    onWindow = function(ok) if ok then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end end })
+sendStatus = function() LIVE.send() end
 local function reset()
     run.mode, run.fault, run.lastMode, run.retries, run.retryAt, run.waitUntil = "off", nil, nil, 0, nil, 0
     st.lastMode = nil
@@ -4085,7 +4213,7 @@ local function listener()
             and type(message) == "table" then
             if message.kind == "poll" then
                 run.lastContact = os.clock()
-                if os.clock() - lastSent > 2.5 then sendStatus() end
+                if os.clock() - LIVE.lastSent > 2.5 then sendStatus() end
             elseif message.kind == "command" and common.serial(message.serial)
                 and ({ start = true, stop = true, once = true, reset = true, update = true })[message.action] then
                 run.lastContact = os.clock()
@@ -4109,9 +4237,7 @@ local function listener()
         end
     end
 end
-local function heartbeat()
-    while true do common.refreshModems(); sendStatus(); sleep(2) end
-end
+local function heartbeat() LIVE.loop() end
 if not GEAR then pcall(equipTool) end
 term.clear(); term.setCursorPos(1, 1)
 print("TOAST FARM v" .. TC.version .. " - Turtle #" .. os.getComputerID())
@@ -4217,6 +4343,7 @@ local TC=dofile("/toast_common.lua")
 local CL=TC.chunkConfig(cfg.chunkload)
 local GEAR
 local lastRadio=os.clock()    -- letztes Funkfenster (Chunkloader)
+local LIVE                    -- Live-Funk (TC.live), wird unten angelegt
 if CL.enabled then
     local why
     GEAR,why=TC.gear(CL,{['minecraft:diamond_pickaxe']=true,['minecraft:netherite_pickaxe']=true})
@@ -4458,7 +4585,7 @@ local function active()
     if run.mode~="off" and C.radioTimeout>0 then
         if GEAR then
             if os.clock()-run.lastContact<3 then run.radioMiss=0 end
-            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,CL.report))) then fail("Funkverbindung verloren") end
+            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,LIVE and LIVE.every or CL.report))) then fail("Funkverbindung verloren") end
         elseif os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
     end
     return run.mode~="off" and not run.recovery
@@ -4897,6 +5024,7 @@ local function reserve()
     return homeDistance()*(1+drain*0.6)+12+math.ceil(drain*90)
 end
 local function move(kind,interruptible)
+    if LIVE then LIVE.point() end
     chunkTick()
     if interruptible and not active() then return false,"stopped" end
     local fuel=turtle.getFuelLevel()
@@ -5349,17 +5477,9 @@ local function idle()
 end
 local sendStatus
 lastRadio=os.clock()
--- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
--- Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
-local function radioWindow()
-    if not GEAR or os.clock()-lastRadio<CL.report then return end
-    if GEAR.radio() then
-        local t0=os.clock()
-        sendStatus();sleep(2.2)
-        if run.lastContact>=t0 then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end
-    end
-    lastRadio=os.clock()
-end
+-- Mit Chunkloader: Funkfenster (Modem kurz an, senden, Antwort abwarten) macht
+-- der Live-Funk (TC.live) an sicheren Stellen. Spitzhacke kommt beim naechsten Abbau zurueck.
+local function radioWindow() if LIVE then LIVE.point() end end
 local function work()
     while true do
         chunkTick()
@@ -5458,8 +5578,11 @@ local function snapshot()
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells,lanes=SIDE and #LANES or nil}
 end
-local lastSent=-1e9
-sendStatus=function() lastSent=os.clock();pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol) end
+LIVE=TC.live({snapshot=snapshot,gear=GEAR,every=math.min(CL.report,3),
+    transmit=function(s) pcall(rednet.send,cfg.controllerId,s,common.protocol) end,
+    contact=function() return run.lastContact end,
+    onWindow=function(ok) if ok then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end end})
+sendStatus=function() LIVE.send() end
 local function reset()
     run.mode,run.fault,run.lastMode,run.retries,run.retryAt="off",nil,nil,0,nil
     st.lastMode=nil
@@ -5476,7 +5599,7 @@ local function listener()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
             if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
                 -- Status kommt ohnehin alle 2 s; auf den Poll nur antworten, wenn laenger nichts kam
-                if os.clock()-lastSent>2.5 then sendStatus() end
+                if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
             elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
@@ -5497,7 +5620,7 @@ local function listener()
         end
     end
 end
-local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
+local function heartbeat() LIVE.loop() end
 if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
 print("TOAST MINING v"..TC.version.." / Turtle #"..os.getComputerID())
@@ -5882,6 +6005,7 @@ function W.new(o)
     }
     function w.move(kind,opts)
         opts=opts or {}
+        w.point()
         local m=MOVES[kind]
         local last
         for attempt=1,math.max(R.moveRetries,opts.dig and 24 or 0) do
@@ -6162,9 +6286,12 @@ function W.new(o)
         pcall(common.addPosition,s,cfg,o.job)
         return s
     end
-    local lastSent=-1e9
-    sendStatus=function() lastSent=os.clock();pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
+    -- Live-Funk: sendet bei jeder Aenderung sofort, sonst alle 2 s (eigener Ablauf)
+    local LIVE
+    sendStatus=function() if LIVE then LIVE.send() end end
     w.sendStatus=sendStatus
+    -- sichere Stelle im Arbeitsablauf: mit Chunkloader kurz Modem an + funken
+    function w.point() if LIVE then LIVE.point() end end
     local function reset()
         run.mode,run.fault,run.lastMode,run.retries,run.retryAt,run.waitUntil="off",nil,nil,0,nil,0
         st.lastMode=nil
@@ -6179,7 +6306,7 @@ function W.new(o)
             elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
-                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-lastSent>2.5 then sendStatus() end
+                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
                 elseif b.kind=="command" and common.serial(b.serial) and common.actions[b.action] then
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
@@ -6208,7 +6335,10 @@ function W.new(o)
         if os.clock()-lastTool>3 then G.radio() end
     end
     w.chunkTick=chunkTick
-    local function heartbeat() while true do pcall(chunkTick);common.refreshModems();sendStatus();sleep(2) end end
+    LIVE=common.live({snapshot=snapshot,gear=G,every=math.min(CL.report,3),tick=chunkTick,
+        transmit=function(s) pcall(rednet.send,st.controller,s,PROTOCOL) end,
+        contact=function() return run.lastContact end})
+    local function heartbeat() LIVE.loop() end
 
     -- ===== Ablauf =====
     -- Warten, solange aktiv (fuer Pausen zwischen Runden)
@@ -6627,6 +6757,7 @@ end
 local function stand()
     local quiet=os.clock()
     while w.active() do
+        w.point()             -- mit Chunkloader: kurz funken (Schwert kommt beim naechsten Schlag zurueck)
         if strike() then
             lastHit,quiet=os.clock(),os.clock()
             w.status("Kampf",C.mode=="farm" and "Mobs werden besiegt, Drops gesammelt." or "Mob wird abgewehrt.")
@@ -8041,7 +8172,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.15.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.16.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

@@ -55,6 +55,7 @@ local TC = dofile("/toast_common.lua")
 local CL = TC.chunkConfig(config.chunkload)
 local GEAR
 local lastRadio=os.clock()    -- letztes Funkfenster (Chunkloader)
+local LIVE                    -- Live-Funk (TC.live), wird unten angelegt
 if CL.enabled then
     local why
     GEAR, why = TC.gear(CL, TOOLS)
@@ -218,7 +219,7 @@ local function active()
     if run.mode ~= "off" and CFG.radioTimeout > 0 then
         if GEAR then
             if os.clock() - run.lastContact < 3 then run.radioMiss = 0 end
-            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, CL.report))) then
+            if (run.radioMiss or 0) >= math.max(3, math.ceil(CFG.radioTimeout / math.max(1, LIVE and LIVE.every or CL.report))) then
                 fail("Funkverbindung verloren")
             end
         elseif os.clock() - run.lastContact > CFG.radioTimeout then
@@ -273,6 +274,7 @@ local function caneAhead()
 end
 local function forward()
     local last
+    if LIVE then LIVE.point() end
     freeMoves = freeMoves + 1
     caneAhead()
     if GEAR and freeMoves >= 2 and GEAR.radio() then lastRadio = os.clock() end
@@ -489,15 +491,7 @@ local sendStatus
 lastRadio=os.clock()
 -- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
 -- Das Werkzeug kommt beim naechsten Ernten automatisch zurueck.
-local function radioWindow()
-    if not GEAR or os.clock() - lastRadio < CL.report then return end
-    if GEAR.radio() then
-        local t0 = os.clock()
-        sendStatus(); sleep(2.2)
-        if run.lastContact >= t0 then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end
-    end
-    lastRadio = os.clock()
-end
+local function radioWindow() if LIVE then LIVE.point() end end
 local function scan()
     run.scanned, run.roundYield, run.roundPlants, run.waitUntil, run.skipped = 0, 0, 0, 0, 0
     if not prepare() then return false end
@@ -634,8 +628,11 @@ local function snapshot()
         scanned = run.scanned, cells = CFG.width * CFG.length,
         wait = math.max(0, math.ceil(run.waitUntil - os.clock())), pause = st.pause, lastRipe = st.lastRipe }
 end
-local lastSent = -1e9
-sendStatus = function() lastSent = os.clock(); pcall(rednet.send, st.controller, snapshot(), PROTOCOL) end
+LIVE = TC.live({ snapshot = snapshot, gear = GEAR, every = math.min(CL.report, 3),
+    transmit = function(s) pcall(rednet.send, st.controller, s, PROTOCOL) end,
+    contact = function() return run.lastContact end,
+    onWindow = function(ok) if ok then run.radioMiss = 0 else run.radioMiss = (run.radioMiss or 0) + 1 end end })
+sendStatus = function() LIVE.send() end
 local function reset()
     run.mode, run.fault, run.lastMode, run.retries, run.retryAt, run.waitUntil = "off", nil, nil, 0, nil, 0
     st.lastMode = nil
@@ -655,7 +652,7 @@ local function listener()
             and type(message) == "table" then
             if message.kind == "poll" then
                 run.lastContact = os.clock()
-                if os.clock() - lastSent > 2.5 then sendStatus() end
+                if os.clock() - LIVE.lastSent > 2.5 then sendStatus() end
             elseif message.kind == "command" and common.serial(message.serial)
                 and ({ start = true, stop = true, once = true, reset = true, update = true })[message.action] then
                 run.lastContact = os.clock()
@@ -679,9 +676,7 @@ local function listener()
         end
     end
 end
-local function heartbeat()
-    while true do common.refreshModems(); sendStatus(); sleep(2) end
-end
+local function heartbeat() LIVE.loop() end
 if not GEAR then pcall(equipTool) end
 term.clear(); term.setCursorPos(1, 1)
 print("TOAST FARM v" .. TC.version .. " - Turtle #" .. os.getComputerID())

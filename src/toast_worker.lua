@@ -179,6 +179,7 @@ function W.new(o)
     }
     function w.move(kind,opts)
         opts=opts or {}
+        w.point()
         local m=MOVES[kind]
         local last
         for attempt=1,math.max(R.moveRetries,opts.dig and 24 or 0) do
@@ -459,9 +460,12 @@ function W.new(o)
         pcall(common.addPosition,s,cfg,o.job)
         return s
     end
-    local lastSent=-1e9
-    sendStatus=function() lastSent=os.clock();pcall(rednet.send,st.controller,snapshot(),PROTOCOL) end
+    -- Live-Funk: sendet bei jeder Aenderung sofort, sonst alle 2 s (eigener Ablauf)
+    local LIVE
+    sendStatus=function() if LIVE then LIVE.send() end end
     w.sendStatus=sendStatus
+    -- sichere Stelle im Arbeitsablauf: mit Chunkloader kurz Modem an + funken
+    function w.point() if LIVE then LIVE.point() end end
     local function reset()
         run.mode,run.fault,run.lastMode,run.retries,run.retryAt,run.waitUntil="off",nil,nil,0,nil,0
         st.lastMode=nil
@@ -476,7 +480,7 @@ function W.new(o)
             elseif e=="char" and (a=="n" or a=="N") and run.mode=="off" and w.isHome() then error("TOAST_NEUER_AUFTRAG",0)
             elseif e=="peripheral" or e=="peripheral_detach" then common.refreshModems();sendStatus()
             elseif e=="rednet_message" and a==st.controller and c==PROTOCOL and type(b)=="table" then
-                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-lastSent>2.5 then sendStatus() end
+                if b.kind=="poll" then run.lastContact=os.clock();if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
                 elseif b.kind=="command" and common.serial(b.serial) and common.actions[b.action] then
                     run.lastContact=os.clock()
                     if b.serial>(st.commandSerial or 0) then
@@ -505,7 +509,10 @@ function W.new(o)
         if os.clock()-lastTool>3 then G.radio() end
     end
     w.chunkTick=chunkTick
-    local function heartbeat() while true do pcall(chunkTick);common.refreshModems();sendStatus();sleep(2) end end
+    LIVE=common.live({snapshot=snapshot,gear=G,every=math.min(CL.report,3),tick=chunkTick,
+        transmit=function(s) pcall(rednet.send,st.controller,s,PROTOCOL) end,
+        contact=function() return run.lastContact end})
+    local function heartbeat() LIVE.loop() end
 
     -- ===== Ablauf =====
     -- Warten, solange aktiv (fuer Pausen zwischen Runden)

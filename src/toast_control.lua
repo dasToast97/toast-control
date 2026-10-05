@@ -64,14 +64,15 @@ local function loop()
     rednet.host(common.protocol,"toast-"..cfg.controllerId)
     model.tick();draw()
     local timer=os.startTimer(cfg.network.pollInterval)
-    local frame=os.startTimer(0.5)
+    local frame=os.startTimer(0.2)
+    local lastFrame,lastTick=os.clock(),os.clock()
     while true do
         local e,a,b,c,d,f=os.pullEvent()
         if gpsHost and gpsHost.event(e,a,b,c,d,f) then
             -- GPS-Anfrage beantwortet
         elseif e=="rednet_message" then
             if model.ingest(a,b,c) or model.remote(a,b,c) then dirty=true end
-        elseif e=="timer" and a==timer then model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
+        elseif e=="timer" and a==timer then lastTick=os.clock();model.tick();model.heal();checkVersion();dirty=true;timer=os.startTimer(cfg.network.pollInterval)
         elseif e=="http_success" and AUTO.url and a==AUTO.url then
             AUTO.url=nil
             local remote=b and b.readAll and b.readAll() or "";pcall(b.close)
@@ -102,11 +103,14 @@ local function loop()
                     if not ok then model.notice="Update fehlgeschlagen: "..tostring(why);common.log("Update: "..tostring(why)) end
                 end
             end
+            model.flush();lastFrame=os.clock()
             if dirty then draw() end
-            frame=os.startTimer(0.5)
+            frame=os.startTimer(0.2)
         elseif e=="timer" and a==frame then
+            -- 5x pro Sekunde: Aenderungen an Pockets weiterreichen + neu zeichnen
+            model.flush();lastFrame=os.clock()
             if dirty then draw() end
-            frame=os.startTimer(0.5)
+            frame=os.startTimer(0.2)
         elseif e=="peripheral" or e=="peripheral_detach" then
             common.refreshModems()
             local before=screen;bindScreen()
@@ -122,6 +126,9 @@ local function loop()
             action(ui.char(a))
         elseif e=="key" then action(ui.key(keys.getName(a)))
         elseif e=="mouse_scroll" then action(a>0 and "down" or "up") end
+        -- Zeitgeber verloren (Peripherie-Aufruf hat ihn verschluckt)? Trotzdem weiter.
+        if os.clock()-lastFrame>1 then lastFrame=os.clock();model.flush();if dirty then draw() end;frame=os.startTimer(0.2) end
+        if os.clock()-lastTick>cfg.network.pollInterval*3 then lastTick=os.clock();model.tick();dirty=true;timer=os.startTimer(cfg.network.pollInterval) end
     end
 end
 local ok,why=pcall(loop)

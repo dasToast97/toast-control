@@ -100,6 +100,7 @@ end
 local function stand()
     local quiet=os.clock()
     while w.active() do
+        w.point()             -- mit Chunkloader: kurz funken (Schwert kommt beim naechsten Schlag zurueck)
         if strike() then
             lastHit,quiet=os.clock(),os.clock()
             w.status("Kampf",C.mode=="farm" and "Mobs werden besiegt, Drops gesammelt." or "Mob wird abgewehrt.")

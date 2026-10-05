@@ -9,6 +9,7 @@ local TC=dofile("/toast_common.lua")
 local CL=TC.chunkConfig(cfg.chunkload)
 local GEAR
 local lastRadio=os.clock()    -- letztes Funkfenster (Chunkloader)
+local LIVE                    -- Live-Funk (TC.live), wird unten angelegt
 if CL.enabled then
     local why
     GEAR,why=TC.gear(CL,{['minecraft:diamond_pickaxe']=true,['minecraft:netherite_pickaxe']=true})
@@ -250,7 +251,7 @@ local function active()
     if run.mode~="off" and C.radioTimeout>0 then
         if GEAR then
             if os.clock()-run.lastContact<3 then run.radioMiss=0 end
-            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,CL.report))) then fail("Funkverbindung verloren") end
+            if (run.radioMiss or 0)>=math.max(3,math.ceil(C.radioTimeout/math.max(1,LIVE and LIVE.every or CL.report))) then fail("Funkverbindung verloren") end
         elseif os.clock()-run.lastContact>C.radioTimeout then fail("Funkverbindung verloren") end
     end
     return run.mode~="off" and not run.recovery
@@ -689,6 +690,7 @@ local function reserve()
     return homeDistance()*(1+drain*0.6)+12+math.ceil(drain*90)
 end
 local function move(kind,interruptible)
+    if LIVE then LIVE.point() end
     chunkTick()
     if interruptible and not active() then return false,"stopped" end
     local fuel=turtle.getFuelLevel()
@@ -1141,17 +1143,9 @@ local function idle()
 end
 local sendStatus
 lastRadio=os.clock()
--- Mit Chunkloader: alle reportEvery Sekunden kurz Modem anlegen und funken.
--- Die Spitzhacke kommt beim naechsten Abbau automatisch zurueck.
-local function radioWindow()
-    if not GEAR or os.clock()-lastRadio<CL.report then return end
-    if GEAR.radio() then
-        local t0=os.clock()
-        sendStatus();sleep(2.2)
-        if run.lastContact>=t0 then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end
-    end
-    lastRadio=os.clock()
-end
+-- Mit Chunkloader: Funkfenster (Modem kurz an, senden, Antwort abwarten) macht
+-- der Live-Funk (TC.live) an sicheren Stellen. Spitzhacke kommt beim naechsten Abbau zurueck.
+local function radioWindow() if LIVE then LIVE.point() end end
 local function work()
     while true do
         chunkTick()
@@ -1250,8 +1244,11 @@ local function snapshot()
         torches=C.torches or 0,torchesPlaced=st.torchesPlaced or 0,torchesLeft=(C.torches or 0)>0 and countItems(TORCHES) or nil,
         rounds=math.floor((st.next-1)/area),scanned=st.next-1,cells=cells,lanes=SIDE and #LANES or nil}
 end
-local lastSent=-1e9
-sendStatus=function() lastSent=os.clock();pcall(rednet.send,cfg.controllerId,snapshot(),common.protocol) end
+LIVE=TC.live({snapshot=snapshot,gear=GEAR,every=math.min(CL.report,3),
+    transmit=function(s) pcall(rednet.send,cfg.controllerId,s,common.protocol) end,
+    contact=function() return run.lastContact end,
+    onWindow=function(ok) if ok then run.radioMiss=0 else run.radioMiss=(run.radioMiss or 0)+1 end end})
+sendStatus=function() LIVE.send() end
 local function reset()
     run.mode,run.fault,run.lastMode,run.retries,run.retryAt="off",nil,nil,0,nil
     st.lastMode=nil
@@ -1268,7 +1265,7 @@ local function listener()
         elseif e=="rednet_message" and a==cfg.controllerId and c==common.protocol and type(b)=="table" then
             if b.kind=="poll" then run.lastContact=os.clock();run.pollToken=b.token
                 -- Status kommt ohnehin alle 2 s; auf den Poll nur antworten, wenn laenger nichts kam
-                if os.clock()-lastSent>2.5 then sendStatus() end
+                if os.clock()-LIVE.lastSent>2.5 then sendStatus() end
             elseif b.kind=="command" and common.serial(b.serial) and ({start=true,stop=true,once=true,reset=true,update=true})[b.action] then
                 run.lastContact=os.clock()
                 if b.serial>(st.commandSerial or 0) then
@@ -1289,7 +1286,7 @@ local function listener()
         end
     end
 end
-local function heartbeat()while true do common.refreshModems();sendStatus();sleep(2)end end
+local function heartbeat() LIVE.loop() end
 if not GEAR then pcall(equipTool) end
 term.clear();term.setCursorPos(1,1)
 print("TOAST MINING v"..TC.version.." / Turtle #"..os.getComputerID())

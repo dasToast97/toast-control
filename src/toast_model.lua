@@ -1,7 +1,7 @@
 local common=dofile("/toast/toast_common.lua")
 local M={}
 function M.new(cfg)
-    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg}
+    local m={entries={},pending={},notice="Warte auf Geraete...",config=cfg,changedIds={}}
     local PATH="/toast_control_state"
     local s=common.readState(PATH)
     local serial=common.serial(s.serial) and s.serial or 0
@@ -88,7 +88,12 @@ function M.new(cfg)
         if b.fault and (not old or old.fault~=b.fault) then common.log("Turtle #"..id.." Fehler: "..tostring(b.fault)) end
         m.entries[id]={data=b,seen=os.clock()}
         local pending=m.pending[id]
-        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil end
+        if pending and common.number(b.ack)>=pending.message.serial then m.pending[id]=nil;pending=nil end
+        -- Befehl offen: sofort nachschicken (Turtle hoert gerade zu, z.B. im Funkfenster)
+        if pending and os.clock()-(pending.sentAt or 0)>=0.3 then pending.sentAt=os.clock();dispatch(id,pending.message,pending.job) end
+        -- Funkfenster (Chunkloader-Turtle): sofort antworten, dann kann sie gleich weiterarbeiten
+        if b.window then send(id,{kind="poll"},p) end
+        m.changedIds[id]=true
         if changed then save() end
         return true
     end
@@ -118,6 +123,24 @@ function M.new(cfg)
         return true
     end
     local function key(id,protocol)return protocol..":"..id end
+    -- Live: geaenderte Turtles sofort (hoechstens alle 0,3 s) an Pockets/Infoscreens
+    local lastDelta=-1e9
+    function m.flush()
+        if not next(m.changedIds) then return false end
+        local now=os.clock()
+        if now-lastDelta<0.3 then return false end
+        lastDelta=now
+        local ents,n={},0
+        for id in pairs(m.changedIds) do
+            local d,e=devices[id],m.entries[id]
+            if d then ents[id]={job=d.job,label=d.label,online=m.online(id),data=e and e.data or nil,pending=m.pending[id]~=nil};n=n+1 end
+        end
+        m.changedIds={}
+        if n==0 then return false end
+        local msg={kind="fleetdelta",version=1,controllerId=cfg.controllerId,entries=ents,notice=m.notice}
+        for pid in pairs(pockets) do send(pid,msg,common.remoteProtocol) end
+        return true
+    end
     -- Flotte fuer Pockets/Infoscreens: ohne die grossen Lagerdaten (kommen extra)
     function m.fleetMessage()
         local f=m.fleet("all",true);local labels={}
@@ -176,7 +199,8 @@ function M.new(cfg)
         end
         if expired>0 then m.notice="Keine Antwort von "..expired.." Turtle"..(expired>1 and "s" or "").." (Funk/Chunk?)"
         elseif waiting==0 and m.notice:find("gesendet ...",1,true) then m.notice="Befehl bestaetigt" end
-        if now-lastFleet>=2 then
+        -- komplette Flotte nur noch alle 5 s (Aenderungen kommen sofort per m.flush)
+        if now-lastFleet>=5 then
             lastFleet=now
             local msg
             for id in pairs(pockets)do

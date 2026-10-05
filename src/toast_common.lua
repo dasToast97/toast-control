@@ -1,5 +1,5 @@
 local M={
-    version="3.15.0",
+    version="3.16.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -843,6 +843,83 @@ function M.gear(cl,tools)
     local okc,v=pcall(dev.getFuelRate);g.cost=okc and tonumber(v) or 0
     pcall(dev.setWakeOnWorldLoad,cl.wake)
     return g
+end
+-- ===== Live-Funk der Turtles =====
+-- Laeuft nebenher (eigener Ablauf neben der Arbeit): sendet den Status SOFORT,
+-- wenn sich etwas aendert (hoechstens alle 0,3 s), sonst alle 2 s als Lebenszeichen.
+-- Mit Chunkloader (Werkzeug und Modem teilen sich eine Seite) wird das Modem nur
+-- an sicheren Stellen im Arbeitsablauf kurz angelegt (L.point): Senden, auf die
+-- sofortige Antwort der Zentrale warten (meist < 0,2 s), weiter.
+-- o = {snapshot=fn, transmit=fn(snap), gear=G|nil, every=s, contact=fn()->Zeit,
+--      onWindow=fn(ok)|nil, tick=fn|nil}
+local SKIP={contactAge=true,wait=true,pollToken=true,window=true}
+function M.signature(s)
+    local keys={}
+    for k,v in pairs(s) do if not SKIP[k] and type(v)~="table" and type(v)~="function" then keys[#keys+1]=k end end
+    table.sort(keys)
+    local out={}
+    for i,k in ipairs(keys) do out[i]=k.."="..tostring(s[k]) end
+    -- Listen (z.B. Abladekisten) nur ueber ihre Laenge
+    for k,v in pairs(s) do if type(v)=="table" and not SKIP[k] then out[#out+1]=k.."#"..#v end end
+    return table.concat(out,";")
+end
+function M.live(o)
+    local L={due=false,lastWindow=os.clock(),every=math.max(1,o.every or 3),lastSent=-1e9}
+    local lastSig
+    function L.send(window)
+        local snap=o.snapshot()
+        if window then snap.window=true end
+        L.lastSent=os.clock();lastSig=M.signature(snap)
+        pcall(o.transmit,snap)
+    end
+    local function modemOn() return not o.gear or peripheral.getType(o.gear.other)=="modem" end
+    -- im Arbeitsablauf aufrufen (vor Bewegungen): kurzes Funkfenster, wenn faellig
+    function L.point()
+        if not o.gear or not L.due then return end
+        L.due=false;L.lastWindow=os.clock()
+        if not modemOn() and not o.gear.radio() then return end
+        local t0=os.clock()
+        L.send(true)
+        while os.clock()-t0<0.6 and (o.contact() or 0)<t0 do sleep(0.05) end
+        if o.onWindow then o.onWindow((o.contact() or 0)>=t0) end
+    end
+    function L.loop()
+        local lastRefresh=-1e9
+        while true do
+            local now=os.clock()
+            if now-lastRefresh>=2 then
+                lastRefresh=now
+                if o.tick then pcall(o.tick) end
+                pcall(M.refreshModems)
+            end
+            if modemOn() then
+                local snap=o.snapshot();local sig=M.signature(snap)
+                if (sig~=lastSig and now-L.lastSent>=0.3) or now-L.lastSent>=2 then
+                    L.lastSent=now;lastSig=sig;pcall(o.transmit,snap)
+                end
+            elseif now-L.lastWindow>=L.every then L.due=true end
+            sleep(TOAST_LIVE_STEP or 0.2)
+        end
+    end
+    return L
+end
+-- Pocket/Infoscreen: geaenderte Turtles (kind="fleetdelta") in die Flotte uebernehmen
+function M.mergeDelta(fleet,b,max)
+    if type(fleet)~="table" or type(fleet.ids)~="table" or type(fleet.entries)~="table" or type(b.entries)~="table" then return false end
+    local added=false
+    for id,e in pairs(b.entries) do
+        if M.id(id) and type(e)=="table" and (e.data==nil or type(e.data)=="table") and (M.job(e.job) or e.job=="auto")
+            and type(e.online)=="boolean" then
+            e.label=M.label(e.label)
+            if not fleet.entries[id] then
+                if #fleet.ids>=(max or 256) then break end
+                fleet.ids[#fleet.ids+1]=id;added=true
+            end
+            fleet.entries[id]=e
+        end
+    end
+    if added then table.sort(fleet.ids) end
+    return true
 end
 -- Fehler, bei denen ein automatischer neuer Versuch gefaehrlich waere.
 function M.retryable(fault)
