@@ -15,6 +15,11 @@ local CROPS = {
         produce = "minecraft:potato", age = 7, label = "Kartoffeln" },
     beetroot = { block = "minecraft:beetroots", seed = "minecraft:beetroot_seeds",
         produce = "minecraft:beetroot", age = 3, label = "Rote Bete" },
+    -- Zuckerrohr: waechst bis 3 hoch, wird nicht neu gepflanzt. Die Turtle faehrt
+    -- in Hoehe des 3. Blocks: vorne den 3. Block, unten den 2. Block ernten,
+    -- der unterste bleibt stehen und waechst nach.
+    sugarcane = { block = "minecraft:sugar_cane", seed = "minecraft:sugar_cane",
+        produce = "minecraft:sugar_cane", label = "Zuckerrohr", cane = true },
 }
 local PROTOCOL, STATE_FILE = common.protocol, "/toast_farm_state"
 local FUEL = { ["minecraft:coal"] = true, ["minecraft:charcoal"] = true, ["minecraft:coal_block"] = true }
@@ -41,7 +46,8 @@ CFG.water = CFG.water or {}
 -- (mind. 16, max. 3 Stapel). Die Saatgutkiste hinten wird dann nur noch gebraucht,
 -- wenn die Turtle gar kein Saatgut mehr hat.
 local RESERVE = CFG.seedReserve
-if RESERVE == 0 then
+if CROPS[CFG.crop] and CROPS[CFG.crop].cane then RESERVE = 0
+elseif RESERVE == 0 then
     RESERVE = math.max(16, math.min(192, CFG.width * CFG.length - #CFG.water))
 end
 -- CCChunkloader: Chunkloader bleibt angebaut, Werkzeug <-> Modem werden getauscht.
@@ -251,9 +257,24 @@ local DX, DZ = { [0] = 0, 1, 0, -1 }, { [0] = 1, 0, -1, 0 }
 -- Mit Chunkloader: Modem statt Werkzeug, solange nicht geerntet wird
 -- (2 Schritte ohne Ernte). Das Werkzeug kommt beim naechsten Ernten zurueck.
 local freeMoves = 0
+-- Zuckerrohr direkt vor der Turtle (3. Block): mitnehmen statt blockiert
+local function caneAhead()
+    if not crop.cane then return end
+    local e, b = turtle.inspect()
+    if not (e and b.name == crop.block) then return end
+    local before = count(crop.produce)
+    local ok, why = turtle.dig()
+    if not ok and tostring(why):find("No tool", 1, true) and equipTool() then ok = turtle.dig() end
+    if ok then
+        local net = math.max(0, count(crop.produce) - before)
+        st.total, run.roundYield = (st.total or 0) + net, run.roundYield + net
+        freeMoves = 0
+    end
+end
 local function forward()
     local last
     freeMoves = freeMoves + 1
+    caneAhead()
     if GEAR and freeMoves >= 2 and GEAR.radio() then lastRadio = os.clock() end
     -- Tiere/Spieler im Weg: angreifen, kurz warten, erneut versuchen.
     for attempt = 1, R.moveRetries do
@@ -359,7 +380,7 @@ local function refuel()
     return false, "Treibstoff fehlt", "Mehr Kohle / Holzkohle in die obere Kiste legen."
 end
 local function refillSeeds()
-    if count(crop.seed) >= RESERVE then return true end
+    if crop.cane or count(crop.seed) >= RESERVE then return true end
     local ok, why = face(2)
     if not ok then return false, "Drehen fehlgeschlagen", why end
     local exists = container(turtle.inspect)
@@ -407,6 +428,25 @@ end
 local function visit(x, z)
     if waterCell(x, z) then return true end
     local exists, block = turtle.inspectDown()
+    if crop.cane then
+        -- 2. Block unter der Turtle ernten (der unterste bleibt stehen)
+        if not (exists and block.name == crop.block) then return true end
+        if freeSlots() < 1 then return false, "resupply" end
+        status("Ernte", "Zuckerrohr wird geerntet, der unterste Block bleibt stehen.")
+        local before = count(crop.produce)
+        local dug, why = turtle.digDown()
+        if not dug and tostring(why):find("No tool", 1, true) then
+            if not equipTool() then return false, NO_TOOL end
+            dug, why = turtle.digDown()
+        end
+        if not dug then return false, "Zuckerrohr nicht abbaubar" end
+        local net = math.max(0, count(crop.produce) - before)
+        st.harvested, run.roundPlants = (st.harvested or 0) + 1, run.roundPlants + 1
+        st.total, run.roundYield = (st.total or 0) + net, run.roundYield + net
+        freeMoves = 0
+        save()
+        return true
+    end
     if exists and block.name ~= crop.block then return true end
     if exists and tonumber((block.state or {}).age) ~= crop.age then return true end
     if count(crop.seed) == 0 then return false, "resupply" end
@@ -585,7 +625,7 @@ local function snapshot()
         mode = run.mode, recovery = run.recovery, ack = st.commandSerial or 0,
         fault = run.fault, retries = run.retries,
         contactAge = math.max(0, math.floor(os.clock() - run.lastContact)),
-        fuel = turtle.getFuelLevel(), budget = budget, seeds = count(crop.seed),
+        fuel = turtle.getFuelLevel(), budget = budget, seeds = (not crop.cane) and count(crop.seed) or nil, cane = crop.cane,
         chunks = GEAR and (GEAR.radius > 0 and CL.chunks or 0) or nil,
         chunkFuel = GEAR and math.floor(GEAR.perSecond() * 3600 + 0.5) or nil,
         freeSlots = freeSlots(), x = st.x, z = st.z, total = st.total or 0,

@@ -1,5 +1,5 @@
 local M={
-    version="3.13.8",
+    version="3.14.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -78,7 +78,7 @@ function M.withDefaults(c)
     return c
 end
 -- Saubere, kommentierte Config schreiben (nur die Abschnitte, die das Geraet braucht).
-local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete"}
+local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete",sugarcane="Zuckerrohr"}
 M.CROP_NAMES=CROP_NAMES
 function M.configText(c)
     local out={}
@@ -190,7 +190,7 @@ function M.configText(c)
     elseif role=="turtle" then
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
-            {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot"},
+            {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot, sugarcane"},
             {"interval","kuerzeste Pause zwischen Runden in s"},
             {"maxInterval","Spar-Pause: laengste Pause in s (0 = immer interval)"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)

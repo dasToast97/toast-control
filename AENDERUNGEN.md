@@ -1,3 +1,14 @@
+# Toast Control 3.14.0
+
+- **Neu: Zuckerrohr-Farm.** Farm-Turtle, Pflanze **5 Zuckerrohr**.
+  - Aufbau wie ein normales Feld, aber die Turtle steht **einen Block höher**:
+    auf Höhe des **3. Zuckerrohr-Blocks** (2 Blöcke über dem untersten).
+    Kisten wie gewohnt: unten = Ausgabe, oben = Kohle. Keine Saatgutkiste nötig.
+  - Sie fährt übers Feld, nimmt den 3. Block vor sich und den 2. Block unter sich
+    mit. Der **unterste Block bleibt stehen** und wächst nach – kein Nachpflanzen.
+  - Wasserkanäle im Feld werden erkannt und übersprungen.
+  - Spar-Pause wie bei den anderen Pflanzen (wenig gewachsen = längere Pause).
+
 # Toast Control 3.13.8
 
 - **Aushub bis 1024 Blöcke:** Breite, Länge, Höhe/Tiefe und Durchmesser jetzt je

@@ -127,10 +127,12 @@ function S.new(common)
         f.length=ask("Laenge (1-32)",f.length,1,32)
         f.width=ask("Breite (1-32)",f.width,1,32)
         if f.width>1 then f.side=askSide("Feld nach",f.side) end
-        local crops={"wheat","carrots","potatoes","beetroot"}
+        local crops={"wheat","carrots","potatoes","beetroot","sugarcane"}
         local cur=1;for i,v in ipairs(crops) do if v==f.crop then cur=i end end
         hint("1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
-        f.crop=crops[ask("Pflanze",cur,1,4)]
+        hint("5 Zuckerrohr (Turtle 1 hoeher: auf Hoehe")
+        hint("  des 3. Blocks, unterster bleibt stehen)")
+        f.crop=crops[ask("Pflanze",cur,1,5)]
         f.interval=ask("Kuerzeste Pause zwischen Runden (s)",f.interval,1,86400)
         hint("Spar-Pause: sind wenige Pflanzen reif,")
         hint("wartet sie laenger (spart viel Fuel).")

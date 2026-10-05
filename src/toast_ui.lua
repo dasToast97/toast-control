@@ -74,7 +74,7 @@ local JOB={
             if num(d.roundYield)>0 then r[#r+1]={"Diese Runde",short(d.roundYield).." Items"} end
             r[#r+1]={"Geerntet",short(d.harvested).." Pflanzen"};r[#r+1]={"Ertrag",short(d.total).." Items"}
             if num(d.seedsGained)>0 then r[#r+1]={" davon Samen",short(d.seedsGained)} end
-            r[#r+1]={"Saatgut",short(d.seeds)}
+            if not d.cane then r[#r+1]={"Saatgut",short(d.seeds)} end
             if d.pause then r[#r+1]={"Pause",(num(d.pause)>=120 and (math.floor(num(d.pause)/60+0.5).." min") or (num(d.pause).." s"))}
                 if d.lastRipe then r[#r+1]={"Zuletzt reif",d.lastRipe.."%"} end end
             wait(r,d);return r end},

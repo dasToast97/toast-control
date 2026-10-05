@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.13.8 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.14.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.13.8",
+    version="3.14.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -221,7 +221,7 @@ function M.withDefaults(c)
     return c
 end
 -- Saubere, kommentierte Config schreiben (nur die Abschnitte, die das Geraet braucht).
-local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete"}
+local CROP_NAMES={wheat="Weizen",carrots="Karotten",potatoes="Kartoffeln",beetroot="Rote Bete",sugarcane="Zuckerrohr"}
 M.CROP_NAMES=CROP_NAMES
 function M.configText(c)
     local out={}
@@ -333,7 +333,7 @@ function M.configText(c)
     elseif role=="turtle" then
         section("farm","Feld: Turtle steht an der Basis und schaut aufs Feld",{
             {"length","Feldlaenge nach vorne (1-32)"},{"width","Feldbreite zur Seite (1-32)"},
-            {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot"},
+            {"side","Feld nach \"right\" oder \"left\""},{"crop","wheat, carrots, potatoes, beetroot, sugarcane"},
             {"interval","kuerzeste Pause zwischen Runden in s"},
             {"maxInterval","Spar-Pause: laengste Pause in s (0 = immer interval)"},{"seedReserve","Saatgut behalten (0 = so viel wie das Feld braucht)"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"},{"water","leer lassen: wird erkannt"}},c.farm)
@@ -1110,10 +1110,12 @@ function S.new(common)
         f.length=ask("Laenge (1-32)",f.length,1,32)
         f.width=ask("Breite (1-32)",f.width,1,32)
         if f.width>1 then f.side=askSide("Feld nach",f.side) end
-        local crops={"wheat","carrots","potatoes","beetroot"}
+        local crops={"wheat","carrots","potatoes","beetroot","sugarcane"}
         local cur=1;for i,v in ipairs(crops) do if v==f.crop then cur=i end end
         hint("1 Weizen 2 Karotten 3 Kartoffeln 4 Rote Bete")
-        f.crop=crops[ask("Pflanze",cur,1,4)]
+        hint("5 Zuckerrohr (Turtle 1 hoeher: auf Hoehe")
+        hint("  des 3. Blocks, unterster bleibt stehen)")
+        f.crop=crops[ask("Pflanze",cur,1,5)]
         f.interval=ask("Kuerzeste Pause zwischen Runden (s)",f.interval,1,86400)
         hint("Spar-Pause: sind wenige Pflanzen reif,")
         hint("wartet sie laenger (spart viel Fuel).")
@@ -2082,7 +2084,7 @@ local JOB={
             if num(d.roundYield)>0 then r[#r+1]={"Diese Runde",short(d.roundYield).." Items"} end
             r[#r+1]={"Geerntet",short(d.harvested).." Pflanzen"};r[#r+1]={"Ertrag",short(d.total).." Items"}
             if num(d.seedsGained)>0 then r[#r+1]={" davon Samen",short(d.seedsGained)} end
-            r[#r+1]={"Saatgut",short(d.seeds)}
+            if not d.cane then r[#r+1]={"Saatgut",short(d.seeds)} end
             if d.pause then r[#r+1]={"Pause",(num(d.pause)>=120 and (math.floor(num(d.pause)/60+0.5).." min") or (num(d.pause).." s"))}
                 if d.lastRipe then r[#r+1]={"Zuletzt reif",d.lastRipe.."%"} end end
             wait(r,d);return r end},
@@ -3387,6 +3389,11 @@ local CROPS = {
         produce = "minecraft:potato", age = 7, label = "Kartoffeln" },
     beetroot = { block = "minecraft:beetroots", seed = "minecraft:beetroot_seeds",
         produce = "minecraft:beetroot", age = 3, label = "Rote Bete" },
+    -- Zuckerrohr: waechst bis 3 hoch, wird nicht neu gepflanzt. Die Turtle faehrt
+    -- in Hoehe des 3. Blocks: vorne den 3. Block, unten den 2. Block ernten,
+    -- der unterste bleibt stehen und waechst nach.
+    sugarcane = { block = "minecraft:sugar_cane", seed = "minecraft:sugar_cane",
+        produce = "minecraft:sugar_cane", label = "Zuckerrohr", cane = true },
 }
 local PROTOCOL, STATE_FILE = common.protocol, "/toast_farm_state"
 local FUEL = { ["minecraft:coal"] = true, ["minecraft:charcoal"] = true, ["minecraft:coal_block"] = true }
@@ -3413,7 +3420,8 @@ CFG.water = CFG.water or {}
 -- (mind. 16, max. 3 Stapel). Die Saatgutkiste hinten wird dann nur noch gebraucht,
 -- wenn die Turtle gar kein Saatgut mehr hat.
 local RESERVE = CFG.seedReserve
-if RESERVE == 0 then
+if CROPS[CFG.crop] and CROPS[CFG.crop].cane then RESERVE = 0
+elseif RESERVE == 0 then
     RESERVE = math.max(16, math.min(192, CFG.width * CFG.length - #CFG.water))
 end
 -- CCChunkloader: Chunkloader bleibt angebaut, Werkzeug <-> Modem werden getauscht.
@@ -3623,9 +3631,24 @@ local DX, DZ = { [0] = 0, 1, 0, -1 }, { [0] = 1, 0, -1, 0 }
 -- Mit Chunkloader: Modem statt Werkzeug, solange nicht geerntet wird
 -- (2 Schritte ohne Ernte). Das Werkzeug kommt beim naechsten Ernten zurueck.
 local freeMoves = 0
+-- Zuckerrohr direkt vor der Turtle (3. Block): mitnehmen statt blockiert
+local function caneAhead()
+    if not crop.cane then return end
+    local e, b = turtle.inspect()
+    if not (e and b.name == crop.block) then return end
+    local before = count(crop.produce)
+    local ok, why = turtle.dig()
+    if not ok and tostring(why):find("No tool", 1, true) and equipTool() then ok = turtle.dig() end
+    if ok then
+        local net = math.max(0, count(crop.produce) - before)
+        st.total, run.roundYield = (st.total or 0) + net, run.roundYield + net
+        freeMoves = 0
+    end
+end
 local function forward()
     local last
     freeMoves = freeMoves + 1
+    caneAhead()
     if GEAR and freeMoves >= 2 and GEAR.radio() then lastRadio = os.clock() end
     -- Tiere/Spieler im Weg: angreifen, kurz warten, erneut versuchen.
     for attempt = 1, R.moveRetries do
@@ -3731,7 +3754,7 @@ local function refuel()
     return false, "Treibstoff fehlt", "Mehr Kohle / Holzkohle in die obere Kiste legen."
 end
 local function refillSeeds()
-    if count(crop.seed) >= RESERVE then return true end
+    if crop.cane or count(crop.seed) >= RESERVE then return true end
     local ok, why = face(2)
     if not ok then return false, "Drehen fehlgeschlagen", why end
     local exists = container(turtle.inspect)
@@ -3779,6 +3802,25 @@ end
 local function visit(x, z)
     if waterCell(x, z) then return true end
     local exists, block = turtle.inspectDown()
+    if crop.cane then
+        -- 2. Block unter der Turtle ernten (der unterste bleibt stehen)
+        if not (exists and block.name == crop.block) then return true end
+        if freeSlots() < 1 then return false, "resupply" end
+        status("Ernte", "Zuckerrohr wird geerntet, der unterste Block bleibt stehen.")
+        local before = count(crop.produce)
+        local dug, why = turtle.digDown()
+        if not dug and tostring(why):find("No tool", 1, true) then
+            if not equipTool() then return false, NO_TOOL end
+            dug, why = turtle.digDown()
+        end
+        if not dug then return false, "Zuckerrohr nicht abbaubar" end
+        local net = math.max(0, count(crop.produce) - before)
+        st.harvested, run.roundPlants = (st.harvested or 0) + 1, run.roundPlants + 1
+        st.total, run.roundYield = (st.total or 0) + net, run.roundYield + net
+        freeMoves = 0
+        save()
+        return true
+    end
     if exists and block.name ~= crop.block then return true end
     if exists and tonumber((block.state or {}).age) ~= crop.age then return true end
     if count(crop.seed) == 0 then return false, "resupply" end
@@ -3957,7 +3999,7 @@ local function snapshot()
         mode = run.mode, recovery = run.recovery, ack = st.commandSerial or 0,
         fault = run.fault, retries = run.retries,
         contactAge = math.max(0, math.floor(os.clock() - run.lastContact)),
-        fuel = turtle.getFuelLevel(), budget = budget, seeds = count(crop.seed),
+        fuel = turtle.getFuelLevel(), budget = budget, seeds = (not crop.cane) and count(crop.seed) or nil, cane = crop.cane,
         chunks = GEAR and (GEAR.radius > 0 and CL.chunks or 0) or nil,
         chunkFuel = GEAR and math.floor(GEAR.perSecond() * 3600 + 0.5) or nil,
         freeSlots = freeSlots(), x = st.x, z = st.z, total = st.total or 0,
@@ -4062,7 +4104,7 @@ function M.load(c)
     c.labels=c.labels or {}; assert(type(c.labels)=="table","labels muss eine Tabelle sein.")
     local f=c.farm; assert(type(f)=="table", "farm fehlt.")
     assert(integer(f.width,1,32) and integer(f.length,1,32), "Feldgroesse: 1 bis 32.")
-    assert(({wheat=true,carrots=true,potatoes=true,beetroot=true})[f.crop], "Unbekannte crop.")
+    assert(({wheat=true,carrots=true,potatoes=true,beetroot=true,sugarcane=true})[f.crop], "Unbekannte crop.")
     assert(integer(f.interval,1,86400) and integer(f.seedReserve,0,256), "interval/seedReserve ungueltig.")
     assert(f.maxInterval==nil or integer(f.maxInterval,0,86400), "maxInterval: 0 (aus) bis 86400 Sekunden.")
     assert(f.radioTimeout==0 or integer(f.radioTimeout,10,300), "radioTimeout: 0 (aus) oder 10 bis 300 Sekunden.")
@@ -7444,7 +7486,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.13.8 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.14.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
