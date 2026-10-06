@@ -2,14 +2,24 @@
 -- Die Turtle steht an der spaeteren Toetungsstelle und baut ueber sich:
 --   * einen 1x1-Fallschacht (Hoehe build.drop, Standard 22 = Mobs ueberleben
 --     mit ~1 Herz, die Mob-Turtle gibt den Rest)
---   * build.floors dunkle Spawn-Etagen (innen 17x17, Waende + Decke dicht),
---     in jeder 4 Wasserkanaele, die die Mobs ins Loch in der Mitte schwemmen
---   * Bruchsteinstufen in jeder 3. Reihe: keine Spinnen (wuerden im 1x1-Loch
---     haengen bleiben)
+--   * build.floors dunkle Spawn-Etagen (innen 17x17, 5 Lagen hoch):
+--       Boden | Wasserlage | Laufflaeche | 2 Luft (Fuesse/Kopf)
+--     Ein Kanal (x=0) ist 2 tief in die Laufflaeche eingelassen: Wasser fliesst
+--     von beiden Enden 8 Bloecke bis zum Loch in der Mitte.
+--   * Mob-KI ("Falltuer-Trick"): Mobs meiden Wasser und Abgruende, halten
+--     Falltueren aber IMMER fuer festen Boden. Ueber dem Kanal liegen deshalb
+--     OFFENE Falltueren - die Mobs laufen drauf und fallen ins Wasser. Offen
+--     werden sie, weil daneben ein Redstoneblock liegt (Falltuer neben Strom wird
+--     offen gesetzt; Turtles koennen Falltueren nicht anklicken). Der Redstone-
+--     block muss liegen bleiben.
+--   * Stufenreihen (z = 0, +-3, +-6): keine Spinnen (brauchen 3x3 frei) und sie
+--     teilen die Flaeche in 2 breite Gaenge, die alle am Kanal enden.
+--   * Aus dem 2 tiefen Kanal kommt kein Mob wieder heraus.
 --   * build.creeperOnly: Falltueren oben an der Decke -> nur 1,81 Bloecke frei:
 --     Creeper (1,7) passen, Zombies/Skelette/Hexen/Endermen nicht.
 -- Kisten: UNTER der Turtle = Ausgabe (spaeter die Drops), HINTER der Turtle =
--- Material (Bruchstein/Stein/Erde, Wassereimer, Bruchsteinstufen, Falltueren, Kohle).
+-- Material (Bruchstein/Stein/Erde, Wassereimer, Bruchsteinstufen, Falltueren,
+-- Redstonebloecke, Kohle).
 -- Fertig + Schwert im Inventar: die Turtle wird selbst zur Mob-Turtle (greift
 -- nur nach oben an).
 local common=dofile("/toast/toast_common.lua")
@@ -24,7 +34,8 @@ local TERRAIN=C.inTerrain==true
 local R=8                      -- Laenge der Wasserkanaele (Wasser fliesst 8 Bloecke)
 local OUT=R+1                  -- Aussenwand
 local B0=D                     -- unterste Etage (Boden)
-local TOP=B0+4*F               -- Dach
+local H=5                      -- Lagen je Etage
+local TOP=B0+H*F               -- Dach
 
 -- ===== Bloecke =====
 local FILL={}
@@ -36,6 +47,7 @@ local OKSOLID={["minecraft:grass_block"]=true,["minecraft:podzol"]=true,["minecr
 local function isFill(n) return FILL[n]==true end
 local function isSlab(n) return n:find("_slab",1,true)~=nil and not n:find("wooden",1,true) end
 local function isTrap(n) return n:find("_trapdoor",1,true)~=nil end
+local function isRed(n) return n=="minecraft:redstone_block" end
 local function isWaterBucket(n) return n=="minecraft:water_bucket" end
 local function isBucket(n) return n=="minecraft:bucket" end
 local function isLiquid(n) return n=="minecraft:water" or n=="minecraft:lava" or n:find("flowing_",1,true)~=nil end
@@ -47,7 +59,9 @@ local function isTurtle(n) return n:find("computercraft:turtle",1,true)~=nil end
 -- ===== Bauplan =====
 -- Koordinaten: Turtle (Toetungsstelle) = 0,0,0, y nach oben. Der Schacht steht
 -- direkt ueber der Turtle (x=0,z=0); die Etagen sind um ihn herum zentriert.
-local SOLID,AIR,SRC,SLAB="s","a","w","p"
+local SOLID,AIR,SRC,SLAB,RED,TRAP="s","a","w","p","r","t"
+-- Kanalfelder mit offener Falltuer: ueberall, wo ein Gang endet (nicht vor den Stufenreihen)
+local function trapZ(az) return az>=1 and az<=R and az%3~=0 end
 local function target(x,y,z)
     local ax,az=math.abs(x),math.abs(z)
     if y>=1 and y<B0 then
@@ -57,16 +71,33 @@ local function target(x,y,z)
     end
     if y<B0 or y>TOP or ax>OUT or az>OUT then return nil end
     if y==TOP then return SOLID end
-    local k=(y-B0)%4                         -- 0 Boden, 1 Spawnflaeche, 2+3 Luft
-    if k==0 then return (x==0 and z==0) and AIR or SOLID end
-    if ax==OUT or az==OUT then return SOLID end
-    if x==0 and z==0 then return AIR end
-    local channel=x==0 or z==0
-    if k==1 then
-        if channel then return math.max(ax,az)==R and SRC or AIR end
+    local k=(y-B0)%H                         -- 0 Boden, 1 Wasser, 2 Laufflaeche, 3+4 Luft
+    local canal=x==0
+    if k==0 then
+        if x==0 and z==0 then return AIR end
+        -- unterste Etage: Boden nur unter dem Kanal (darunter ist keine Etage)
+        if y==B0 and not (canal and az<=R) then return nil end
         return SOLID
     end
-    if k==2 and not channel and az%3==0 then return SLAB end
+    if k==1 then
+        -- Wasserlage: nur Kanal + Kanalwaende. Der Rest darf hohl bleiben: dort ist
+        -- nur 1 Block Luft, darin spawnt nichts (Spawn braucht 2 freie Bloecke).
+        if canal then
+            if z==0 then return AIR end
+            if az<=R then return az==R and SRC or AIR end
+            return SOLID                            -- Stirnwand hinter der Quelle
+        end
+        if ax==1 and az>=1 and az<=R then return SOLID end
+        return nil
+    end
+    if ax==OUT or az==OUT then return SOLID end
+    if x==0 and z==0 then return AIR end
+    if k==2 then
+        if canal then return trapZ(az) and TRAP or AIR end
+        if x==1 and trapZ(az) then return RED end
+        return SOLID
+    end
+    if k==3 and not canal and az%3==0 then return SLAB end
     return AIR
 end
 -- Schritte: {t=Art,x,y=Hoehe der Turtle,z}. "cell" bearbeitet den Block UNTER der Turtle
@@ -88,7 +119,7 @@ local function layer(y,skipCenter)
     local cells={}
     for z=-r,r do for x=-r,r do
         local tg=target(x,y,z)
-        if tg and not (skipCenter and x==0 and z==0) and (TERRAIN or tg~=AIR) then
+        if tg and tg~=TRAP and not (skipCenter and x==0 and z==0) and (TERRAIN or tg~=AIR) then
             local covered=tg==AIR and VIS[y-2] and VIS[y-2][k2(x,z)]
             if not covered then cells[#cells+1]={x=x,z=z} end
         end
@@ -113,15 +144,22 @@ local function shaft(y)
     last={x=0,z=0}
 end
 local function water(b)
-    -- im Kreis, beginnend bei der naechstgelegenen Quelle
-    local P={{R,0},{0,R},{-R,0},{0,-R}}
-    local bi,bd=1,math.huge
-    for i,p in ipairs(P) do local d=math.abs(p[1]-last.x)+math.abs(p[2]-last.z);if d<bd then bi,bd=i,d end end
-    local nxt=P[bi%4+1];local prv=P[(bi+2)%4+1]
-    local dir=(math.abs(nxt[1]-last.x)+math.abs(nxt[2]-last.z))<=(math.abs(prv[1]-last.x)+math.abs(prv[2]-last.z)) and 1 or -1
-    for k=0,3 do
-        local p=P[(bi-1+dir*k)%4+1]
-        add({t="water",x=p[1],y=b+2,z=p[2]});last={x=p[1],z=p[2]}
+    -- 2 Quellen an den Kanalenden, die naechstgelegene zuerst
+    local s=(last.z>=0) and 1 or -1
+    for _,z in ipairs({s*R,-s*R}) do
+        add({t="water",x=0,y=b+2,z=z});last={x=0,z=z}
+    end
+end
+-- Offene Falltueren ueber dem Kanal: Turtle faehrt ueber der Laufflaeche (b+3)
+-- den Kanal ab und setzt sie nach unten (die Redstonebloecke liegen schon).
+local function canalTraps(b)
+    local s=(last.z>=0) and -1 or 1
+    VIS[b+2]=VIS[b+2] or {}
+    for i=-R,R do
+        local z=-s*i
+        if trapZ(math.abs(z)) then
+            add({t="ctrap",x=0,y=b+3,z=z});VIS[b+2][k2(0,z)]=true;last={x=0,z=z}
+        end
     end
 end
 -- Falltueren: Turtle faehrt in der Etage auf Hoehe b+2 (ueber den Spawnstellen)
@@ -131,21 +169,22 @@ local function traps(b)
     if not CREEPER then return end
     for _,sx in ipairs({1,-1}) do for _,sz in ipairs({1,-1}) do
         for _,pair in ipairs({{1,2},{4,5},{7,8}}) do
-            for x=1,R do add({t="trap",x=sx*x,y=b+2,z=sz*pair[1],corr=true}) end
-            for x=R,1,-1 do add({t="trap",x=sx*x,y=b+2,z=sz*pair[2],corr=true}) end
+            for x=1,R do add({t="trap",x=sx*x,y=b+3,z=sz*pair[1],corr=true}) end
+            for x=R,1,-1 do add({t="trap",x=sx*x,y=b+3,z=sz*pair[2],corr=true}) end
         end
     end end
 end
 for y=1,B0-1 do shaft(y) end
 for k=0,F-1 do
-    local b=B0+4*k
+    local b=B0+H*k
     layer(b)
-    if k>0 then traps(b-4) end
+    if k>0 then traps(b-H) end
     layer(b+1);water(b)
-    layer(b+2);layer(b+3)
+    layer(b+2);canalTraps(b)
+    layer(b+3);layer(b+4)
 end
 layer(TOP,true)
-traps(B0+4*(F-1))
+traps(B0+H*(F-1))
 add({t="cap",x=0,y=TOP-1,z=0})
 local N=#STEPS
 -- hoechste schon gebaute Lage VOR jedem Schritt (darueber ist alles noch frei)
@@ -154,19 +193,19 @@ do local hb=0
     for k=1,N do
         HB[k]=hb
         local s=STEPS[k]
-        local l=s.t=="cell" and s.y-1 or s.t=="wall4" and s.y or s.t=="water" and s.y-1 or s.t=="trap" and s.y+1 or s.t=="cap" and TOP or 0
+        local l=s.t=="cell" and s.y-1 or s.t=="wall4" and s.y or s.t=="water" and s.y-1 or s.t=="ctrap" and s.y-1 or s.t=="trap" and s.y+1 or s.t=="cap" and TOP or 0
         if l>hb then hb=l end
     end
 end
 -- Material je Art ab Schritt i
 local function remaining(i)
-    local n={fill=0,slab=0,trap=0,water=0}
+    local n={fill=0,slab=0,trap=0,water=0,red=0}
     for k=i or 1,N do
         local s=STEPS[k]
         if s.t=="cell" then
             local tg=target(s.x,s.y-1,s.z)
-            if tg==SOLID then n.fill=n.fill+1 elseif tg==SLAB then n.slab=n.slab+1 end
-        elseif s.t=="trap" then n.trap=n.trap+1
+            if tg==SOLID then n.fill=n.fill+1 elseif tg==SLAB then n.slab=n.slab+1 elseif tg==RED then n.red=n.red+1 end
+        elseif s.t=="trap" or s.t=="ctrap" then n.trap=n.trap+1
         elseif s.t=="water" then n.water=n.water+1
         elseif s.t=="cap" then n.fill=n.fill+1
         elseif s.t=="wall4" then n.fill=n.fill+4 end
@@ -174,7 +213,7 @@ local function remaining(i)
     return n
 end
 local TOTAL=remaining(1)
-local LAYOUT=table.concat({"mobfarm",F,D,CREEPER and "c" or "n",TERRAIN and "t" or "p"},":")
+local LAYOUT=table.concat({"mobfarm2",F,D,CREEPER and "c" or "n",TERRAIN and "t" or "p"},":")
 
 local w,round,idleHome,idleBase
 local opts
@@ -183,8 +222,9 @@ opts={job="build",cfg=cfg,section=C,stateFile="/toast_build_state",args={...},ce
     interval=0,readyText="START: Mobfarm bauen (macht weiter, wo sie war)",
     extra=function() local s=w and w.st or {}
         return {floors=F,drop=D,creeperOnly=CREEPER,placed=s.placed or 0,done=s.done,
-            need=TOTAL.fill,needSlab=TOTAL.slab,needTrap=TOTAL.trap,needWater=TOTAL.water,
+            need=TOTAL.fill,needSlab=TOTAL.slab,needTrap=TOTAL.trap,needWater=TOTAL.water,needRed=TOTAL.red,
             fill=w and w.count(isFill) or 0,slabs=w and w.count(isSlab) or 0,traps=w and w.count(isTrap) or 0,
+            reds=w and w.count(isRed) or 0,openFail=s.openFail,
             buckets=w and w.count(isWaterBucket) or 0,missing=s.missing,trapFail=s.trapFail,
             phase=s.phase} end,
     round=function() return round() end,
@@ -223,7 +263,7 @@ local function line(axis,v)
 end
 local function blockedZ(z0,z1)
     local s=z1>z0 and 1 or -1
-    for z=z0+s,z1,s do if z~=0 and math.abs(z)%3==0 then return true end end
+    for z=z0+s,z1,s do if math.abs(z)%3==0 then return true end end   -- Stufenreihen (auch z=0)
     return false
 end
 -- waagrecht auf der aktuellen Hoehe
@@ -278,7 +318,7 @@ local function burn(target)
 end
 local function keep(name)
     if isTool(name) or isSword(name) or common.MODEM_ITEMS[name] then return 4096 end
-    if isFill(name) or isSlab(name) or isTrap(name) or isWaterBucket(name) then return 4096 end
+    if isFill(name) or isSlab(name) or isTrap(name) or isRed(name) or isWaterBucket(name) then return 4096 end
     if W.FUELS[name] then return 64 end
     return 0
 end
@@ -351,7 +391,7 @@ local function base()
     if not ok then return false,title,detail end
     local need=remaining(st.idx)
     local okf,why=w.face(2);if not okf then return false,"Drehen",why end
-    if not w.container(turtle.inspect) then w.face(0);return false,"Materialkiste fehlt","Kiste HINTER die Turtle stellen (Bruchstein, Wassereimer, Stufen, Falltueren, Kohle)." end
+    if not w.container(turtle.inspect) then w.face(0);return false,"Materialkiste fehlt","Kiste HINTER die Turtle stellen (Bruchstein, Wassereimer, Stufen, Falltueren, Redstonebloecke, Kohle)." end
     -- leere Eimer zurueck in die Materialkiste
     for i=1,16 do local it=turtle.getItemDetail(i);if it and isBucket(it.name) then turtle.select(i);turtle.drop() end end
     -- zu viel Bruchstein dabei (beim Graben eingesammelt): zurueck in die Materialkiste,
@@ -371,10 +411,17 @@ local function base()
     end
     -- Sonderteile fuer den naechsten Abschnitt zuerst (Eimer stapeln sich nicht)
     local nextSpecial
-    for k=st.idx,N do local t=STEPS[k].t;if t=="water" or t=="trap" or (t=="cell" and target(STEPS[k].x,STEPS[k].y-1,STEPS[k].z)==SLAB) then nextSpecial=t=="cell" and "slab" or t;break end end
+    for k=st.idx,N do
+        local t=STEPS[k].t
+        local tg=t=="cell" and target(STEPS[k].x,STEPS[k].y-1,STEPS[k].z)
+        if t=="water" or t=="trap" or t=="ctrap" or tg==SLAB or tg==RED then
+            nextSpecial=tg==SLAB and "slab" or tg==RED and "red" or t=="ctrap" and "trap" or t;break
+        end
+    end
     if nextSpecial=="water" and have(isWaterBucket)<math.min(4,need.water) then fetch(isWaterBucket,math.min(4,need.water)-have(isWaterBucket)) end
     if nextSpecial=="slab" and have(isSlab)<math.min(64,need.slab) then fetch(isSlab,math.min(64,need.slab)-have(isSlab)) end
     if nextSpecial=="trap" and have(isTrap)<math.min(128,need.trap) then fetch(isTrap,math.min(128,need.trap)-have(isTrap)) end
+    if (nextSpecial=="red" or nextSpecial=="trap") and need.red>0 and have(isRed)<math.min(64,need.red) then fetch(isRed,math.min(64,need.red)-have(isRed)) end
     -- Rest mit Baumaterial auffuellen, aber Platz fuer Abraum lassen (sonst muss sie
     -- im Gelaende nach wenigen Bloecken wieder heim). Hoechstens 8 Stapel dabei.
     local stacks=math.max(0,w.freeSlots()-(TERRAIN and 5 or 2))
@@ -395,14 +442,14 @@ local function goHome()
     return w.face(0)
 end
 -- Nachschub holen; fehlt etwas, an der Basis warten bis es da ist
-local MISSING={fill="Baumaterial fehlt",slab="Stufen fehlen",trap="Falltueren fehlen",water="Wassereimer fehlen"}
-local HINT={fill="Bruchstein/Stein/Erde",slab="Bruchsteinstufen",trap="Falltueren (Holz)",water="Wassereimer"}
+local MISSING={fill="Baumaterial fehlt",slab="Stufen fehlen",trap="Falltueren fehlen",water="Wassereimer fehlen",red="Redstonebloecke fehlen"}
+local HINT={fill="Bruchstein/Stein/Erde",slab="Bruchsteinstufen",trap="Falltueren (Holz)",water="Wassereimer",red="Redstonebloecke"}
 local function resupply(kind)
     local ok,why=goHome();if not ok then return false,why end
     while true do
         if not w.active() then return false,"stopped" end
         local okb,title,detail=base()
-        local match=({fill=isFill,slab=isSlab,trap=isTrap,water=isWaterBucket})[kind]
+        local match=({fill=isFill,slab=isSlab,trap=isTrap,water=isWaterBucket,red=isRed})[kind]
         if okb and (not kind or not match or have(match)>0) then st.missing=nil;return true end
         if okb then
             local need=remaining(st.idx)
@@ -449,6 +496,12 @@ local function doCell(s)
             local ok=placeDown(isFill)
             if not ok then return false,"Block nicht setzbar" end
         end
+    elseif tg==RED then
+        if not (e and isRed(b.name)) then
+            if e then local ok,why=clearDown();if not ok then return false,why end end
+            if not w.find(isRed) then return false,"red" end
+            if not placeDown(isRed) then return false,"Redstoneblock nicht setzbar" end
+        end
     elseif tg==SLAB then
         if not (e and isSlab(b.name) and (b.state or {}).type~="top") then
             if e then local ok,why=clearDown();if not ok then return false,why end end
@@ -460,7 +513,7 @@ local function doCell(s)
     else
         -- Wasser im Kanal (auch fliessendes) beim Ausbessern stehen lassen
         local y=s.y-1
-        local inChannel=y>=B0 and (y-B0)%4==1 and (s.x==0 or s.z==0) and not (s.x==0 and s.z==0)
+        local inChannel=y>=B0 and y<TOP and (y-B0)%H==1 and s.x==0 and s.z~=0
         local ok,why=clearDown(tg==SRC or inChannel)
         if not ok then return false,why end
     end
@@ -468,7 +521,7 @@ local function doCell(s)
     local ta=target(s.x,s.y+1,s.z)
     if TERRAIN and (ta==AIR or ta==SRC) then
         local ya=s.y+1
-        clearUp(ta==SRC or (ya>=B0 and (ya-B0)%4==1 and (s.x==0 or s.z==0)))
+        clearUp(ta==SRC or (ya>=B0 and ya<TOP and (ya-B0)%H==1 and s.x==0))
     end
     return true
 end
@@ -531,6 +584,30 @@ local function doTrap(s)
     else st.placed=(st.placed or 0)+1 end
     return true
 end
+-- Kanal-Falltuer: Turtle schaut quer zum Kanal (+x), dann liegt die offene
+-- Klappe laengs am Kanalrand und bremst die Mobs im Wasser nicht.
+local openWarned=false
+local function doCtrap(s)
+    local okf,whyf=w.face(1);if not okf then return false,whyf end
+    local e,b=turtle.inspectDown()
+    if e and isTrap(b.name) then
+        if (b.state or {}).open==true then return true end
+        -- zu (z.B. Redstone fehlte): abbauen und neu setzen
+        DIG.down();e=false
+    end
+    if e then local ok,why=clearDown();if not ok then return false,why end end
+    local slot=w.find(isTrap);if not slot then return false,"trap" end
+    turtle.select(slot);local ok=turtle.placeDown();turtle.select(1)
+    if not ok then return false,"Falltuer nicht setzbar" end
+    st.placed=(st.placed or 0)+1
+    local e2,b2=turtle.inspectDown()
+    if e2 and isTrap(b2.name) and (b2.state or {}).open~=true then
+        st.openFail=(st.openFail or 0)+1;w.save()
+        if not openWarned then openWarned=true;common.log("Mobfarm: Kanal-Falltuer ist zu - von Hand oeffnen (Redstoneblock daneben?)") end
+    end
+    if TERRAIN and target(s.x,s.y+1,s.z)==AIR then clearUp(false) end
+    return true
+end
 local function doCap()
     local e,b=turtle.inspectUp()
     if e and (isFill(b.name) or OKSOLID[b.name]) then return true end
@@ -539,13 +616,14 @@ local function doCap()
     if ok then st.placed=(st.placed or 0)+1 end
     return ok or false,"Dach nicht setzbar"
 end
-local DO={cell=doCell,water=doWater,trap=doTrap,cap=doCap,wall4=doWall4}
+local DO={cell=doCell,water=doWater,trap=doTrap,ctrap=doCtrap,cap=doCap,wall4=doWall4}
 local PHASE=function(s)
     if s.y-1<B0 and s.t=="cell" then return "Schacht" end
     if s.t=="water" then return "Wasser" end
     if s.t=="trap" then return "Falltueren" end
+    if s.t=="ctrap" then return "Kanal-Falltueren" end
     if s.t=="cap" or s.y-1>=TOP then return "Dach" end
-    return "Etage "..(math.floor((s.y-1-B0)/4)+1).."/"..F
+    return "Etage "..(math.floor((s.y-1-B0)/H)+1).."/"..F
 end
 -- Mob-Turtle werden: Schwert anlegen, Aufgabe umstellen, neu starten
 local function becomeMob()
@@ -588,7 +666,7 @@ round=function()
         if ok then
             st.idx=st.idx+1;w.saveSoon()
         elseif why=="stopped" then w.save();return false
-        elseif why=="material" or why=="slab" or why=="trap" or why=="water" then
+        elseif why=="material" or why=="slab" or why=="trap" or why=="water" or why=="red" then
             local okr,whyr=resupply(why=="material" and "fill" or why)
             if not okr then if whyr~="stopped" then w.fail(whyr) end;return false end
         else w.fail(why);return false end

@@ -214,8 +214,10 @@ function S.new(common)
         b.inTerrain=yesno("Im Berg/Gelaende bauen?",b.inTerrain==true)
         b.becomeMob=yesno("Danach selbst Mob-Turtle?",b.becomeMob~=false)
         local n=b.floors
-        hint("Material ca.: "..(n*832+361+4*(b.drop-1)).." Bruchstein,")
-        hint(n*64 .." Bruchsteinstufen, "..n*4 .." Wassereimer"..(b.creeperOnly and (", "..n*192 .." Falltueren") or ""))
+        hint("Material ca.: "..(n*870+17+4*(b.drop-1)).." Bruchstein,")
+        hint(n*80 .." Stufen, "..n*2 .." Wassereimer,")
+        hint((b.creeperOnly and n*204 or n*12).." Falltueren, "..n*12 .." Redstonebl.")
+        hint("(Redstone macht die Kanal-Falltueren auf)")
         sleep(2)
     end
     local SHAPES={"room","cylinder","sphere","dome"}

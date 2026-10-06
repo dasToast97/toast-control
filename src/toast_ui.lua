@@ -114,10 +114,13 @@ local JOB={
             {"Abschnitt",(d.done and "FERTIG" or tostring(d.phase or "-"))},
             {"Fortschritt",short(d.scanned).." / "..short(d.cells)},{"Verbaut",short(d.placed).." Bloecke"},
             {"Dabei",short(d.fill).." Stein, "..short(d.slabs).." Stufen"}}
-            if d.creeperOnly then r[#r+1]={"Falltueren",d.trapFail and "gehen nicht (ohne weiter)" or (short(d.traps).." dabei")} end
+            r[#r+1]={"Falltueren",d.trapFail and "Decke geht nicht" or (short(d.traps).." dabei")}
+            r[#r+1]={"Redstone",short(d.reds).." Bl. dabei"}
+            if num(d.openFail)>0 then r[#r+1]={"Achtung",short(d.openFail).." Kanal-Falltuer(en) zu: von Hand oeffnen"} end
             r[#r+1]={"Wassereimer",short(d.buckets).." dabei"}
             if d.missing then r[#r+1]={"Fehlt",tostring(d.missing)} end
             r[#r+1]={"Gesamt",short(d.need).." Stein, "..short(d.needSlab).." Stufen"}
+            r[#r+1]={"Dazu",short(d.needTrap).." Falltueren, "..short(d.needRed).." Redstone"}
             return r end},
     dig={name="Aushub",plural="Aushub-Turtles",metric="Abgebaut",unit="Bl.",once="1 Auftrag",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},

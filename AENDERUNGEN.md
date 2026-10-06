@@ -1,3 +1,38 @@
+# Toast Control 3.17.6
+
+- **Creeper-Farm (Mobfarm-Bau) neu konstruiert:** Die Creeper gingen nicht ins
+  Wasser, und Spinnen spawnten.
+  - **Ursache Creeper:** Mobs meiden Wasser und Kanten. Die alten Kanäle lagen
+    nur 1 tief offen neben der Lauffläche, darum liefen die Creeper nicht hinein
+    (und wer reinfiel, kletterte wieder raus).
+  - **Neu – Falltür-Trick:** Mobs halten Falltüren *immer* für festen Boden.
+    Über dem Kanal liegen jetzt **offene Falltüren**. Die Creeper laufen drauf und
+    fallen ins Wasser.
+  - **Offen ohne Anklicken:** Neben jeder Kanal-Falltür liegt ein
+    **Redstoneblock**. Eine Falltür, die neben Strom gesetzt wird, ist sofort offen
+    (Turtles können keine Falltüren anklicken).
+    - Die Redstoneblöcke **nicht abbauen**, sonst gehen die Falltüren zu.
+  - **Ein Kanal, 2 tief, längs durch die Mitte:** Wasser fließt von beiden Enden
+    8 Blöcke bis zum Loch in der Mitte. Aus dem Kanal kommt kein Mob mehr heraus.
+  - **Gänge:** Stufenreihen bei z = 0, ±3, ±6 teilen die Fläche in 2 breite Gänge,
+    die alle am Kanal enden.
+  - **Keine Spinnen mehr:** Spinnen brauchen 3×3 freie Fläche. Vorher passten sie in
+    die Reihen neben den Kanälen, jetzt liegt in jedem 3×3-Feld eine Stufe.
+  - Etage jetzt 5 Lagen hoch: Boden | Wasser | Lauffläche | 2 Luft.
+    - Die Wasserlage ist bis auf die Kanalwände hohl. Ein 1 Block hoher Hohlraum
+      ist sicher, denn ein Spawn braucht 2 freie Blöcke übereinander.
+    - Fuel bleibt gleich (2 Etagen im Freien: 3468 Züge).
+  - **Material je Etage:**
+    - ca. 870 Bruchstein und 80 Stufen
+    - 2 Wassereimer
+    - 12 Redstoneblöcke
+    - 12 Falltüren, mit „nur Creeper“ 204
+  - **Zentrale/Pocket** zeigen jetzt auch die Redstoneblöcke. Bleibt eine
+    Kanal-Falltür zu, gibt es eine Warnung „von Hand öffnen“.
+  - **Alte Farm umbauen:** „Im Berg/Gelände“ auf **ja** stellen, dann räumt die
+    Turtle den alten Aufbau mit weg. Sonst die alte Farm vorher abreißen oder an
+    einer neuen Stelle bauen.
+
 # Toast Control 3.17.5
 
 - **Mobfarm-Bau: deutlich weniger Fuel** (gemessen, 2 Etagen + Schacht 22):
