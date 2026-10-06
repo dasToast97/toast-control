@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.17.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -142,7 +142,7 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.17.6",
+    version="3.17.7",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -1556,9 +1556,9 @@ function S.new(common)
         b.inTerrain=yesno("Im Berg/Gelaende bauen?",b.inTerrain==true)
         b.becomeMob=yesno("Danach selbst Mob-Turtle?",b.becomeMob~=false)
         local n=b.floors
-        hint("Material ca.: "..(n*870+17+4*(b.drop-1)).." Bruchstein,")
-        hint(n*80 .." Stufen, "..n*2 .." Wassereimer,")
-        hint((b.creeperOnly and n*204 or n*12).." Falltueren, "..n*12 .." Redstonebl.")
+        hint("Material ca.: "..(n*446+295+4*(b.drop-1)).." Bruchstein,")
+        hint(n*64+16 .." Stufen, "..n*2 .." Wassereimer,")
+        hint((b.creeperOnly and n*172+32 or n*12).." Falltueren, "..n*12 .." Redstonebl.")
         hint("(Redstone macht die Kanal-Falltueren auf)")
         sleep(2)
     end
@@ -8150,10 +8150,15 @@ FILES["build_turtle.lua"]=[======[
 -- Die Turtle steht an der spaeteren Toetungsstelle und baut ueber sich:
 --   * einen 1x1-Fallschacht (Hoehe build.drop, Standard 22 = Mobs ueberleben
 --     mit ~1 Herz, die Mob-Turtle gibt den Rest)
---   * build.floors dunkle Spawn-Etagen (innen 17x17, 5 Lagen hoch):
---       Boden | Wasserlage | Laufflaeche | 2 Luft (Fuesse/Kopf)
---     Ein Kanal (x=0) ist 2 tief in die Laufflaeche eingelassen: Wasser fliesst
---     von beiden Enden 8 Bloecke bis zum Loch in der Mitte.
+--   * build.floors dunkle Spawn-Etagen (innen 17x17, nur 3 Lagen hoch):
+--       Laufflaeche | Fuesse | Kopf  - die Laufflaeche ist zugleich die Decke
+--       der Etage darunter, es gibt keine extra Bodenlage.
+--     Ein Kanal durch die Mitte ist 2 tief unter die Laufflaeche eingelassen:
+--     Wasser fliesst von beiden Enden 8 Bloecke bis zum Loch in der Mitte. Die
+--     Etagen sind abwechselnd um 90 Grad gedreht, damit der Kanal oben quer im
+--     Raum darunter liegt (dort, wo dort ohnehin eine Stufenreihe waere).
+--   * Aussenwand ohne Ecken und ohne Fuss unter der Laufflaeche: kein Block, der
+--     nichts dicht haelt.
 --   * Mob-KI ("Falltuer-Trick"): Mobs meiden Wasser und Abgruende, halten
 --     Falltueren aber IMMER fuer festen Boden. Ueber dem Kanal liegen deshalb
 --     OFFENE Falltueren - die Mobs laufen drauf und fallen ins Wasser. Offen
@@ -8181,9 +8186,10 @@ local CREEPER=C.creeperOnly~=false
 local TERRAIN=C.inTerrain==true
 local R=8                      -- Laenge der Wasserkanaele (Wasser fliesst 8 Bloecke)
 local OUT=R+1                  -- Aussenwand
-local B0=D                     -- unterste Etage (Boden)
-local H=5                      -- Lagen je Etage
-local TOP=B0+H*F               -- Dach
+local B0=D                     -- Kanalboden der untersten Etage
+local H=3                      -- Lagen je Etage: Laufflaeche, Fuesse, Kopf
+local function SURF(g) return B0+2+H*g end    -- Laufflaeche von Etage g (0 = unterste)
+local TOP=SURF(F-1)+H          -- Dach
 
 -- ===== Bloecke =====
 local FILL={}
@@ -8210,6 +8216,56 @@ local function isTurtle(n) return n:find("computercraft:turtle",1,true)~=nil end
 local SOLID,AIR,SRC,SLAB,RED,TRAP="s","a","w","p","r","t"
 -- Kanalfelder mit offener Falltuer: ueberall, wo ein Gang endet (nicht vor den Stufenreihen)
 local function trapZ(az) return az>=1 and az<=R and az%3~=0 end
+-- Jede Etage hat eigene Koordinaten (u,v): Kanal laengs v bei u=0, Gaenge laengs u.
+-- Die Etagen sind abwechselnd um 90 Grad gedreht. So liegt der 2 tiefe Kanal der
+-- oberen Etage quer im Raum der unteren (dort, wo ohnehin eine Stufenreihe waere)
+-- und die Laufflaeche oben ist gleich die Decke unten: keine extra Bodenlage.
+local function rot(g) return g%2==1 end
+local function loc(g,x,z) if rot(g) then return z,x end return x,z end
+local function wor(g,u,v) if rot(g) then return v,u end return u,v end
+-- Kanal (Boden "bed" 2 unter der Laufflaeche, Wasser "water" 1 darunter) von Etage g
+local function canalPart(g,role,x,z)
+    local u,v=loc(g,x,z)
+    local au,av=math.abs(u),math.abs(v)
+    if u==0 and v==0 then return AIR end              -- Fallloch
+    -- unterste Etage haengt frei: Fallloch seitlich dicht (sonst kommt Licht rein)
+    if g==0 and au==1 and v==0 then return SOLID end
+    if role=="bed" then
+        if u==0 and av<=R then return SOLID end
+        return nil
+    end
+    if u==0 then
+        if av<=R then return av==R and SRC or AIR end
+        return SOLID                                   -- Stirnwand hinter der Quelle
+    end
+    if au==1 and av>=1 and av<=R then return SOLID end -- Kanalwaende
+    return nil
+end
+-- Raum von Etage g: k 0 Laufflaeche, 1 Fuesse, 2 Kopf
+local function room(g,k,x,z)
+    local u,v=loc(g,x,z)
+    local au,av=math.abs(u),math.abs(v)
+    if u==0 and v==0 then return AIR end
+    local ring=au==OUT or av==OUT
+    if k==0 then
+        if ring then return u==0 and SOLID or nil end  -- Aussenwand-Fuss nur am Kanalende noetig
+        if u==0 then return trapZ(av) and TRAP or AIR end
+        if u==1 and trapZ(av) then return RED end
+        return SOLID
+    end
+    if ring then
+        if au==OUT and av==OUT then return nil end     -- Ecken: dicht ist es auch ohne
+        return SOLID
+    end
+    if k==1 and u~=0 and av%3==0 then return SLAB end
+    return AIR
+end
+-- Etage + Lage zu einer Hoehe (nil unterhalb der untersten Laufflaeche)
+local function floorAt(y)
+    local rel=y-SURF(0)
+    if rel<0 then return nil,rel end
+    return math.floor(rel/H),rel%H
+end
 local function target(x,y,z)
     local ax,az=math.abs(x),math.abs(z)
     if y>=1 and y<B0 then
@@ -8218,35 +8274,24 @@ local function target(x,y,z)
         return nil
     end
     if y<B0 or y>TOP or ax>OUT or az>OUT then return nil end
-    if y==TOP then return SOLID end
-    local k=(y-B0)%H                         -- 0 Boden, 1 Wasser, 2 Laufflaeche, 3+4 Luft
-    local canal=x==0
-    if k==0 then
-        if x==0 and z==0 then return AIR end
-        -- unterste Etage: Boden nur unter dem Kanal (darunter ist keine Etage)
-        if y==B0 and not (canal and az<=R) then return nil end
-        return SOLID
+    if y==TOP then if ax==OUT or az==OUT then return nil end;return SOLID end
+    local g,k=floorAt(y)
+    if not g then return canalPart(0,k==-2 and "bed" or "water",x,z) end
+    if k>=1 and g+1<=F-1 then
+        local c=canalPart(g+1,k==1 and "bed" or "water",x,z)
+        if c~=nil then return c end
     end
-    if k==1 then
-        -- Wasserlage: nur Kanal + Kanalwaende. Der Rest darf hohl bleiben: dort ist
-        -- nur 1 Block Luft, darin spawnt nichts (Spawn braucht 2 freie Bloecke).
-        if canal then
-            if z==0 then return AIR end
-            if az<=R then return az==R and SRC or AIR end
-            return SOLID                            -- Stirnwand hinter der Quelle
+    return room(g,k,x,z)
+end
+-- liegt hier Kanalwasser (beim Freiraeumen stehen lassen)?
+local function canalWater(x,y,z)
+    for g=0,F-1 do
+        if y==SURF(g)-1 then
+            local u,v=loc(g,x,z)
+            if u==0 and v~=0 and math.abs(v)<=R then return true end
         end
-        if ax==1 and az>=1 and az<=R then return SOLID end
-        return nil
     end
-    if ax==OUT or az==OUT then return SOLID end
-    if x==0 and z==0 then return AIR end
-    if k==2 then
-        if canal then return trapZ(az) and TRAP or AIR end
-        if x==1 and trapZ(az) then return RED end
-        return SOLID
-    end
-    if k==3 and not canal and az%3==0 then return SLAB end
-    return AIR
+    return false
 end
 -- Schritte: {t=Art,x,y=Hoehe der Turtle,z}. "cell" bearbeitet den Block UNTER der Turtle
 -- (und raeumt Luftfelder 2 darueber gleich mit frei).
@@ -8291,48 +8336,63 @@ local function shaft(y)
     VIS[y]={[k2(0,0)]=true}
     last={x=0,z=0}
 end
-local function water(b)
+local function water(g)
     -- 2 Quellen an den Kanalenden, die naechstgelegene zuerst
-    local s=(last.z>=0) and 1 or -1
-    for _,z in ipairs({s*R,-s*R}) do
-        add({t="water",x=0,y=b+2,z=z});last={x=0,z=z}
+    local p1x,p1z=wor(g,0,R);local p2x,p2z=wor(g,0,-R)
+    local d1=math.abs(p1x-last.x)+math.abs(p1z-last.z);local d2=math.abs(p2x-last.x)+math.abs(p2z-last.z)
+    local P=d1<=d2 and {{p1x,p1z},{p2x,p2z}} or {{p2x,p2z},{p1x,p1z}}
+    for _,p in ipairs(P) do
+        add({t="water",x=p[1],y=SURF(g),z=p[2]});last={x=p[1],z=p[2]}
     end
 end
--- Offene Falltueren ueber dem Kanal: Turtle faehrt ueber der Laufflaeche (b+3)
--- den Kanal ab und setzt sie nach unten (die Redstonebloecke liegen schon).
-local function canalTraps(b)
-    local s=(last.z>=0) and -1 or 1
-    VIS[b+2]=VIS[b+2] or {}
-    for i=-R,R do
-        local z=-s*i
-        if trapZ(math.abs(z)) then
-            add({t="ctrap",x=0,y=b+3,z=z});VIS[b+2][k2(0,z)]=true;last={x=0,z=z}
+-- Offene Falltueren ueber dem Kanal: Turtle faehrt ueber der Laufflaeche den
+-- Kanal ab und setzt sie nach unten (die Redstonebloecke liegen schon). Sie
+-- schaut dabei quer zum Kanal, dann liegt die offene Klappe laengs am Rand.
+local function canalTraps(g)
+    local y=SURF(g)
+    local _,lv=loc(g,last.x,last.z)
+    local s=lv>=0 and 1 or -1
+    VIS[y]=VIS[y] or {}
+    local face=rot(g) and 0 or 1
+    for i=R,-R,-1 do
+        local v=s*i
+        if trapZ(math.abs(v)) then
+            local x,z=wor(g,0,v)
+            add({t="ctrap",x=x,y=y+1,z=z,face=face});VIS[y][k2(x,z)]=true;last={x=x,z=z}
         end
     end
 end
--- Falltueren: Turtle faehrt in der Etage auf Hoehe b+2 (ueber den Spawnstellen)
--- und setzt sie nach oben an die Decke. Wege nur durch die Kanaele (x=0) und
--- die Spawnreihen (die Stufenreihen sind belegt).
-local function traps(b)
+-- Decken-Falltueren: Turtle faehrt in der Etage auf Fusshoehe (ueber den
+-- Spawnstellen) und setzt sie nach oben an die Decke. Wege nur durch den Kanal
+-- und die Gaenge (die Stufenreihen sind belegt).
+local function traps(g)
     if not CREEPER then return end
-    for _,sx in ipairs({1,-1}) do for _,sz in ipairs({1,-1}) do
+    local y=SURF(g)+1
+    for _,su in ipairs({1,-1}) do for _,sv in ipairs({1,-1}) do
         for _,pair in ipairs({{1,2},{4,5},{7,8}}) do
-            for x=1,R do add({t="trap",x=sx*x,y=b+3,z=sz*pair[1],corr=true}) end
-            for x=R,1,-1 do add({t="trap",x=sx*x,y=b+3,z=sz*pair[2],corr=true}) end
+            for n,row in ipairs(pair) do
+                local a,b,st=1,R,1
+                if n==2 then a,b,st=R,1,-1 end
+                for u=a,b,st do
+                    local x,z=wor(g,su*u,sv*row)
+                    if target(x,y+1,z)==AIR then add({t="trap",x=x,y=y,z=z,corr=true,rot=rot(g)}) end
+                end
+            end
         end
     end end
 end
 for y=1,B0-1 do shaft(y) end
-for k=0,F-1 do
-    local b=B0+H*k
-    layer(b)
-    if k>0 then traps(b-H) end
-    layer(b+1);water(b)
-    layer(b+2);canalTraps(b)
-    layer(b+3);layer(b+4)
+-- unterste Etage: ihr Kanal haengt unter der Laufflaeche
+layer(B0);layer(B0+1);water(0)
+for g=0,F-1 do
+    local S=SURF(g)
+    layer(S);canalTraps(g)
+    if g>0 then traps(g-1) end            -- Decke unten ist jetzt da
+    layer(S+1);layer(S+2)                 -- (mit Kanal der Etage darueber)
+    if g+1<=F-1 then water(g+1) end
 end
 layer(TOP,true)
-traps(B0+H*(F-1))
+traps(F-1)
 add({t="cap",x=0,y=TOP-1,z=0})
 local N=#STEPS
 -- hoechste schon gebaute Lage VOR jedem Schritt (darueber ist alles noch frei)
@@ -8361,7 +8421,7 @@ local function remaining(i)
     return n
 end
 local TOTAL=remaining(1)
-local LAYOUT=table.concat({"mobfarm2",F,D,CREEPER and "c" or "n",TERRAIN and "t" or "p"},":")
+local LAYOUT=table.concat({"mobfarm3",F,D,CREEPER and "c" or "n",TERRAIN and "t" or "p"},":")
 
 local w,round,idleHome,idleBase
 local opts
@@ -8395,9 +8455,10 @@ for k,f in pairs(RAWDIG) do DIG[k]=function()
     return ok,why
 end end
 local corridor=false        -- in der Etage nur durch Kanal + Spawnreihen fahren
+local corrRot=false         -- ... und diese Etage ist gedreht (Kanal laengs x)
 local MOPT={dig=true,attack=true,canDig=function(n)
     if isContainer(n) or isTurtle(n) then return false end
-    if corridor and (isSlab(n) or isTrap(n)) then return false end
+    if corridor and (isSlab(n) or isTrap(n) or isRed(n) or isFill(n)) then return false end
     return true end}
 local function fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
 local function line(axis,v)
@@ -8416,18 +8477,22 @@ local function blockedZ(z0,z1)
 end
 -- waagrecht auf der aktuellen Hoehe
 local function horizontal(x,z)
-    if corridor and st.z~=z and st.x~=0 and blockedZ(st.z,z) then
-        local ok,why=line("x",0);if not ok then return false,why end
-    end
     if corridor then
-        local ok,why=line("z",z);if not ok then return false,why end
-        return line("x",x)
+        -- in Etagen-Koordinaten: u = Gang-Richtung, v = Kanal-Richtung
+        local U,V=corrRot and "z" or "x",corrRot and "x" or "z"
+        local cu,cv=corrRot and st.z or st.x,corrRot and st.x or st.z
+        local tu,tv=corrRot and z or x,corrRot and x or z
+        if cv~=tv and cu~=0 and blockedZ(cv,tv) then
+            local ok,why=line(U,0);if not ok then return false,why end
+        end
+        local ok,why=line(V,tv);if not ok then return false,why end
+        return line(U,tu)
     end
     local ok,why=line("x",x);if not ok then return false,why end
     return line("z",z)
 end
 -- Hoehe wechseln immer durch die Mittelsaeule (die ist im ganzen Bau frei)
-local function goTo(x,y,z,corr,climb)
+local function goTo(x,y,z,corr,climb,rotated)
     -- ueber allem Gebauten: direkt hier hoch (spart den Weg zur Mitte und zurueck)
     if climb and y>st.y then
         corridor=false
@@ -8442,7 +8507,7 @@ local function goTo(x,y,z,corr,climb)
             ok,why=w.move(st.y<y and "up" or "down",MOPT);if not ok then return false,why end
         end
     end
-    corridor=corr==true
+    corridor=corr==true;corrRot=rotated==true
     local ok,why=horizontal(x,z)
     return ok,why
 end
@@ -8661,7 +8726,7 @@ local function doCell(s)
     else
         -- Wasser im Kanal (auch fliessendes) beim Ausbessern stehen lassen
         local y=s.y-1
-        local inChannel=y>=B0 and y<TOP and (y-B0)%H==1 and s.x==0 and s.z~=0
+        local inChannel=canalWater(s.x,y,s.z)
         local ok,why=clearDown(tg==SRC or inChannel)
         if not ok then return false,why end
     end
@@ -8669,7 +8734,7 @@ local function doCell(s)
     local ta=target(s.x,s.y+1,s.z)
     if TERRAIN and (ta==AIR or ta==SRC) then
         local ya=s.y+1
-        clearUp(ta==SRC or (ya>=B0 and ya<TOP and (ya-B0)%H==1 and s.x==0))
+        clearUp(ta==SRC or canalWater(s.x,ya,s.z))
     end
     return true
 end
@@ -8736,7 +8801,7 @@ end
 -- Klappe laengs am Kanalrand und bremst die Mobs im Wasser nicht.
 local openWarned=false
 local function doCtrap(s)
-    local okf,whyf=w.face(1);if not okf then return false,whyf end
+    local okf,whyf=w.face(s.face or 1);if not okf then return false,whyf end
     local e,b=turtle.inspectDown()
     if e and isTrap(b.name) then
         if (b.state or {}).open==true then return true end
@@ -8771,7 +8836,8 @@ local PHASE=function(s)
     if s.t=="trap" then return "Falltueren" end
     if s.t=="ctrap" then return "Kanal-Falltueren" end
     if s.t=="cap" or s.y-1>=TOP then return "Dach" end
-    return "Etage "..(math.floor((s.y-1-B0)/H)+1).."/"..F
+    local g=floorAt(s.y-1)
+    return "Etage "..(math.min(F,(g or 0)+1)).."/"..F
 end
 -- Mob-Turtle werden: Schwert anlegen, Aufgabe umstellen, neu starten
 local function becomeMob()
@@ -8809,7 +8875,7 @@ round=function()
             local ok,why=resupply(nil);if not ok then if why~="stopped" then w.fail(why) end;return false end
         end
         w.status("Baut",st.phase.." - Schritt "..st.idx.."/"..N)
-        local ok,why=goTo(s.x,s.y,s.z,s.corr,st.y>HB[st.idx])
+        local ok,why=goTo(s.x,s.y,s.z,s.corr,st.y>HB[st.idx],s.rot)
         if ok then ok,why=DO[s.t](s) end
         if ok then
             st.idx=st.idx+1;w.saveSoon()
@@ -9106,7 +9172,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.17.6 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.17.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater

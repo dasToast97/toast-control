@@ -127,36 +127,42 @@ local function envWith(S2)
 end
 -- Sollzustand (Turtle-Koordinaten, y oben) -> Sim-Welt pruefen
 local function verify(S,F,Dp,creeper)
-    local B0,TOP,R,OUT=Dp,Dp+5*F,8,9
+    local B0,R,OUT=Dp,8,9
+    local function SURF(g) return B0+2+3*g end
+    local TOP=SURF(F-1)+3
     local bad,why=0,{}
     local function get(x,y,z) return S.block(x,-y,z) or false end
+    local function loc(g,x,z) if g%2==1 then return z,x end return x,z end
+    local function canal(g,role,x,z)
+        local u,v=loc(g,x,z);local au,av=math.abs(u),math.abs(v)
+        if u==0 and v==0 then return "air" end
+        if g==0 and au==1 and v==0 then return "solid" end
+        if role=="bed" then return (u==0 and av<=R) and "solid" or nil end
+        if u==0 then if av<=R then return av==R and "water" or "air" end;return "solid" end
+        if au==1 and av>=1 and av<=R then return "solid" end
+    end
     local function want(x,y,z)
         local ax,az=math.abs(x),math.abs(z)
         if y>=1 and y<B0 then if x==0 and z==0 then return "air" end;if ax+az==1 then return "solid" end;return nil end
         if y<B0 or y>TOP or ax>OUT or az>OUT then return nil end
-        if y==TOP then return "solid" end
-        local k=(y-B0)%5
-        local ch=x==0
-        local tz=az%3~=0
+        if y==TOP then if ax==OUT or az==OUT then return nil end;return "solid" end
+        local rel=y-SURF(0)
+        if rel<0 then return canal(0,rel==-2 and "bed" or "water",x,z) end
+        local g,k=rel//3,rel%3
+        if k>=1 and g+1<=F-1 then local c=canal(g+1,k==1 and "bed" or "water",x,z);if c then return c end end
+        local u,v=loc(g,x,z);local au,av=math.abs(u),math.abs(v)
+        if u==0 and v==0 then return "air" end
+        local ring=au==OUT or av==OUT
+        local tz=av>=1 and av<=R and av%3~=0
         if k==0 then
-            if x==0 and z==0 then return "air" end
-            if y==B0 and not (ch and az<=R) then return nil end
+            if ring then return u==0 and "solid" or nil end
+            if u==0 then return tz and ("ctrap"..(g%2)) or "air" end
+            if u==1 and tz then return "red" end
             return "solid"
         end
-        if k==1 then
-            if ch then if z==0 then return "air" end;if az<=R then return az==R and "water" or "air" end;return "solid" end
-            if ax==1 and az>=1 and az<=R then return "solid" end
-            return nil
-        end
-        if ax==OUT or az==OUT then return "solid" end
-        if x==0 and z==0 then return "air" end
-        if k==2 then
-            if ch then return tz and "ctrap" or "air" end
-            if x==1 and tz then return "red" end
-            return "solid"
-        end
-        if k==3 and not ch and az%3==0 then return "slab" end
-        if k==4 and creeper and not ch and az%3~=0 then return "trap" end
+        if ring then if au==OUT and av==OUT then return nil end;return "solid" end
+        if k==1 and u~=0 and av%3==0 then return "slab" end
+        if k==2 and creeper and u~=0 and av%3~=0 then return "trap" end
         return "air"
     end
     for y=1,TOP do for x=-OUT,OUT do for z=-OUT,OUT do
@@ -167,8 +173,8 @@ local function verify(S,F,Dp,creeper)
                 or (wv=="water" and b=="minecraft:water") or (wv=="slab" and b and b:find("_slab",1,true))
                 or (wv=="trap" and b and b:find("_trapdoor",1,true) and not (S.tstate[S.key(x,-y,z)] or {}).open)
                 or (wv=="red" and b=="minecraft:redstone_block")
-                or (wv=="ctrap" and b and b:find("_trapdoor",1,true) and (S.tstate[S.key(x,-y,z)] or {}).open==true
-                    and ((S.tstate[S.key(x,-y,z)] or {}).facing or 0)%2==1)
+                or (wv:sub(1,5)=="ctrap" and b and b:find("_trapdoor",1,true) and (S.tstate[S.key(x,-y,z)] or {}).open==true
+                    and ((S.tstate[S.key(x,-y,z)] or {}).facing or 0)%2==(wv=="ctrap0" and 1 or 0))
             if not ok then bad=bad+1;if #why<6 then why[#why+1]=wv.."@"..x..","..y..","..z.."="..tostring(b) end end
         end
     end end end
@@ -289,7 +295,7 @@ st=load("return "..(S.files["/toast_build_state"] or "{}"))()
 bad,why=verify(S,2,22,true)
 check("fertig",st.done==true,tostring(S.last and S.last.status).." "..tostring(S.last and S.last.fault).." "..tail(S))
 check("Bau stimmt Block fuer Block",bad==0,bad.." "..why)
-check("sparsam: unter 3600 Zuege (vorher ~4900)",S.moves<3600,S.moves)
+check("sparsam: unter 3000 Zuege (3.17.6: 3468)",S.moves<3000,S.moves)
 print("    Zuege (= Fuel) 3D-Drucker, 2 Etagen + Schacht 22: "..S.moves)
 print(pass.." bestanden, "..failc.." fehlgeschlagen")
 if failc>0 then os.exit(1) end

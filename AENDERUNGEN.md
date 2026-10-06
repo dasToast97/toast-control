@@ -1,3 +1,25 @@
+# Toast Control 3.17.7
+
+- **Creeper-Farm: rund die Hälfte weniger Bruchstein**, ohne Abstriche bei der
+  Funktion:
+  - **Keine extra Bodenlage mehr:** Die Lauffläche einer Etage ist zugleich die
+    Decke der Etage darunter. Eine Etage ist nur noch 3 Lagen hoch (Lauffläche,
+    Füße, Kopf).
+  - **Etagen abwechselnd um 90° gedreht:** Der 2 tiefe Kanal der oberen Etage
+    liegt quer im Raum darunter, genau dort, wo dort sonst eine Stufenreihe wäre.
+  - **Außenwand ohne Ecken und ohne Fuß** unter der Lauffläche. Diese Blöcke
+    haben nichts dicht gehalten.
+  - Unterste Etage: Unter der Lauffläche nur noch der Kanal selbst, das Fallloch
+    seitlich dicht (kein Licht von unten).
+  - **Geprüft:** komplett dicht (kein Licht/Ausgang), keine Spinnen-Plätze
+    (3×3), jede Spawnstelle hat eine Kopf-Falltür (nur Creeper) und einen Weg zu
+    einer Kanal-Falltür.
+- **Material je Etage:** ca. 446 Bruchstein (vorher 870), 64 Stufen,
+  2 Wassereimer, 12 Redstoneblöcke, 172 Falltüren (ohne „nur Creeper“: 12).
+  - Einmalig dazu: ca. 295 Bruchstein (Dach), 16 Stufen und 32 Falltüren.
+  - Schacht: 4 Bruchstein je Block Höhe.
+- **Fuel:** 2 Etagen im Freien 3468 → 2818 Züge, im Berg 3144 → 2512.
+
 # Toast Control 3.17.6
 
 - **Creeper-Farm (Mobfarm-Bau) neu konstruiert:** Die Creeper gingen nicht ins
