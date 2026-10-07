@@ -122,6 +122,15 @@ local JOB={
             r[#r+1]={"Gesamt",short(d.need).." Stein, "..short(d.needSlab).." Stufen"}
             r[#r+1]={"Dazu",short(d.needTrap).." Falltueren, "..short(d.needRed).." Redstone"}
             return r end},
+    cpu={name="Redstone-CPU",plural="CPU-Bauer",metric="Verbaut",unit="Teile",once="Bauen",
+        value=function(d) return num(d.placed) end,aux={"Fortschritt",function(d) return num(d.cells)>0 and math.floor(num(d.scanned)/num(d.cells)*100) or 0 end,"%"},
+        rows=function(d) local r={{"Flaeche",short(d.w).." x "..short(d.d).." Bloecke"},
+            {"Abschnitt",(d.done and "FERTIG" or tostring(d.phase or "-"))},
+            {"Fortschritt",short(d.scanned).." / "..short(d.cells)},{"Verbaut",short(d.placed).." Teile"},
+            {"Programm",tostring(d.program or "-")..(d.done and not d.progOk and " (noch nicht drin)" or "")}}
+            if d.missing then r[#r+1]={"Fehlt",tostring(d.missing)} end
+            r[#r+1]={"Gesamt",tostring(d.need or "-")}
+            return r end},
     dig={name="Aushub",plural="Aushub-Turtles",metric="Abgebaut",unit="Bl.",once="1 Auftrag",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
         rows=function(d) local r={{"Form",(common.DIG_SHAPES[d.shape] or "-")..(d.digDir=="up" and " hoch" or " runter")},
@@ -137,7 +146,7 @@ local JOB={
             r[#r+1]={"Fuellmaterial",d.noFill and "FEHLT" or short(d.fill)}
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }
-local ORDER={"farm","mining","tree","mob","dig","build"}
+local ORDER={"farm","mining","tree","mob","dig","build","cpu"}
 M.JOB=JOB
 local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
 local function hasProgress(d) return num(d.cells)>0 end
@@ -626,7 +635,7 @@ function M.new(screen,cfg)
             local lab=t[1].." "..t[2]
             if #lab>width-2 then
                 -- schmaler Bildschirm (Pocket): Kurzname + Anzahl, z.B. "M3"
-                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",["Mobfarm-Bau"]="B",Lager="L",Netz="N"}
+                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",["Mobfarm-Bau"]="B",["Redstone-CPU"]="C",Lager="L",Netz="N"}
                 local sh=SH[t[1]] or t[1]:sub(1,1)
                 lab=(#t[1]<=width-1) and t[1] or ((#(sh..t[2])<=width-1) and (sh..t[2]) or sh)
             end

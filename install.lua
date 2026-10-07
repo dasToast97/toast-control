@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.17.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.18.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 local FILES={}
 FILES["toast.lua"]=[======[
 -- Ein Startprogramm fuer Zentrale, Pocket, Farm, Mining, Holz, Mobs, Repeater und Infoscreen.
@@ -12,7 +12,7 @@ local function runOnce()
     if cfg.label~="" and os.setComputerLabel and os.getComputerLabel()~=cfg.label then
         pcall(os.setComputerLabel,cfg.label)
     end
-    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob" or cfg.job=="dig" or cfg.job=="build") then
+    if cfg.role=="turtle" and (cfg.job=="tree" or cfg.job=="mob" or cfg.job=="dig" or cfg.job=="build" or cfg.job=="cpu") then
         -- Holzfarm / Mobs: eigenes Grundgeruest (toast_worker.lua), liest die Config selbst.
         local nativeRednet=rednet
         local radio={}
@@ -142,9 +142,9 @@ end
 ]======]
 FILES["toast_common.lua"]=[======[
 local M={
-    version="3.17.7",
+    version="3.18.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
-    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
+    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1",cpu="toast.cpu.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true,update=true},
     updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
@@ -162,10 +162,10 @@ function M.serial(n) return M.integer(n,1,9007199254740991) end
 function M.number(n) return type(n)=="number" and n==n and n>-math.huge and n<math.huge and n or 0 end
 function M.contains(list,id) for _,v in ipairs(list or {}) do if v==id then return true end end;return false end
 -- Aufgaben einer Turtle. JOBS: Reihenfolge in Menues und Anzeigen.
-M.JOBS={"farm","mining","tree","mob","dig","build"}
-M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub",build="Mobfarm-Bau"}
+M.JOBS={"farm","mining","tree","mob","dig","build","cpu"}
+M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub",build="Mobfarm-Bau",cpu="Redstone-CPU"}
 -- Config-Abschnitt und Programmdatei je Aufgabe
-M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig",build="build"}
+M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig",build="build",cpu="cpu"}
 function M.job(j) return M.JOB_NAMES[j]~=nil end
 function M.label(v)
     return type(v)=="string" and v:gsub("[%c]"," "):sub(1,48) or ""
@@ -203,13 +203,14 @@ M.DEFAULTS={
         wallBlock="",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
     build={floors=2,drop=22,creeperOnly=true,inTerrain=false,becomeMob=true,fuelTarget=2000,radioTimeout=0},
+    cpu={program="LDX; ADDY; OUT; JMP 0",clear=true,fuelTarget=5000,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,build=true,storage=true,base=true,gps=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,build=true,cpu=true,storage=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -324,6 +325,12 @@ function M.configText(c,cap)
             {"becomeMob","true = danach selbst Mob-Turtle (Schwert ins Inventar)"},
             {"fuelTarget","an der Basis mindestens bis hierhin tanken"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.build)
+    elseif role=="turtle" and job=="cpu" then
+        section("cpu","Redstone-CPU: Flaeche VOR der Turtle (Plan siehe Anleitung)",{
+            {"program","Programm, Befehle mit ; trennen (LDX, ADDY, OUT, JMP 0 ...)"},
+            {"clear","true = Flaeche erst begradigen (8 hoch frei), false = nur Boden"},
+            {"fuelTarget","an der Basis mindestens bis hierhin tanken"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.cpu)
     elseif role=="turtle" and job=="dig" then
         section("dig","Aushub: Form direkt VOR der Basis ausheben",{
             {"shape","\"room\" Quader/Schacht, \"cylinder\", \"sphere\" Kugel, \"dome\" Halbkugel"},
@@ -423,7 +430,7 @@ function M.load(c)
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
         assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree, mob, dig oder build einstellen.")
-        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) elseif c.job=="build" then M.checkBuild(c.build) end
+        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) elseif c.job=="build" then M.checkBuild(c.build) elseif c.job=="cpu" then M.checkCpu(c.cpu) end
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
@@ -802,6 +809,34 @@ function M.checkBuild(b)
     assert(b.radioTimeout==0 or M.integer(b.radioTimeout,10,300),"build.radioTimeout: 0 oder 10 bis 300.")
     return b
 end
+-- Redstone-CPU: Programm pruefen (gleicher Assembler wie die Turtle)
+M.CPU_OPS={LDI=true,LDX=true,LDY=true,ADDI=true,ADDX=true,ADDY=true,SUBI=true,SUBX=true,SUBY=true,OUT=true,JMP=true,JZ=true,NOP=true}
+function M.cpuProgram(text)
+    local n=0
+    for line in (tostring(text or "").."\n"):gmatch("([^;\n]*)[;\n]") do
+        line=line:gsub("%-%-.*$",""):gsub("^%s+",""):gsub("%s+$","")
+        if line~="" then
+            local ops,arg=line:match("^(%a+)%s*(%-?%d*)$")
+            if not ops then return nil,"Zeile unklar: "..line end
+            if not M.CPU_OPS[ops:upper()] then return nil,"Unbekannter Befehl: "..ops end
+            if arg~="" and (tonumber(arg)<0 or tonumber(arg)>15) then return nil,"Zahl 0 bis 15: "..line end
+            n=n+1
+        end
+    end
+    if n==0 then return nil,"Programm ist leer" end
+    if n>8 then return nil,"Hoechstens 8 Befehle (sind "..n..")" end
+    return n
+end
+function M.checkCpu(c)
+    assert(type(c)=="table","cpu fehlt.")
+    assert(type(c.program)=="string","cpu.program: Text.")
+    local ok,why=M.cpuProgram(c.program)
+    assert(ok,"cpu.program: "..tostring(why))
+    assert(type(c.clear)=="boolean","cpu.clear: true oder false.")
+    assert(M.integer(c.fuelTarget,100,100000),"cpu.fuelTarget: 100 bis 100000.")
+    assert(c.radioTimeout==0 or M.integer(c.radioTimeout,10,300),"cpu.radioTimeout: 0 oder 10 bis 300.")
+    return c
+end
 M.DIG_SHAPES={room="Quader",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
 function M.checkDig(d)
     assert(type(d)=="table","dig fehlt.")
@@ -1065,9 +1100,9 @@ M.FIELD_OPTIONS={side={"right","left"},crop={"wheat","carrots","potatoes","beetr
 -- Felder, die die Form/den Auftrag aendern (dann nur an der Basis + Fortschritt neu)
 M.LAYOUT_FIELDS={mining={"length","height","tunnels","gap","side","sideDig"},farm={"length","width","side","crop"},
     tree={"length","width","side"},mob={"mode","length","width","side"},dig={"shape","width","length","height","side","direction"},
-    build={"floors","drop","creeperOnly","inTerrain"}}
+    build={"floors","drop","creeperOnly","inTerrain"},cpu={"clear"}}
 M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",
-    dig="/toast_dig_state",build="/toast_build_state"}
+    dig="/toast_dig_state",build="/toast_build_state",cpu="/toast_cpu_state"}
 -- Einstellungen einer Turtle fuer die Anzeige: Abschnitte mit Feld, Text, Wert, Auswahl
 function M.remoteConfig(c)
     local cap={}
@@ -1390,7 +1425,7 @@ function S.new(common)
         end
     end
     local function sideName(s) return s=="left" and "links" or "rechts" end
-    local showText,editShow
+    local showText,editShow,cpuText,editCpu
     -- ---- Zusammenfassungen ----
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
@@ -1561,6 +1596,43 @@ function S.new(common)
         hint((b.creeperOnly and n*172+32 or n*12).." Falltueren, "..n*12 .." Redstonebl.")
         hint("(Redstone macht die Kanal-Falltueren auf)")
         sleep(2)
+    end
+    local CPU_PRESETS={
+        {"Rechner X+Y","LDX; ADDY; OUT; JMP 0"},
+        {"Rechner X-Y","LDX; SUBY; OUT; JMP 0"},
+        {"Zaehler 0..15","LDI 0; ADDI 1; OUT; JMP 1"},
+        {"Countdown ab X","LDX; OUT; SUBI 1; JZ 5; JMP 1; OUT; JMP 6"},
+    }
+    function cpuText(p)
+        for _,pr in ipairs(CPU_PRESETS) do if pr[2]==p.program then return pr[1]..(p.clear and "" or " +ohne Begradigen") end end
+        return "eigenes Programm"..(p.clear and "" or " +ohne Begradigen")
+    end
+    function editCpu(c)
+        local p=c.cpu
+        header("Redstone-CPU bauen")
+        hint("Baut VOR der Turtle (ab 2 Bloecke davor).")
+        hint("Kiste HINTER ihr = Material + Kohle,")
+        hint("Kiste UNTER ihr = Abraum.")
+        hint("Programm (8 Befehle Speicher):")
+        for i,pr in ipairs(CPU_PRESETS) do hint(i.." "..pr[1]) end
+        hint((#CPU_PRESETS+1).." eigenes Programm eingeben")
+        local cur=#CPU_PRESETS+1
+        for i,pr in ipairs(CPU_PRESETS) do if pr[2]==p.program then cur=i end end
+        local n=ask("Auswahl",cur,1,#CPU_PRESETS+1)
+        if n<=#CPU_PRESETS then p.program=CPU_PRESETS[n][2]
+        else
+            hint("Befehle mit ; trennen, z.B.")
+            hint("LDX; ADDY; OUT; JMP 0")
+            while true do
+                local t=askText("Programm",p.program)
+                local ok,why=common.cpuProgram(t)
+                if ok then p.program=t;break end
+                fg(colors.orange);print("  "..tostring(why));fg(colors.white)
+            end
+        end
+        hint("Begradigen: raeumt 8 Bloecke hoch frei")
+        hint("(im Freien mit Baeumen/Huegeln noetig).")
+        p.clear=yesno("Flaeche begradigen?",p.clear~=false)
     end
     local SHAPES={"room","cylinder","sphere","dome"}
     local SHAPE_TEXT={room="Quader/Schacht",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
@@ -1771,12 +1843,12 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",build="Alle Mobfarm-Bauer",storage="Lager (Kisten)"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",build="Alle Mobfarm-Bauer",cpu="Alle CPU-Bauer",storage="Lager (Kisten)"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
         print("")
-        local opts={"all","farm","mining","tree","mob","dig","build","storage"}
+        local opts={"all","farm","mining","tree","mob","dig","build","cpu","storage"}
         for i,v in ipairs(opts) do hint(i.." "..showText(v)) end
         local nT=#opts+1
         hint(nT.." Eine bestimmte Turtle")
@@ -1813,7 +1885,7 @@ function S.new(common)
     local function editJob(c,info)
         header("Aufgabe wechseln")
         hint("Jetzt: "..(common.JOB_NAMES[c.job] or "?"))
-        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke",build="Spitzhacke"}
+        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke",build="Spitzhacke",cpu="Spitzhacke"}
         for i,j in ipairs(common.JOBS) do
             fg(colors.yellow);write(i.." ");fg(colors.white);print(cut(string.format("%-7s",common.JOB_NAMES[j]).." ("..TOOL[j]..")"))
         end
@@ -1848,6 +1920,8 @@ function S.new(common)
             list[#list+1]={"Mobs",function() return mobText(c.mob) end,function() editMob(c) end}
         elseif role=="turtle" and job=="build" then
             list[#list+1]={"Mobfarm",function() return buildText(c.build) end,function() editBuild(c) end}
+        elseif role=="turtle" and job=="cpu" then
+            list[#list+1]={"CPU",function() return cpuText(c.cpu) end,function() editCpu(c) end}
         elseif role=="turtle" and job=="dig" then
             list[#list+1]={"Aushub",function() return digText(c.dig) end,function() editDig(c) end}
         elseif role=="turtle" then
@@ -1934,10 +2008,11 @@ function S.new(common)
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         if job=="dig" then local d=c.dig return table.concat({d.shape,d.width,d.length,d.height,d.side,d.direction},":") end
         if job=="build" then local b=c.build return table.concat({b.floors,b.drop,tostring(b.creeperOnly),tostring(b.inTerrain==true)},":") end
+        if job=="cpu" then return tostring(c.cpu.clear~=false) end
         return ""
     end
     -- Neuer Auftrag: Fortschritt der Aufgabe loeschen (Turtle muss an der Basis stehen)
-    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",dig="/toast_dig_state",build="/toast_build_state"}
+    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",dig="/toast_dig_state",build="/toast_build_state",cpu="/toast_cpu_state"}
     function M.newJob(job)
         local file=M.STATE_FILES[job];if not file then return false end
         header("Neuer Auftrag")
@@ -1971,7 +2046,7 @@ function S.new(common)
         return false
     end
     function M.confirmReset(job)
-        if job~="mining" and job~="tree" and job~="mob" and job~="dig" and job~="build" then return end
+        if job~="mining" and job~="tree" and job~="mob" and job~="dig" and job~="build" and job~="cpu" then return end
         local file="/toast_"..job.."_state"
         if not (fs.exists(file) or fs.exists(file..".tmp")) then return end
         header(job=="mining" and "Neue Minenmasse" or "Neue Masse")
@@ -2606,6 +2681,15 @@ local JOB={
             r[#r+1]={"Gesamt",short(d.need).." Stein, "..short(d.needSlab).." Stufen"}
             r[#r+1]={"Dazu",short(d.needTrap).." Falltueren, "..short(d.needRed).." Redstone"}
             return r end},
+    cpu={name="Redstone-CPU",plural="CPU-Bauer",metric="Verbaut",unit="Teile",once="Bauen",
+        value=function(d) return num(d.placed) end,aux={"Fortschritt",function(d) return num(d.cells)>0 and math.floor(num(d.scanned)/num(d.cells)*100) or 0 end,"%"},
+        rows=function(d) local r={{"Flaeche",short(d.w).." x "..short(d.d).." Bloecke"},
+            {"Abschnitt",(d.done and "FERTIG" or tostring(d.phase or "-"))},
+            {"Fortschritt",short(d.scanned).." / "..short(d.cells)},{"Verbaut",short(d.placed).." Teile"},
+            {"Programm",tostring(d.program or "-")..(d.done and not d.progOk and " (noch nicht drin)" or "")}}
+            if d.missing then r[#r+1]={"Fehlt",tostring(d.missing)} end
+            r[#r+1]={"Gesamt",tostring(d.need or "-")}
+            return r end},
     dig={name="Aushub",plural="Aushub-Turtles",metric="Abgebaut",unit="Bl.",once="1 Auftrag",
         value=function(d) return num(d.harvested) end,aux={"Abgeladen",function(d) return num(d.total) end," Items"},
         rows=function(d) local r={{"Form",(common.DIG_SHAPES[d.shape] or "-")..(d.digDir=="up" and " hoch" or " runter")},
@@ -2621,7 +2705,7 @@ local JOB={
             r[#r+1]={"Fuellmaterial",d.noFill and "FEHLT" or short(d.fill)}
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
 }
-local ORDER={"farm","mining","tree","mob","dig","build"}
+local ORDER={"farm","mining","tree","mob","dig","build","cpu"}
 M.JOB=JOB
 local function jobOf(e) return JOB[e and e.job] and e.job or "mining" end
 local function hasProgress(d) return num(d.cells)>0 end
@@ -3110,7 +3194,7 @@ function M.new(screen,cfg)
             local lab=t[1].." "..t[2]
             if #lab>width-2 then
                 -- schmaler Bildschirm (Pocket): Kurzname + Anzahl, z.B. "M3"
-                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",["Mobfarm-Bau"]="B",Lager="L",Netz="N"}
+                local SH={Alle="*",Farm="F",Mine="M",Holz="H",Mobs="Mo",Aushub="A",["Mobfarm-Bau"]="B",["Redstone-CPU"]="C",Lager="L",Netz="N"}
                 local sh=SH[t[1]] or t[1]:sub(1,1)
                 lab=(#t[1]<=width-1) and t[1] or ((#(sh..t[2])<=width-1) and (sh..t[2]) or sh)
             end
@@ -8909,6 +8993,1723 @@ end
 pcall(w.equipTool,isTool)
 w.start("TOAST MOBFARM-BAU",F.." Etage(n), Schacht "..D..(CREEPER and ", nur Creeper" or ""))
 ]======]
+FILES["cpu_turtle.lua"]=[======[
+-- Toast Control: Redstone-CPU-Bau.
+-- Baut nach dem Bauplan /toast/cpu_plan.lua eine Mini-CPU aus reinem Vanilla-Redstone:
+--   4 Bit, Akkumulator, 8 Befehle Programmspeicher, Eingaben X/Y per Knopf (+1),
+--   7-Segment-Anzeige 0..15, Knoepfe Takt/Reset, Hebel Lauf.
+-- Ablauf: 1) Flaeche begradigen (Boden fest, darueber 8 Bloecke frei)
+--         2) Lage fuer Lage bauen (Turtle setzt von oben)
+--         3) Programm in den Speicher (Repeater da = 1)
+--         Spaeter neues Programm: nur der Speicher wird umgebaut.
+-- Turtle-Koordinaten: Basis (0,0,0), Bauflaeche beginnt 2 Bloecke vor der Turtle,
+-- x laeuft nach LINKS (gespiegelt, damit die Anzeige richtig herum ist).
+-- Kisten: HINTER der Turtle = Material, UNTER der Turtle = Ausgabe (Abraum).
+local common=dofile("/toast/toast_common.lua")
+local cfg=common.load()
+local C=cfg.cpu
+local W=dofile("/toast/toast_worker.lua")
+local okp,PLAN=pcall(dofile,"/toast/cpu_plan.lua")
+if not okp or type(PLAN)~="table" then error("Bauplan /toast/cpu_plan.lua fehlt - neu installieren.",0) end
+local OZ=2                       -- Abstand Basis -> Bauflaeche
+local PW,PD=PLAN.w,PLAN.d
+local SAFE=9                     -- Reisehoehe ueber allem
+local CLEAR=C.clear~=false
+
+-- ===== Bloecke =====
+local FILL={}
+for _,n in ipairs({"cobblestone","cobbled_deepslate","stone","deepslate","dirt","netherrack","andesite","diorite",
+    "granite","tuff","blackstone","smooth_basalt","end_stone","stone_bricks","sandstone","polished_andesite",
+    "polished_diorite","polished_granite","mossy_cobblestone"}) do FILL["minecraft:"..n]=true end
+local FLOOROK={["minecraft:grass_block"]=true,["minecraft:podzol"]=true,["minecraft:mycelium"]=true,
+    ["minecraft:coarse_dirt"]=true,["minecraft:rooted_dirt"]=true,["minecraft:sand"]=true,["minecraft:gravel"]=true,
+    ["minecraft:red_sand"]=true,["minecraft:clay"]=true,["minecraft:terracotta"]=true,["minecraft:obsidian"]=true,
+    ["minecraft:calcite"]=true,["minecraft:basalt"]=true}
+local function isFill(n) return FILL[n]==true end
+local ITEM={s="fill",d="minecraft:redstone",t="minecraft:redstone_torch",l="minecraft:redstone_lamp",
+    b="button",v="minecraft:lever",N="minecraft:repeater",E="minecraft:repeater",S="minecraft:repeater",W="minecraft:repeater"}
+local KIND={fill="Bruchstein/Stein",["minecraft:redstone"]="Redstone",["minecraft:redstone_torch"]="Redstone-Fackeln",
+    ["minecraft:redstone_lamp"]="Redstone-Lampen",button="Steinknoepfe",["minecraft:lever"]="Hebel",["minecraft:repeater"]="Repeater"}
+local function matcher(item)
+    if item=="fill" then return isFill end
+    if item=="button" then return function(n) return n:find("_button",1,true)~=nil end end
+    return function(n) return n==item end
+end
+-- was im Spiel an der Stelle stehen muss (Name)
+local function blockOk(code,b)
+    if not b then return false end
+    local n=b.name
+    if code=="s" then return isFill(n) or FLOOROK[n] or n=="minecraft:dirt" end
+    if code=="d" then return n=="minecraft:redstone_wire" end
+    if code=="t" then return n=="minecraft:redstone_torch" end
+    if code=="l" then return n=="minecraft:redstone_lamp" end
+    if code=="b" then return n:find("_button",1,true)~=nil end
+    if code=="v" then return n=="minecraft:lever" end
+    return n=="minecraft:repeater"
+end
+local function isContainer(n) return n:find("chest",1,true)~=nil or n:find("barrel",1,true)~=nil or n:find("shulker",1,true)~=nil end
+local function isTurtle(n) return n:find("computercraft:turtle",1,true)~=nil end
+local function isTool(n) return n:find("_pickaxe",1,true)~=nil end
+local function isLiquid(n) return n=="minecraft:water" or n=="minecraft:lava" or n:find("flowing_",1,true)~=nil end
+local BADFLOOR={"_leaves","glass","ice","snow","_slab","_stairs","fence","_wall","carpet","_door","trapdoor","bed",
+    "torch","sign","flower","sapling","mushroom","grass","fern","vine","water","lava","pane","bars","web"}
+local function floorGood(b)
+    if not b then return false end
+    local n=b.name
+    if isFill(n) or FLOOROK[n] then return true end
+    for _,p in ipairs(BADFLOOR) do if n:find(p,1,true) then return false end end
+    return not isContainer(n)
+end
+
+-- ===== Programm (Assembler) =====
+-- Befehle: LDI n, LDX, LDY, ADDI n, ADDX, ADDY, SUBI n, SUBX, SUBY, OUT, JMP n, JZ n, NOP
+local function encodeOne(op,arg)
+    local f={IMM=(arg or 0)%16,SELX=0,SELY=0,SELI=0,USEA=0,SUB=0,WRA=0,OUT=0,JMP=0,JZ=0}
+    local src
+    if op=="LDI" or op=="LDX" or op=="LDY" then f.WRA=1;src=op:sub(3,3)
+    elseif op=="ADDI" or op=="ADDX" or op=="ADDY" or op=="SUBI" or op=="SUBX" or op=="SUBY" then
+        f.WRA=1;f.USEA=1;f.SUB=op:sub(1,3)=="SUB" and 1 or 0;src=op:sub(4,4)
+    elseif op=="OUT" then f.OUT=1
+    elseif op=="JMP" then f.JMP=1
+    elseif op=="JZ" then f.JMP=1;f.JZ=1
+    elseif op~="NOP" then return nil,"Unbekannter Befehl: "..op end
+    if src=="I" then f.SELI=1 elseif src=="X" then f.SELX=1 elseif src=="Y" then f.SELY=1 end
+    return f
+end
+local function assemble(text)
+    local prog={}
+    for line in (tostring(text or "").."\n"):gmatch("([^;\n]*)[;\n]") do
+        line=line:gsub("%-%-.*$",""):gsub("^%s+",""):gsub("%s+$","")
+        if line~="" then
+            local ops,arg=line:match("^(%a+)%s*(%-?%d*)$")
+            if not ops then return nil,"Zeile unklar: "..line end
+            arg=tonumber(arg)
+            local f
+            for part in ops:upper():gmatch("[^%+]+") do
+                local g,why=encodeOne(part,arg);if not g then return nil,why end
+                if not f then f=g else for k,v in pairs(g) do if k~="IMM" then f[k]=math.max(f[k],v) end end end
+            end
+            prog[#prog+1]=f
+        end
+    end
+    if #prog>8 then return nil,"Hoechstens 8 Befehle (sind "..#prog..")" end
+    while #prog<8 do prog[#prog+1]=encodeOne("NOP") end
+    return prog
+end
+local function tapsFor(prog)
+    -- Spalten wie im Bauplan (alle so gepolt, wie die Logik sie braucht)
+    local taps={}
+    for w,f in ipairs(prog) do
+        local val={}
+        for k=0,3 do val["nIMM"..k]=1-math.floor(f.IMM/2^k)%2 end
+        val.nSELX=1-f.SELX;val.nSELY=1-f.SELY;val.nSELI=1-f.SELI;val.nUSEA=1-f.USEA
+        val.SUB=f.SUB;val.nSUB=1-f.SUB;val.nWRA=1-f.WRA;val.nOUT=1-f.OUT;val.nJMP=1-f.JMP;val.nJZ=1-f.JZ
+        for c,name in ipairs(PLAN.cols) do taps[(w-1)..","..(c-1)]=val[name]==1 end
+    end
+    return taps
+end
+local PROG,PROGERR=assemble(C.program)
+if not PROG then error("CPU-Programm: "..tostring(PROGERR),0) end
+local TAPS=tapsFor(PROG)
+local PROGKEY=""
+for w=0,7 do for c=0,#PLAN.cols-1 do PROGKEY=PROGKEY..(TAPS[w..","..c] and "1" or "0") end end
+
+-- ===== Plan entpacken =====
+-- CELLS[y] = Liste {x,z,code} in Schlangenreihenfolge (Reihe fuer Reihe)
+local TAPAT={}                    -- "x,z" -> {r,c,f}
+for _,p in ipairs(PLAN.prog) do TAPAT[p[3]..","..p[4]]={r=p[1],c=p[2],f=p[5]} end
+local function decodeRow(s)
+    local out={};local x=0
+    for num,ch in s:gmatch("(%d*)(%D)") do
+        local n=tonumber(num) or 1
+        if ch~="." then for k=0,n-1 do out[#out+1]={x+k,ch} end end
+        x=x+n
+    end
+    return out
+end
+local CELLS={}
+local NCELLS=0
+local NEED={}
+for y=1,7 do
+    local rows={}
+    for z,s in pairs(PLAN.layers[y] or {}) do rows[#rows+1]=z end
+    table.sort(rows)
+    -- Programm-Abgriffe: Stuetze (y1) und Repeater (y2)
+    local extra={}
+    if y==1 or y==2 then
+        for _,p in ipairs(PLAN.prog) do
+            if TAPS[p[1]..","..p[2]] then
+                extra[p[4]]=extra[p[4]] or {}
+                table.insert(extra[p[4]],{p[3],y==1 and "s" or p[5]})
+            end
+        end
+        for z in pairs(extra) do if not PLAN.layers[y][z] then rows[#rows+1]=z end end
+        table.sort(rows)
+    end
+    local list={}
+    for i,z in ipairs(rows) do
+        local cells=PLAN.layers[y][z] and decodeRow(PLAN.layers[y][z]) or {}
+        for _,e in ipairs(extra[z] or {}) do cells[#cells+1]=e end
+        table.sort(cells,function(a,b) return a[1]<b[1] end)
+        if #list%2==1 or i%2==0 then
+            -- jede zweite Reihe rueckwaerts (Schlange)
+        end
+        local rev=(i%2==0)
+        local a,b,s=1,#cells,1
+        if rev then a,b,s=#cells,1,-1 end
+        for k=a,b,s do
+            local c=cells[k]
+            list[#list+1]={c[1],z,c[2]}
+            local it=ITEM[c[2]]
+            NEED[it]=(NEED[it] or 0)+1
+        end
+    end
+    CELLS[y]=list
+    NCELLS=NCELLS+#list
+end
+local CLEARN=CLEAR and 3*PW*PD or PW*PD
+local NSTEPS=CLEARN+NCELLS
+local LAYOUT="cpu:"..(PLAN.version or 1)..":"..(CLEAR and "c" or "n")
+
+-- Schritt i -> Beschreibung
+local function stepAt(i)
+    if i<=CLEARN then
+        local k=i-1
+        local per=PW*PD
+        local pass=math.floor(k/per)
+        local r=k%per
+        local z=math.floor(r/PW)
+        local x=r%PW
+        if z%2==1 then x=PW-1-x end
+        if pass%2==1 then z=PD-1-z end
+        return {t="clear",pass=pass,x=x,z=z}
+    end
+    local j=i-CLEARN
+    for y=1,7 do
+        local n=#CELLS[y]
+        if j<=n then local c=CELLS[y][j];return {t="cell",y=y,x=c[1],z=c[2],code=c[3]} end
+        j=j-n
+    end
+end
+
+local w,round,idleHome,idleBase
+local opts
+opts={job="cpu",cfg=cfg,section=C,stateFile="/toast_cpu_state",args={...},cells=NSTEPS,layout=LAYOUT,mirror=true,
+    tools=isTool,noTool="Keine Spitzhacke: Diamant-Spitzhacke in die Turtle legen",
+    interval=0,readyText="START: Redstone-CPU bauen (macht weiter, wo sie war)",
+    extra=function() local s=w and w.st or {}
+        local need={}
+        for it,n in pairs(NEED) do need[#need+1]=(KIND[it] or it)..": "..n end
+        table.sort(need)
+        return {placed=s.placed or 0,done=s.done,phase=s.phase,missing=s.missing,w=PW,d=PD,
+            steps=NSTEPS,parts=NCELLS,program=C.program,progOk=s.progKey==PROGKEY,need=table.concat(need,", ")} end,
+    round=function() return round() end,
+    idleHome=function() return idleHome() end,
+    idleBase=function() return idleBase() end}
+w=W.new(opts)
+local st,run=w.st,w.run
+if st.cpuLayout~=LAYOUT then st.cpuLayout=LAYOUT;st.idx=1;st.done=nil;st.progKey=nil;w.save() end
+st.idx=st.idx or 1
+if st.done then run.scanned=NSTEPS end
+
+-- ===== Bewegung =====
+local RAWDIG={forward=turtle.dig,up=turtle.digUp,down=turtle.digDown}
+local DIG={}
+for k,f in pairs(RAWDIG) do DIG[k]=function()
+    local ok,why=f()
+    if not ok and tostring(why):find("No tool",1,true) and w.equipTool(isTool) then ok,why=f() end
+    return ok,why
+end end
+local MOPT={dig=true,attack=true,canDig=function(n) return not (isContainer(n) or isTurtle(n)) end}
+local function fuel() local f=turtle.getFuelLevel();if f=="unlimited" then return math.huge end;return f end
+local clearing=false            -- beim Begradigen: Wasser/Lava vor sich zuschuetten und abbauen
+local function line(axis,v)
+    while (axis=="x" and st.x or st.z)~=v do
+        local cur=axis=="x" and st.x or st.z
+        local d=axis=="x" and (v>cur and 1 or 3) or (v>cur and 0 or 2)
+        local ok,why=w.face(d);if not ok then return false,why end
+        if clearing then
+            local e,b=turtle.inspect()
+            if e and isLiquid(b.name) then
+                local slot=w.find(isFill)
+                if slot then turtle.select(slot);turtle.place();turtle.select(1);DIG.forward() end
+            end
+        end
+        ok,why=w.move("forward",MOPT);if not ok then return false,why end
+    end
+    return true
+end
+local function vert(y)
+    while st.y~=y do
+        local ok,why=w.move(st.y<y and "up" or "down",MOPT);if not ok then return false,why end
+    end
+    return true
+end
+-- in der Flaeche? (lokale Koordinaten)
+local function inArea(x,z) return x>=0 and x<PW and z>=OZ and z<OZ+PD end
+-- Zum Ziel: kurze Wege auf gleicher Hoehe direkt, sonst ueber die Reisehoehe
+local function goTo(x,y,z)
+    if st.x==x and st.y==y and st.z==z then return true end
+    local near=st.y==y and math.abs(st.x-x)+math.abs(st.z-z)<=PW+PD
+    if near and inArea(st.x,st.z) and inArea(x,z) then
+        local ok,why=line("z",z);if not ok then return false,why end
+        return line("x",x)
+    end
+    local ok,why=vert(SAFE);if not ok then return false,why end
+    ok,why=line("z",z);if not ok then return false,why end
+    ok,why=line("x",x);if not ok then return false,why end
+    return vert(y)
+end
+local function homeNeed() return math.abs(st.x)+math.abs(st.z)+2*SAFE+20 end
+
+-- ===== Material =====
+local function burn(target)
+    for s=1,16 do
+        local it=turtle.getItemDetail(s)
+        if it and W.FUELS[it.name] then
+            turtle.select(s)
+            while fuel()<target and turtle.getItemCount(s)>0 do if not turtle.refuel(1) then break end end
+        end
+        if fuel()>=target then break end
+    end
+    turtle.select(1)
+end
+local function keep(name)
+    if isTool(name) or common.MODEM_ITEMS[name] then return 4096 end
+    for it in pairs(NEED) do if it~="fill" and matcher(it)(name) then return 4096 end end
+    if isFill(name) then return 256 end
+    if W.FUELS[name] then return 64 end
+    return 0
+end
+local function chestList()
+    local ok,inv=pcall(peripheral.wrap,"front")
+    if not ok or type(inv)~="table" or type(inv.list)~="function" then return nil end
+    return inv
+end
+local function fetch(match,count)
+    local got=0
+    for _=1,40 do
+        if got>=count then break end
+        local slot;for i=1,16 do if turtle.getItemCount(i)==0 then slot=i;break end end
+        if not slot then break end
+        local inv=chestList()
+        if inv then
+            local okl,list=pcall(inv.list)
+            if not okl or type(list)~="table" then break end
+            local from
+            for s,it in pairs(list) do if match(it.name) and (not from or s<from) then from=s end end
+            if not from then break end
+            if from~=1 then
+                if list[1] then
+                    local size=inv.size and inv.size() or 27
+                    local free;for s=2,size do if not list[s] then free=s;break end end
+                    if not free then break end
+                    pcall(inv.pushItems,"front",1,64,free)
+                end
+                pcall(inv.pushItems,"front",from,64,1)
+            end
+        end
+        turtle.select(slot)
+        if not turtle.suck(math.min(64,count-got)) then break end
+        local it=turtle.getItemDetail(slot)
+        if not it then break end
+        if not match(it.name) then turtle.dropDown();if not inv then break end
+        else got=got+it.count end
+    end
+    turtle.select(1)
+    return got
+end
+local function have(match) return w.count(match) end
+-- Bedarf der naechsten Schritte (fuer das Nachladen)
+local function upcoming(n)
+    local need={}
+    local i=st.idx
+    local stop=math.min(NSTEPS,i+n)
+    while i<=stop do
+        local s=stepAt(i)
+        if s.t=="cell" then local it=ITEM[s.code];need[it]=(need[it] or 0)+1
+        elseif s.t=="clear" and s.pass==0 then need.fill=(need.fill or 0)+0.2 end
+        i=i+1
+    end
+    return need
+end
+local function fuelGoal()
+    return math.min(turtle.getFuelLimit and turtle.getFuelLimit() or 20000,math.max(C.fuelTarget or 2000,(NSTEPS-st.idx)*2+400))
+end
+local function base()
+    local ok,title,detail=w.unload(keep)
+    if not ok then return false,title,detail end
+    local okf,why=w.face(2);if not okf then return false,"Drehen",why end
+    if not w.container(turtle.inspect) then w.face(0);return false,"Materialkiste fehlt","Kiste HINTER die Turtle stellen (Redstone, Repeater, Fackeln, Lampen, Bruchstein, Kohle)." end
+    if fuel()<fuelGoal() and have(function(n) return W.FUELS[n]~=nil end)<16 then
+        fetch(function(n) return W.FUELS[n]~=nil end,64);burn(fuelGoal())
+    end
+    -- Fuer die naechsten ~600 Schritte laden, Platz fuer Abraum lassen
+    local need=upcoming(600)
+    if st.done then need={["minecraft:repeater"]=#PLAN.prog,fill=#PLAN.prog} end
+    local order={}
+    for it,n in pairs(need) do order[#order+1]={it,math.ceil(n)} end
+    table.sort(order,function(a,b) return a[2]>b[2] end)
+    st.missing=nil
+    for _,o in ipairs(order) do
+        local it,n=o[1],o[2]
+        local m=matcher(it)
+        local want=math.min(n,64*4)-have(m)
+        if want>0 and w.freeSlots()>(CLEAR and 3 or 1) then
+            fetch(m,math.min(want,64*math.max(1,w.freeSlots()-(CLEAR and 3 or 1))))
+        end
+    end
+    w.face(0)
+    burn(fuelGoal())
+    if fuel()<math.min(fuelGoal(),homeNeed()+PW+PD+200) then
+        return false,"Treibstoff fehlt","Kohle in die Kiste HINTER der Turtle legen."
+    end
+    w.save()
+    return true
+end
+local function goHome()
+    if w.isHome() then return w.face(0) end
+    w.status("Rueckkehr","Faehrt zur Basis (Nachschub).")
+    local ok,why=vert(SAFE);if not ok then return false,"Rueckweg: "..tostring(why) end
+    ok,why=line("x",0);if ok then ok,why=line("z",0) end
+    if ok then ok,why=vert(0) end
+    if not ok then return false,"Rueckweg: "..tostring(why) end
+    return w.face(0)
+end
+local function resupply(item)
+    local ok,why=goHome();if not ok then return false,why end
+    while true do
+        if not w.active() then return false,"stopped" end
+        local okb,title,detail=base()
+        if okb and (not item or have(matcher(item))>0) then st.missing=nil;return true end
+        if okb then
+            local n=0
+            for i=st.idx,NSTEPS do local s=stepAt(i);if s.t=="cell" and ITEM[s.code]==item then n=n+1 end;if i-st.idx>20000 then break end end
+            title=(KIND[item] or item).." fehlen";detail=(KIND[item] or item).." in die Kiste HINTER der Turtle legen (noch ca. "..n.." gebraucht)."
+        end
+        st.missing=title;w.status(title,detail)
+        for _=1,20 do if not w.active() then return false,"stopped" end;sleep(0.5) end
+    end
+end
+
+-- ===== Arbeit =====
+local function clearDown()
+    for _=1,8 do
+        local e,b=turtle.inspectDown()
+        if not e then return true end
+        if isContainer(b.name) or isTurtle(b.name) then return true end
+        if isLiquid(b.name) then
+            local slot=w.find(isFill);if not slot then return false,"fill" end
+            turtle.select(slot);turtle.placeDown();turtle.select(1)
+        end
+        DIG.down()
+    end
+    return not turtle.detectDown()
+end
+local function clearUp()
+    for _=1,8 do
+        local e,b=turtle.inspectUp()
+        if not e then return true end
+        if isContainer(b.name) or isTurtle(b.name) then return true end
+        if isLiquid(b.name) then
+            local slot=w.find(isFill);if not slot then return true end
+            turtle.select(slot);turtle.placeUp();turtle.select(1)
+        end
+        if not DIG.up() then return true end
+    end
+    return true
+end
+local function placeFillDown()
+    local slot=w.find(isFill);if not slot then return false,"item","fill" end
+    turtle.select(slot);local ok=turtle.placeDown();turtle.select(1)
+    if not ok then return false,"Boden nicht setzbar" end
+    return true
+end
+local function doClear(s)
+    -- Turtle steht auf Hoehe h: raeumt h+1 (und h-1); bei h=0 wird der Boden (h-1) geprueft
+    clearUp()
+    if s.pass==0 then
+        local e,b=turtle.inspectDown()
+        if e and floorGood(b) then return true end
+        if e and not isLiquid(b.name) then
+            if isContainer(b.name) or isTurtle(b.name) then return false,"Kiste/Turtle im Bauplatz" end
+            DIG.down()
+        end
+        return placeFillDown()
+    end
+    local ok,why=clearDown();if not ok then return false,why end
+    return true
+end
+local FACEDIR={S=0,E=1,N=2,W=3}
+local function doCell(s)
+    local e,b=turtle.inspectDown()
+    if e and blockOk(s.code,b) then return true end
+    if e then
+        if isContainer(b.name) or isTurtle(b.name) then return false,"Kiste/Turtle im Bauplatz" end
+        local ok,why=clearDown();if not ok then return false,why end
+    end
+    if FACEDIR[s.code] then
+        -- Repeater: Ausgang zeigt dorthin, wohin die Turtle beim Setzen schaut
+        local ok,why=w.face(FACEDIR[s.code]);if not ok then return false,why end
+    end
+    local it=ITEM[s.code]
+    local slot=w.find(matcher(it))
+    if not slot then return false,"item",it end
+    turtle.select(slot);local ok,why=turtle.placeDown();turtle.select(1)
+    if not ok then return false,"Setzen fehlgeschlagen: "..tostring(why) end
+    st.placed=(st.placed or 0)+1
+    return true
+end
+local function phaseOf(s)
+    if s.t=="clear" then return "Begradigen "..(s.pass+1).."/"..(CLEAR and 3 or 1) end
+    return "Lage "..s.y.."/7"
+end
+
+-- Programm-ROM von oben umbauen (fertige CPU, neues Programm)
+local function reprogram()
+    local list={}
+    for _,p in ipairs(PLAN.prog) do
+        list[#list+1]={x=p[3],z=p[4]+OZ,f=p[5],tap=TAPS[p[1]..","..p[2]]}
+    end
+    table.sort(list,function(a,b) if a.z~=b.z then return a.z<b.z end;return a.x<b.x end)
+    st.rpi=st.rpi or 1
+    for i=st.rpi,#list do
+        if not w.active() then w.save();return false end
+        local c=list[i]
+        st.rpi=i
+        w.status("Programmiert","Speicher "..i.."/"..#list)
+        -- Turtle ueber B (lokal y2) auf y3. Ueber dem Speicher ist y3 frei, ausserhalb nicht:
+        -- in derselben Zeile direkt, sonst ueber die Reisehoehe
+        local ok,why
+        if st.y==3 and st.z==c.z then ok,why=line("x",c.x)
+        else
+            ok,why=vert(SAFE)
+            if ok then ok,why=line("z",c.z) end
+            if ok then ok,why=line("x",c.x) end
+            if ok then ok,why=vert(3) end
+        end
+        if not ok then return false,why end
+        DIG.down()                                   -- B weg
+        ok,why=w.move("down",MOPT);if not ok then return false,why end    -- in B-Feld (y2)
+        local e,b=turtle.inspectDown()
+        local isTap=e and b.name=="minecraft:repeater"
+        if c.tap~=(isTap==true) then
+            if c.tap then
+                -- Stuetze (y0) + Repeater (y1)
+                ok,why=w.move("down",MOPT);if not ok then return false,why end
+                local e0=turtle.detectDown()
+                if not e0 then local slot=w.find(isFill);if not slot then return false,"item","fill" end;turtle.select(slot);turtle.placeDown();turtle.select(1) end
+                ok,why=w.move("up",MOPT);if not ok then return false,why end
+                ok,why=w.face(FACEDIR[c.f]);if not ok then return false,why end
+                local slot=w.find(matcher("minecraft:repeater"));if not slot then return false,"item","minecraft:repeater" end
+                turtle.select(slot);turtle.placeDown();turtle.select(1)
+            else
+                DIG.down()
+                ok,why=w.move("down",MOPT);if not ok then return false,why end
+                DIG.down()
+                ok,why=w.move("up",MOPT);if not ok then return false,why end
+            end
+        end
+        ok,why=w.move("up",MOPT);if not ok then return false,why end
+        local slot=w.find(isFill);if not slot then return false,"item","fill" end
+        turtle.select(slot);turtle.placeDown();turtle.select(1)
+        w.saveSoon()
+    end
+    st.rpi=nil
+    return true
+end
+
+round=function()
+    if st.done then
+        if st.progKey==PROGKEY then
+            w.status("Fertig","Redstone-CPU steht. Neues Programm: in der Config aendern, dann START.")
+            w.finish();return true
+        end
+        -- nur Programm neu
+        if w.isHome() then local ok=resupply(nil);if not ok then return false end end
+        if w.count(matcher("minecraft:repeater"))<4 or w.count(isFill)<16 then
+            local ok=resupply("minecraft:repeater");if not ok then return false end
+        end
+        st.phase="Programmieren"
+        local ok,why,it=reprogram()
+        if ok==false and why then
+            if why=="item" then
+                local okr=goHome() and resupply(it);if not okr then return false end;return round()
+            end
+            if why~="stopped" then w.fail(why) end
+            return false
+        end
+        if ok then
+            st.progKey=PROGKEY;w.save()
+            local okh=goHome();if not okh then w.fail("Rueckweg");return false end
+            w.status("Fertig","Neues Programm ist drin.");w.finish()
+            return true
+        end
+        return false
+    end
+    opts.readyText="START: Redstone-CPU bauen (macht weiter, wo sie war)"
+    if w.isHome() then local ok=resupply(nil);if not ok then return false end end
+    while st.idx<=NSTEPS do
+        if not w.active() then w.save();return false end
+        local s=stepAt(st.idx)
+        run.scanned=st.idx-1
+        st.phase=phaseOf(s)
+        if w.freeSlots()==0 or fuel()<homeNeed()+40 then
+            local ok,why=resupply(nil);if not ok then if why~="stopped" then w.fail(why) end;return false end
+        end
+        w.status("Baut",st.phase.." - "..st.idx.."/"..NSTEPS)
+        local ok,why,it
+        clearing=s.t=="clear"
+        if s.t=="clear" then
+            local h=s.pass*3
+            if not CLEAR then h=0 end
+            ok,why=goTo(s.x,h,s.z+OZ)
+            if ok then ok,why=doClear(s) end
+            if why=="fill" then why,it="item","fill" end
+        else
+            ok,why=goTo(s.x,s.y,s.z+OZ)
+            if ok then ok,why,it=doCell(s) end
+        end
+        if ok then
+            st.idx=st.idx+1;w.saveSoon()
+        elseif why=="stopped" then w.save();return false
+        elseif why=="item" then
+            local okr,whyr=resupply(it)
+            if not okr then if whyr~="stopped" then w.fail(whyr) end;return false end
+        else w.fail(why);return false end
+    end
+    run.scanned=NSTEPS
+    local okh,whyh=goHome();if not okh then w.fail(whyh);return false end
+    w.unload(keep)
+    st.done=true;st.progKey=PROGKEY;st.phase="Fertig";w.save()
+    opts.readyText="FERTIG: Redstone-CPU steht. Programm aendern -> START baut nur den Speicher um"
+    w.status("Fertig","Redstone-CPU steht. Hebel 'Lauf' an oder 'Takt' druecken.")
+    w.finish()
+    return true
+end
+idleHome=function()
+    if w.isHome() and st.dir==0 then return true end
+    return goHome()
+end
+idleBase=function() return w.unload(keep) end
+pcall(w.equipTool,isTool)
+w.start("TOAST REDSTONE-CPU",PW.."x"..PD.." Bloecke, "..NCELLS.." Teile")
+]======]
+FILES["cpu_plan.lua"]=[======[
+-- Toast Control: Bauplan Redstone-CPU (erzeugt, nicht von Hand aendern)
+return {
+version=1,w=135,d=181,h=7,
+cols={"nIMM0","nIMM1","nIMM2","nIMM3","nSELX","nSELY","nSELI","nUSEA","SUB","nSUB","nWRA","nOUT","nJMP","nJZ"},
+layers={
+ [1]={
+  [1]="19.7dE13dE13dE13dE13dE13dE3ds",
+  [2]="19.s",
+  [3]="27.9ds4.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [4]="21.s5.N3.s9.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [5]="27.d2.s10.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [6]="25.s.s.s.s9.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.s",
+  [7]="24.s2.3d11.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [8]="23.s.s.d13.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [9]="19.9d13.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [10]="19.s.s.N9.s7.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.d",
+  [11]="20.s2.ds5dEds8.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [12]="21.s.d7.d.s3.s3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [13]="23.d2.s.s2.7d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [14]="23.d3.s5.s7.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [15]="23.d9.d7.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [16]="23.d9.d.s5.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.N",
+  [17]="23.9dsds6.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d",
+  [18]="23.s3.d.s3.d.s5.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.d",
+  [19]="24.s3ds4.d2.sd3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d.3d",
+  [20]="15.s11.N.s3.d3.d3.d3.d3.d3.d3.d3.d3.d3.S3.S3.d3.d3.d3.d.s.s.d",
+  [21]="16.s10.d2.s7d.3ds2.dsd.3d.ds2.d.dWd.3d3.ds2.d3.d3.d.3d2.sd.5d",
+  [22]="21.s5.d5.s5.d5.d.d3.s5.d.d3.d3.s5.d3.d3.d.d.s7.s",
+  [23]="22.s4.d4.s6.d2.s2.d.3dE5dsd.d3.ds.s6.d3.d3.d.d.d8.s",
+  [24]="27.d3.s.s5.d.s3.d11.d.d.s11.d3.d3.d.d.d.s",
+  [25]="25.3d.3d7.ds4.d11.d.ds12.d3.d3.d.d.3ds",
+  [26]="25.d.s.d15.S.s9.d.d13.d3.d3.d.d3.d",
+  [27]="25.d3.d5.3dEds4.d9.dWd.7dEds4.d3.d3.d.d3.d",
+  [28]="17.s7.d3.d5.d7.s.s5.s3.d9.s7.d3.d3.S.S3.d",
+  [29]="17.5dE3d2.sd.5d8.s7.s2.d10.s2.ds2.ds2.d3.d.d3.d",
+  [30]="17.d13.s23.d3.s9.d7.d3.d.d3.d",
+  [31]="15.3d.11dE13dE9d.d4.s8.dsd3.dWd2.sd.d3.d",
+  [32]="15.d3.d19.s13.s.d13.d.d3.d7.d3.S",
+  [33]="15.d.dEds11dEd6.s14.d13.d.d3.d2.s3d.d3.d",
+  [34]="13.s.d.d.s.d11.d21.d13.d.d3.d5.d.s3.d",
+  [35]="14.sd.d.dEd10.s11dE5d5.d13.d.d3.d5.3d3.d",
+  [36]="15.N.d.d13.s9.s3.s.s.s3.d13.d.S3.d7.d3.d",
+  [37]="15.d.d.d14.s9ds3d4.s2.ds7d5.d.d3.d7.dsd.d",
+  [38]="15.d.d.s19.d3.N.d9.d7.d5.d.d3.d7.S.d.d",
+  [39]="9.ds4.dsd13.5ds2.d3.3d9.d.3dEd.d5.d.d3.d7.d.d.d",
+  [40]="9.N5.d.d13.d3.d.s.s5.s.s7.S.d.s.d.S5.S.d3.d7.d.d.d",
+  [41]="9.d.5d.d7.3ds2.dsd.d10.s8.d.d.d.d.ds4.d.d3.d6.sd.d.d",
+  [42]="9.d.d5.d3.s3.d5.S.d.d19.d.d.d.d7.d.d3.d5.s.d.N.d",
+  [43]="9.d.d.dE3d2.s2.3d.5dsd.d.5dW3ds8.d.d.d.3ds4.d.d3.d6.sdsd.d",
+  [44]="9.d.d.d9.d3.d5.d.d.s17.d.d.d9.d.d3.S9.d.d.s",
+  [45]="9.dsd.d.5dE3d.3ds4.d.dW13dW5d.d.d2.sd5.d.d3.d9.d.ds",
+  [46]="11.N.s.s9.d.s5.d21.d.d.d3.d5.d.d3.d.s7.d.S",
+  [47]="11.9dWd3.d2.sd3.d21.d.d.d3.d5.d.d3.d9.ds13dEd",
+  [48]="11.d9.d3.d3.d3.d21.d.d.d3.d5.d.d3.d7.s.d7.s7.s.s",
+  [49]="11.d9.dsdWd3.d3.d20.sd.d.d2.sd5.d.d3.d9.d8.sdE7d",
+  [50]="11.d9.d7.d3.d5.s13.s.d.N.d.s.d5.d.S.s.d9.d5.s3.d",
+  [51]="11.d9.9d3.d6.s12.3d.d.d3.d5.d.3ds7dEdsds4.5d",
+  [52]="11.S17.N3.S7.s11.S3.d.S3.N5.d3.d.d9.d.s",
+  [53]="11.d17.d3.d7.3dWd4.s2.d.3dsd3.d2.s2.d3.d.ds.s6.d",
+  [54]="11.d11.s5.d3.d9.s.s3.s3.s.d.s.d3.d.s3.S3.d5.s5.d",
+  [55]="5.7d12.s4.d2.sd10.s6.5d3.d3.d5.d3.d11.ds5dE13dE7d",
+  [56]="5.s23.d.s.d17.s7.d3.d5.d3.d11.N27.d",
+  [57]="29.3d.ds3d15.5d.d.7dsd3.d11.d6.s3.s3d13.d",
+  [58]="27.s3.d.d3.S15.d.s.s.s.s.s3.d.s3.d7.s3.d13.d13.d",
+  [59]="28.s2.d.3d.13dE3d2.s5ds.s2.dW3d.d2.s4.d3.d8.sdEd.5d9.d",
+  [60]="13.s17.d3.d21.d.s.d5.s.s.d.d.s5.d3.d11.d5.s9.d",
+  [61]="13.9dW3d5.3d.d.7dWds4.3dW3d.d.3dW3ds.sd.dEd5.d2.sd10.s11dEd3.d",
+  [62]="23.s.d5.s.N.d.s13.d7.d7.d3.d3.d5.d.s.d9.s13.s.s.S",
+  [63]="24.s3d3.d.d.dE7d2.s5d5.3ds6.ds2.d3.d5.d3.d4.s20.d.d2.s",
+  [64]="17.s9.d3.N.d9.s.s11.S.s5.s5.s3.s5.d3.d3.s11.s9.d.d.s",
+  [65]="9.5dW3d3.5dsd3.d.d23.d3.5ds2.9dEdsd.3dE13dEd9.d.3d",
+  [66]="9.d5.s5.d5.d3.d.d19.s.s.d.s.s3.d3.s11.S.d.s15.s9.d3.d",
+  [67]="9.d.dW3d5.d5.d3.d.d5.9dE3d.dEdsds5ds3dW7d5.d.d2.s3ds5.s2.11d.dEdsds9dEd",
+  [68]="9.d.d9.d5.d3.d.d5.d3.s5.s.d3.d.d3.s13.s5.s.N3.d3.s5.s.d9.s.d3.d11.s",
+  [69]="9.d.d.7dWd5.d3.d.d5.d3.d6.s3d.d.3ds4.3dsdE13d3.d2.s7dWd2.s3dW5d3.d",
+  [70]="9.d.d.d5.s7.N3.d.s5.d3.S9.d.d3.d.s3.s.d5.s13.s3.d11.d11.d",
+  [71]="9.d.d.d5.3dWd3.d3.d.5dEd3.5d5.dsd3.ds5.s5dW13dW5d3.9d.5d5.ds9dEd",
+  [72]="9.d.d.d7.s.d3.d3.s.d13.d7.d11.s17.s9.S9.d.s.d5.d7.s3.s",
+  [73]="9.d.d.d7.d.d3.d.5d7.5ds3d5.ds4.9dW13d.d3.7ds5.s3ds2.dsd3.d7.d",
+  [74]="9.S.d.d7.N.d3.d.d.s9.d5.s.s5.d.s3.s21.N.d.s.s5.s13.d.d3.S7.d",
+  [75]="9.d.d.d7.d.d3.dsd.d.7dEd6.s6.ds5.s.s4.dWds10.d.9dE13d.d.d3.dsd5.d",
+  [76]="9.d.d.S7.d.d3.d3.d.d11.s.s15.s5.d13.d23.S.S.d3.d.d5.d",
+  [77]="9.d.d.d4.sd.d.3d.d3.d.d.7dW3d2.s9dW11ds12.11dW7d2.s2.d.d.d3.d.d5.d",
+  [78]="9.d.d.d5.d.d.s.d.d3.S.d.d61.s3.d.s3.d.d.d3.d.N5.d",
+  [79]="9.d.d.d5.d.d.3d.ds2.d.d.ds3.sd2.sd2.sd2.sd2.sd2.sd3.d2.sd2.sd2.sd2.sd2.sd2.sd3.d3.d3.3d3.d.d.d3.d.d5.d",
+  [80]="9.d.S.d5.d.d.d3.S3.d.s7.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d.s3.d3.d.d.d3.d.d5.d",
+  [81]="9.d.d.d5.d.d.d3.d3.d4.sd3.d3.d3.ds2.d3.ds2.d3.d3.ds2.d3.ds2.d3.d3.ds2.d3.d2.s2.d3.dsd.d3.d.d5.d",
+  [82]="9.d.d.d5.d.d.S3.d3.d3.s.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d.s3.N5.d.S3.d.d5.S",
+  [83]="9.d.d.d3.dsd.d.d3.d3.3ds2.d2.sd2.sd2.sd3.d2.sd2.sd2.sd2.sd2.sd3.d2.sd2.sd2.sd3.d3.d5.3d3.dsd3.d.d5.d",
+  [84]="9.d.d.d3.d.d.d.d3.d5.d.s.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d5.s.d3.d5.d.d5.d",
+  [85]="9.d.d.d3.d.d.d.ds2.d5.d3.d3.ds2.ds2.ds2.d3.ds2.ds2.ds2.ds2.d3.ds2.ds2.ds2.ds2.d3.d6.s3d.d5.d.d5.d",
+  [86]="9.d.d.d3.d.N.d.d3.d5.s3.d3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S5.s3.d.d3.s.d.d5.d",
+  [87]="9.d.d.d3.d.d.d.d.3d.7dsd2.sd3.d2.sd2.sd2.sd2.sd2.sd2.sd3.d2.sd3.d3.d2.sd3.d3.ds8.d.d3.d.d.d5.d",
+  [88]="9.S.d.d3.d.d.N.d.d.s.N7.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d5.s7.d.d3.d.S.d5.d",
+  [89]="9.d.d.ds2.d.d.d.d.d3.d6.sd3.ds2.ds2.ds2.ds2.d3.ds2.ds2.ds2.d3.ds2.ds2.ds2.ds2.d6.s6.d.d3.d.d.d5.d",
+  [90]="9.d.d.S.s.d.d.d.d.S.s.s.s3.s.N3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d5.s5.s.d.S3.d.d.d5.d",
+  [91]="9.d.d.3d.d.d.d.d.ds4.d2.s2.d2.sd2.sd2.sd2.sd3.d2.sd2.sd2.sd2.sd2.sd2.sd2.sd2.sd3.d3.3d4.s.sd.d3.d.d.d5.d",
+  [92]="9.d.d3.d.d.d.d.d.d.s3.d3.s.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.s.d7.N.d.s.d.d.N5.d",
+  [93]="9.d.d3.d.d.dsd.d.3d.3d3.3d3.ds2.ds2.ds2.d3.ds2.d3.d3.ds2.d3.ds2.d3.d3.ds2.d5.3dWds2.d.ds2.d.d.d5.d",
+  [94]="9.d.S3.d.N.d.d.d3.d.s.s3.d5.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S7.s5.d.d.s.d.d.d.s3.d",
+  [95]="9.d.ds2.d.d.dsd.d3.d3.5d4.sd2.sd2.sd2.sd2.sd2.sd2.sd2.sd2.sd2.sd2.sd2.sd2.sd3.d3.ds.s6.d.d.3d.d.d5.d",
+  [96]="9.d.d.s.d.d3.d.S.s.s3.d5.s3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.s5.d.d.S3.d.d5.S",
+  [97]="9.d.d3.d.d3.d.ds.s4.d.5d3.ds2.ds2.ds2.ds2.ds2.ds2.ds2.ds2.d3.ds2.ds2.ds2.ds2.d3.7ds2.d.d.d3.d.d5.d",
+  [98]="9.d.d3.d.d3.d.d5.s.N.d.s5.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d7.s.d.d.d3.s.d5.d",
+  [99]="9.d.d3.d.d3.d.3d.3d.d.d6.sd2.sd2.sd2.sd2.sd2.sd3.d2.sd2.sd2.sd2.sd2.sd2.sd2.sd3.d6.s.sd.d.d.5d5.d",
+  [100]="9.d.d3.d.d3.d3.d.d3.s.d3.s3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.N9.d.d.d.d9.d",
+  [101]="9.dsd3.d.d3.d3.d.d5.d.3d3.d3.d3.ds2.d3.ds2.d3.d3.ds2.d3.ds2.d3.d3.ds2.ds2.ds5ds2.d.d.d.d9.d",
+  [102]="9.S.d3.S.d3.N.s.s.d.s3.N.d5.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.d3.s5.s.d.d.N9.d",
+  [103]="9.d.d3.d.d3.d.d3.ds2.3d.d4.sd2.sd2.sd3.d2.sd2.sd2.sd2.sd2.sd3.d2.sd2.sd2.sd2.sd3.ds.s8.d.d.d9.d",
+  [104]="9.d.d3.d.d.s.d.d3.S.s.d3.d5.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.s.s5.S.d.d.s7.d",
+  [105]="9.d.d3.d.3d.d.d3.d3.d3.d5.ds2.ds2.ds2.d3.ds2.ds2.ds2.ds2.d3.ds2.ds2.ds2.ds2.ds2.ds5d2.sd.d.d.d.d7.d",
+  [106]="9.d.d.s.d3.N.d.d3.s3.d.s.s5.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d7.s.d.d.d.d.d7.d",
+  [107]="9.d.dEdsd3.d.d.dE7ds7.sd3.d2.sd2.sd2.sd2.sd2.sd2.sd3.d2.sd3.d3.d2.sd2.sd3.7ds.sd.d.d.d.d7.d",
+  [108]="9.d3.d.d3.d.d11.s7.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d5.S3.d.d.d.d.d7.d",
+  [109]="9.3d.d.d2.sd.d19.ds2.ds2.ds2.ds2.d3.ds2.ds2.ds2.d3.ds2.ds2.ds2.ds2.ds2.d5.5d.d.d.d.d7.d",
+  [110]="9.s.d.d.d3.d.d11.s7.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.S3.d11.d.S.d.d.s5.S",
+  [111]="10.sd.d.d3.d.dsd6.sd.d7.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d3.d.3dW5d.d.d.d.d2.s4.d",
+  [112]="11.d.d.d3.d.d.d7.d.d.s5.d3.d3.d.s.d3.d3.d3.d3.d3.d3.d3.d3.d3.d.s.s3.N.d7.d.s.d.s.d7.d",
+  [113]="11.d.dsd3.dsd.7dEd.ds6.3d.ds2.d.d.ds3d.3d3.dEd.dEd.d3.3d.d3.d3.d.7dsd.3d3.5d.3d7.d",
+  [114]="11.S.d.d5.d.s7.d.d.s7.d.d3.d.d.S.d3.S7.d3.d.d5.d.d3.d3.d7.s.d.s.d9.S9.d",
+  [115]="11.d.dsd5.d.dW5d.dsd9.d.3d.d.d.d.d3.ds2.ds2.3d.d.d5.d.d2.sd3.dsdW7d2.s3d.7d9.d",
+  [116]="11.d3.S5.N.d5.d3.d7.s.d3.d.d.d.d.d3.d.s.d3.s.d.d.d3.s.S.S.s.S3.S.d.s.s7.s.s.d15.d",
+  [117]="11.3d.d5.d.d5.d3.dE3d.dEd.d.dsd.d.d.d.d3.d.3dsd2.sd.d.d4.sd.d3.d.3dsd.d.7dW5d15.d",
+  [118]="11.s.d.d5.d.d5.d7.s.d3.d.d.S.d.s.d.d.s.d.N3.d3.d.d.d5.d.d3.d.d.s.d.d29.d",
+  [119]="13.d.d3.3d.d5.5dWd.3d3.d.d.d.dEd.d.dEd.d.d3.d3.d.d.3d3.d.d.3d.d.3d.d2.sdE13dE9d.d",
+  [120]="13.d.d3.d3.d5.d5.d.d5.S.d.d3.d.d3.d.d.s.s.d3.d.d.s.S3.d.d.d.s.d.d3.d.s.d13.s9.d.d",
+  [121]="13.d.d3.ds3d5.ds4.dsd5.d.d.d3.d.3d.d.d4.sd3.d.ds2.d3.d.d.ds3d.d3.5d.dW3ds6.dWd7.d.d",
+  [122]="13.d.d3.d7.s9.d5.d.s.d.s.d.s.d.d.d3.s.d3.d.d.s.d3.d.d.d.d3.s9.d.s11.d7.d.d",
+  [123]="13.d.d3.5d2.sdW7dsd5.d3.d.d.3dsd.d.dsd.3d3.d.3d.d.3dsd.d.ds3ds2.7d13.5d3.d.d",
+  [124]="13.d.s7.N13.d5.d3.d.d3.d.d.d.d.d.S.s3.S3.S.d.d.s.d.d.d3.d.s.d.s17.s3.d3.S.S",
+  [125]="13.dE5d3.d11.dsd5.d3.d.d3.d.d.dsd.d.d.d3.d3.d.d.d.3d.d.d3.dW3d.7dWds8.3d.d3.d.d",
+  [126]="19.d3.d11.d.d5.d3.d.d3.d.S3.d.d.d.d3.d3.d.d.d.d3.d.S11.s5.d.s9.d.d3.d.d",
+  [127]="19.ds2.ds7dEdsd.d5.d3.d.d3.d.d2.sdsd.d.d3.d3.dsd.d.d3.d.ds7.s5dWd.7d5.d.d3.d.d",
+  [128]="19.d.s3.d9.d.N5.d3.d.d3.d.d.s.S3.d.d3.d5.d.S.S3.S.d.s13.s7.d5.N.d3.d.d",
+  [129]="17.5dE3ds7dsdsd5.d3.d.ds2.d.3d.d3.dsd3.d5.d.d.d.3d.d.3dW11dWd4.s3dWd.d.d3.d.d",
+  [130]="17.d9.d7.N7.d3.d.N3.S3.d.d3.d5.d5.d.s.d.d.s.d.d9.s5.s5.s3.s.d.N3.d.d",
+  [131]="17.d8.sd.7d2.s4.d2.sd.d3.d3.d.ds2.d5.dsd3.d.3d.d3.d.ds3.s2.dEd2.s2.dE11d.d3.d.d",
+  [132]="17.S7.s.N.d3.s3.s5.d.s.S.d3.d3.d.d.s.s3.s.d.S3.d.d3.d3.d7.s.d5.s.d13.d3.d.d",
+  [133]="17.d.5ds3d.ds2.dE5d3.dEd.d.d3.ds2.d.7ds2.d.d3.d.d3.d3.d5.ds2.d5.3d3.11d3.dsd",
+  [134]="17.d.s5.d3.d.s5.s.d.s3.d.s.s3.d.s.s7.d3.d.d3.S.d3.d3.d3.s.d3.d.s3.d5.N9.s.s3.d",
+  [135]="17.d2.s4.d3.3ds5d.3ds2.5d3.9dEdsdEd.d.d3.d.d3.d3.d2.s2.d3.ds5d.5d.7dEd.d3.d",
+  [136]="17.d3.s3.d.s3.N3.s5.d7.d17.s.d.d3.d.d.s.d3.d5.d3.d.d5.d5.d9.d3.d.s",
+  [137]="17.d7.ds4.5ds4.dE5d.5dE9ds2.dWd.d3.d.d2.sd.3d.5d3.d.d.ds2.dsd3.d.3dE5d3.d.d",
+  [138]="17.d7.d9.d11.d9.s7.s.d.s.d.s.d.d3.d.S.s.N.s.s.s.d.s.d.s.d.d.s.d.d9.s.S.d",
+  [139]="17.d7.5dW3d.7dW3d.7d13.3d.d.3d.d3.d.ds3d.d2.s2.d3.ds3d.d.3d.d10.sd.d",
+  [140]="17.d15.d11.d7.S15.d.s.d3.S3.S.d.d3.d5.d3.d.d3.d.N3.d11.d.d",
+  [141]="17.ds3dW9d.d11.3d5.d15.d.3d3.d3.d.dsd3.d4.sd3.dsd3.d.d2.sd3.9d.d",
+  [142]="17.d13.d.s13.d.s3.d3.s7.s3.s.d.s3.d3.d.d5.d5.d3.d3.s.S.d3.d3.d.s7.d.s",
+  [143]="17.d13.3dW7d5.d2.s2.9d5.3dWd.5d.3d.d5.d5.d3.d3.d.dsd3.d3.dsdW7d",
+  [144]="17.d23.d5.d13.d5.s5.d5.d.s.d5.N5.S.s.d3.d3.d3.d3.S.d5.s",
+  [145]="17.d23.ds4.d13.d9.3d5.d.3d3.3d5.3d.d3.d3.d3.d3.d.d4.s",
+  [146]="17.S3.s3.s3.s9.s7.d9.s3.S3.s3.s.s.s5.d.d5.d9.d.N.s.d.s.d.s.d.s.d.d",
+  [147]="17.d13.9dEds4.dWd11.3d9.dW5d.d5.d3.ds4.dsd.3d.3d.dEd.3d.d",
+  [148]="17.d13.d13.s3.d.s11.d9.d7.d5.d3.d7.d.d3.d3.d3.d3.d9.s",
+  [149]="17.d13.ds13dEd.d13.d7.3d.5dWd5.d3.ds6.d.d3.d.3d3.d.3d10.s",
+  [150]="17.d13.d15.d.s7.s5.d.s5.d.s.d11.d3.N7.d.S3.d.d5.d.d",
+  [151]="17.d12.sd5.ds3.s4.11dE3d.3d5.d3.d11.d3.d7.d.d3.d.d5.d.d",
+  [152]="17.d19.d3.s19.d3.d5.d3.s11.d.s.s5.s.d.d3.N.d3.s.d.d",
+  [153]="17.d19.d23.3d.3d2.sd15.d.3dE7dsdEdsd.d3.d.d.d",
+  [154]="17.d19.d11.s7.s.s3.d.s.S.s3.s13.s13.d3.d.d3.N.d.S.s",
+  [155]="17.d19.d12.s8.d3.3d.9ds24.d.3d.d.3d.d.ds",
+  [156]="17.d19.d21.N5.d25.s9.d.d.s.d.d3.S.d",
+  [157]="17.d15.dEd.d21.d5.dE11d14.s8.d.d.d.d.ds2.d.d",
+  [158]="17.d15.d.s.d21.d.s15.d23.d.d.d.N.d.s.d.d",
+  [159]="17.d15.d.3ds7dW9d3.d.5dW9dsd23.d.dsd.dsd3.d.d",
+  [160]="17.S15.d.S17.s.s3.d15.N.S23.s.d.d.d.S3.d.d",
+  [161]="17.d4.s8.3d.d3.ds6.5ds6.ds14.d.ds7dE13dE3d.d.d.3d.d.d",
+  [162]="17.d13.d3.d.s.d.s3.s.d.s9.d15.d.d3.s3.s3.s3.s7.s3.d.d3.s.d.d",
+  [163]="14.s2.d13.d3.d.7dE3d11.7dW7d.d.11dE11ds4.d.d.5d.d",
+  [164]="15.s.d13.d3.d.d5.s.d11.s15.d.d23.d5.s.d.d5.d",
+  [165]="17.d13.d3.d.d5.d.d10.s16.d.9dW13d.dE7d.d.dW3d",
+  [166]="17.d13.d3.d.N5.d.d19.s7.d23.N11.S.d11.s",
+  [167]="17.d2.s10.d3.dsd5.d.3d25.3dW13dW5ds13d.d",
+  [168]="17.d13.N3.d3.s3.d3.d3.s43.d.s13.d",
+  [169]="17.ds12.d3.ds2.d3.d3.ds.s11.s32.7dW9d4.s",
+  [170]="31.d5.s.d3.N13.s3.s55.s",
+  [171]="31.ds5.sd3.ds5dW7d42.s",
+  [172]="23.s15.d3.d",
+  [173]="22.s7.s8.ds2.d22.s",
+  [174]="43.s21.s",
+  [175]="52.s",
+  [176]="53.s",
+  [177]="58.s",
+ },
+ [2]={
+  [1]="21.11s.65s2.ds",
+  [2]="19.d.s.s7.s65.s3.s",
+  [3]="19.s.s.s.5s.3s2.d3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.s3.3s.s",
+  [4]="19.s.d3.s5.d67.s.s",
+  [5]="19.s.5s3.sd7s3.s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.s.s",
+  [6]="19.s.s3.d.d.d.d5.s59.d.s.s",
+  [7]="17.3s.s.sd3s3.s5.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.s5.s.s",
+  [8]="17.s3.s.d.d5.s67.s.s",
+  [9]="17.s3.s3.7s.s.3s3.s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.5s.s",
+  [10]="17.s.d.d7.s3.d.s65.s",
+  [11]="17.s.sd3sd2.s.s.sd3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.s3.3s.s",
+  [12]="17.s3.d5.s.s.s.d3.d61.s.s",
+  [13]="17.s3.s.3sdsds.s.s7.s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.s.s",
+  [14]="17.s3.s5.d3.s.d63.s.s.s",
+  [15]="17.s.3s.9s3.s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.s3.s.s.s",
+  [16]="17.s.s3.s3.s7.d.s61.s.s",
+  [17]="13.5s.s.s.s3.s.s2.dsd3s3.s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.3s.5s.s",
+  [18]="13.s5.s.s.d3.s.d5.d65.s",
+  [19]="13.s.5s.s.sd2.sd5s.sd2.53s9.s",
+  [20]="13.s.d5.s5.s.d9.s51.d.d7.s",
+  [21]="13.s.sds3.s3.3s.sd2.s.5s2.d3sd7.d13s2.d15s.sd4.s7.s",
+  [22]="13.s.s.s3.d3.s3.s3.d.s15.d15.d17.d.s5.d7.s",
+  [23]="13.s.s.s3.sd3s.3s.sd3s.5sd7s.3s2.d5s2.dsd13s7.s5.sds5.s",
+  [24]="13.s.s.s3.s.s3.s3.d.d3.s3.d.s3.s.s3.s7.d3.s13.s7.d5.s.s5.s",
+  [25]="13.s.s.s.3s.s3.s.s3.3s.s2.ds.s3.s.3s.s5.sd3s.s13.7s.sd5s.s5.s",
+  [26]="13.s.s.s.s3.s3.d.s3.s.s.s5.s3.d3.s.s5.s5.s19.s.s7.s5.s",
+  [27]="13.s.s.s.s3.s3.7s.s.s2.ds.s3.s3.s.s5.7s2.d13s3.s.s7.3s3.3s",
+  [28]="13.s.s.d.s3.s19.d.d.s3.d.s5.s5.d15.s3.s11.s5.s",
+  [29]="13.s.s.3s3.5sd6.7s.sds.s3.sd5s.s5.sds2.ds2.d3s3.3s.9s3.5s.9s",
+  [30]="13.s.s3.s11.d3.s5.s.s.s.s3.s7.d5.s11.s5.s9.s7.s",
+  [31]="11.3s.s3.5s.7s.3s.3s.s.s.s.s3.s7.sds3.5sd6.s.sd2.3s7.5s3.17s",
+  [32]="11.s3.s7.s9.s5.d.s.s.s.s3.s.d5.s.s15.s7.s11.s",
+  [33]="11.s.s.s.3sds.s.7s.s5.sds.s.s.s3.s.s5.s.s7.9sd6.11s.29s",
+  [34]="11.s.d.s3.d3.s.s7.s5.s3.s3.s3.s.s5.s23.d11.s29.s",
+  [35]="11.s.sds3.5s.s5.sds5.3s.s3.s3.s.3s3.s7.17s11.s29.s",
+  [36]="11.s.s7.s3.s5.s.d7.s.d3.d.d.d3.s3.s7.s27.s29.s",
+  [37]="11.s.3s5.s3.s5.s.sd2.s3.s.sds3.s.sds.sd2.s7.s.15sd10.s.5s23.s",
+  [38]="11.s3.s3.d.s3.s5.s5.s3.s.s5.s.s.s5.s9.s25.s5.s23.s",
+  [39]="10.ds3.sd3s.s3.s.5s3.sds3.s.s3.3s.s.s5.s.9s.17s7.s5.s23.s",
+  [40]="21.s3.s9.s.d.d.s.s.d.d5.s5.d.s9.s15.s7.s5.s23.s",
+  [41]="3.17s.s.3s2.d3sd2.s.3s.s.s.sd7s7.s2.d7s3.7sds3.5s3.5s.s23.s",
+  [42]="3.s17.d13.s5.s.s17.s13.s5.d9.s7.s.s23.s",
+  [43]="3.s.13s.sd11sd3s3.3s.s2.d15s2.d7s.3s.3s.sd.d5s.5s3.s.s23.s",
+  [44]="3.s.s11.s.s17.d.s3.s29.s3.s11.d5.s3.s.s23.s",
+  [45]="3.s.s4.ds5.s.9sds.7s.s3.s11.7sd10.s3.s5.5sd5s.s3.s.3s21.s",
+  [46]="3.s.s5.s.d.d.s9.d3.s7.s3.s29.s3.d5.s9.s.s3.s3.s21.s",
+  [47]="3.s.s5.s.s.s.9s.sd2.s.5s.s3.s3.25s.s3.s5.s.sd6.s.3s.s3.s21.s",
+  [48]="3.s.s5.s.s11.s5.s.s5.s3.s29.s3.s5.d9.d3.s.s.d.d21.s",
+  [49]="3.s.s5.s.s.7sd2.7s.s3.s.s3.s.9sd7sd5s5.s3.s5.3s.3s.s.sds.s.s.s23.s",
+  [50]="3.s.s5.s.s.s17.s3.s.d3.s9.d7.d5.s5.d13.s.s.d.s.s.s.s.s23.s",
+  [51]="3.s.s5.s.s.s.17s.3s.sds.s7.s.3s3.5s3.s5.sd5s4.dsds.s3.s.s.s.s.13s11.s",
+  [52]="3.s.s5.s.s.s.s17.s3.s.d.s7.s3.s7.s3.s5.s5.s5.s.d.s5.s.s.s13.s11.s",
+  [53]="3.s.3s3.s.s.s.s5.11s.s.3s3.s3.3sds3.3sds3.3sds5.s2.dsds.s3.s.s.7s.s.s13.s11.s",
+  [54]="3.s3.s3.s.s.s.s5.d9.s.s.s5.d.d.s.d3.d3.d.s5.d7.s5.d.s3.s27.s11.s",
+  [55]="3.s3.s3.s.s.s.s5.sd7sd3s.s5.sds.s.s3.s.3s.15s.s.3s.s3.sd6.17s3.3s9.s",
+  [56]="3.s.d.s3.s.s.s.s5.s5.s.d5.s5.s3.s3.d.s.s19.s3.s.s11.s15.s5.s9.s",
+  [57]="3.s.s.s3.s.s.s.s3.s.s.3s.s.s.sd2.3s.3s3.s3.s.s.s7.5sd2.5s3.s.3s5.3sds.sd2.9s.5s.s9.s",
+  [58]="3.s.s.s3.s.s.s.s3.s.s.s.d.s3.s3.s3.s5.s3.s.s.d.d.d.d.d5.d.s7.s.d.s15.s7.s5.s.s9.s",
+  [59]="3.s.s.s3.s.s.s.s3.s.s.s.sd5s.s.3s.s.s3.3s.s.s.sds.s.sdsds3.s.s.3sds.s3.11sd4.s7.s5.s.s9.s",
+  [60]="3.s.s.s3.s.d.s.s3.s.s3.s7.s3.s.s.s3.s3.s.s.s3.d3.s3.d.d.s3.d.s.s19.s3.d3.s5.s.s9.s",
+  [61]="3.s.s.s3.s3.s.s3.s.s.3s.s.s.3s3.s.3s2.ds.3s.s.s5.3s.s.sdsds.3s.s.s.3sd11sds.3s.s3.s3.s.s.9s.s",
+  [62]="3.s.s.s3.s3.s.s3.s.d.s3.s.d.s3.d.s.s7.s3.s.s9.s3.s3.s3.s.s3.d11.d.s3.s.s3.s.d.d.s9.s.s",
+  [63]="3.s.s.3s.3s.s.s3.s.sds3.s3.5s.s.s3.sd2.s3.s.s.3sd5s2.ds3.s3.s.s3.7sd3s.s.3s.s.3s.s.s3.3sd5s.s.s",
+  [64]="3.s.s3.s5.s.d3.s.s5.s5.s3.s3.d.d3.s3.s.s3.d5.d5.d.s.d.s11.d3.s.s3.s.d5.s.s5.d5.s.s.s",
+  [65]="3.s.s3.5s.s5.s.s2.d3s.3s.s.3s3.s.s.3s.s.s.3s.s5.sds3.s.s.s.s2.d3s.5s3.s.3s.s7.s.3s3.5s.s.s.s",
+  [66]="3.s.s7.s.d5.s.s5.s.s3.s.s5.s.s.s3.s.d.d3.d.d3.s3.d.s.s3.s7.d7.s3.s.s.d5.s3.s7.s.s.s.s",
+  [67]="3.s.s3.3s.s7.s.3s3.s.5s.s5.s.s.s.3s3.sdsd2.s2.d5s.s.s3.3s5.sds2.ds.3sds.s.s5.s3.s2.dsd2.s.s.s.s",
+  [68]="3.s.s5.s.s7.s3.s3.s.s3.s.s5.d.s.s.d5.s5.d9.s.s.d5.d3.s5.d5.d.s.s5.s.d.s7.s.s.s.s.d",
+  [69]=".s.s.s5.s.s.5s.s3.3s.3s3.s.s7.s.s.sd5s.3sd3s3.sd2.s.s.5s.s3.s3.sd9s.sd3s.s.s.3s5.s.s.s.s.3s",
+  [70]=".s.s.s5.s.s5.d.s3.s.s5.d3.s11.s7.s3.d3.d.s3.s.d7.s3.s.d17.s.s.s3.s5.s.s.s.s3.s",
+  [71]=".s.s.s5.s.s7.s3.s.s.s3.5s.11s4.ds.s2.ds.s.sds.3s.9s3.s.s3.3s3.s.5s.s.s.3s.3sd2.3s.s.s3.s",
+  [72]=".s.s.s5.s.s7.d3.s3.s.d3.s3.s3.s13.s5.s3.d.s15.d.s5.s3.s7.s.d15.d.s.d.s",
+  [73]=".s.s.s5.s.3s9.7s.3s3.s.s.s2.ds5.3sds5.s3.s.s.7s9.s5.3sd5sd2.sd3sd2.7s5.s.s.s",
+  [74]=".s.s.s5.s3.s15.d.s5.s.s5.d.d7.d3.d.s5.s17.d.d5.d23.s5.s.s.s",
+  [75]=".s.s.s5.3s.13sd4.s5.3s3.3sds6.ds3.sdsds.3s2.d13s.3s3.s.21sd2.5s.s.s.s",
+  [76]=".s.s.s7.s25.s5.d.d15.d3.s25.s29.s.s.s.s",
+  [77]=".s.s.s7.5sd4.17s7.sd2.13s3.3sd13s9.5s.5sd5s3.9s.s.s.s.s",
+  [78]=".s.s.s17.d73.d5.d9.s7.s.s.s.s.s",
+  [79]=".s.s.s13.3s3.s2.ds6.d3sE3sE3sE3sE3sE3sE3s.3sE3sE3sE3sE3sE3sE3s.s5.3s.11s.s5.s.s.s.s.s",
+  [80]=".s.s.s13.s5.s3.s3.d65.d15.s5.s.s.s.s.s",
+  [81]=".s.s.s9.5s3.7s3.s.sd4.s.3s.3sW3s.3sW3s.3s.3sW3s.3sW3s.3s.3sW3s.5sd5s2.d5s.s5.s.s.s.s.s",
+  [82]=".s.s.s9.s7.s5.s5.d63.d5.s7.s.s5.s.s.s.s.s",
+  [83]=".s.s.s7.3s2.d5s5.s.3sd5sE3sE3sE3s.3sE3sE3sE3sE3sE3s.3sE3sE3sE3s.s5.s.3s.s3.sd2.s.s5.s.s.s.s.s",
+  [84]=".s.s.s7.s15.s5.d67.d.s7.s.s5.s.s.s.s.s",
+  [85]=".s.s.s7.s.9sd3s.s5.s5.sW3sW3sW3s.3sW3sW3sW3sW3s.3sW3sW3sW3sW3s.9sd7s.s.s5.s.s.s.s.s",
+  [86]=".s.s.s7.s.s13.s3.d69.d7.s.d.s5.s.s.s.s.s",
+  [87]=".s.s.s5.3s.s.3s5.s3.5s2.d3sE3s.3sE3sE3sE3sE3sE3sE3s.3sE3s.3s.3sE3s.s4.d3s.5s3.s3.3s3.s.s.s.s.s",
+  [88]=".s.s.s5.s3.s3.s5.s.d3.s67.d7.s3.s5.s3.s.s.s.s.s",
+  [89]=".s.s.s3.3s.sds.s.7s.s3.s.s.sd4.sW3sW3sW3sW3s.3sW3sW3sW3s.3sW3sW3sW3sW3s.5sd5s.s3.5s.5s.s.s.s.s",
+  [90]=".s.s.s3.s3.s.d.s7.s.d.d.d.s.d63.d5.d.s13.s.s.s.s.s",
+  [91]=".s.s.s3.s.3s.s.7s.sd3s3.sd5sE3sE3sE3sE3s.3sE3sE3sE3sE3sE3sE3sE3sE3s.s5.3s.sdsds.s.s7.s.s.s.s.s.s",
+  [92]=".s.s.s3.s.s13.s.d7.d61.d.s.s3.s.s.s.d7.s.s.s.s.s.s",
+  [93]=".s.s.s3.s.s.7sd3s.s.s3.s3.s5.sW3sW3sW3s.3sW3s.3s.3sW3s.3sW3s.3s.3sW3s.3s.s.s2.ds.s.sd9s.s.s.s.s.s",
+  [94]=".s.s.s3.s.s.s9.s.s3.d.d3.s65.d5.s3.d7.d.s.s.s.s.s",
+  [95]=".s.s.s.3s.sds.s4.d3s.s3.s.s3.s.3sE3sE3sE3sE3sE3sE3sE3sE3sE3sE3sE3sE3sE3s.s4.dsd3s3.3s.s.5s.s.s.s.s.s.s",
+  [96]=".s.s.s5.s.d.s9.d.d.s.s5.d63.d15.s.s3.s.s.s.s",
+  [97]=".s.s.s5.s.s.s5.3sdsds.3s.3s5.sW3sW3sW3sW3sW3sW3sW3sW3s.3sW3sW3sW3sW3s.5s.s2.d9s3.s.3s.s.s.s.s",
+  [98]=".s.s.s5.s.s.s5.s3.s.s.d3.s.d65.s3.d9.d.s3.s.s.s.s.s",
+  [99]=".s.s.s.5s.s.s5.s.3s.s5.s.s.3sE3sE3sE3sE3sE3sE3s.3sE3sE3sE3sE3sE3sE3sEs5.5sdsd3s.s3.s.s3.s.s.s.s.s",
+  [100]=".s.s.s.s5.s.s7.s3.s3.d3.s.d67.s3.s.s3.s.s3.s.s.s.s.s",
+  [101]=".s.s.s.s.sd3s.7s.s3.3s.s3.s5.s.3s.3sW3s.3sW3s.3s.3sW3s.3sW3s.3s.3sW3sW3sd2.s2.ds3.s.s3.s.s3.s.s.s.s.s",
+  [102]=".s.s.s.s.s7.s.s.s.d.d3.d71.d5.d.s.s3.s5.s.s.s.s.s",
+  [103]=".s.s.s.s.9s.s.s3.s.sd11sE3sE3sE3s.3sE3sE3sE3sE3sE3s.3sE3sE3sE3sEs4.dsd3s3.s.s.s3.s.5s.s.s.s.s",
+  [104]=".s.s.s.s.s9.d.s3.s3.d71.d.d5.s.s3.d.s3.s.s.s.s.s",
+  [105]=".s.s.s.s.s3.s7.5s3.s.s.s7.sW3sW3sW3s.3sW3sW3sW3sW3s.3sW3sW3sW3sW3sW3sd2.s3.sd2.s.s5.s3.s.s.s.s.3s",
+  [106]=".s.s.s.s.s3.d9.s3.d.s.s.d.d65.s3.d3.s.s5.s3.s.s.s.s3.s",
+  [107]=".s.s.s.s.s3.sds5.s.5s.s.sd3s.3sE3s.3sE3sE3sE3sE3sE3sE3s.3sE3s.3s.3sE3sEs7.3sdsd3s.3s.s.s3.s.s.s.s3.s",
+  [108]=".s.s.s.s.s3.s7.s11.d3.s67.s7.s.s.s3.s.s.s.s3.s",
+  [109]=".s.s.s.s.s.s.s.3sd15s3.s3.sW3sW3sW3sW3s.3sW3sW3sW3s.3sW3sW3sW3sW3sW11s.5s.s.s.s.3s.s.s.s.s.s",
+  [110]=".s.s.s.s.d.s.s.s17.d3.s69.s7.s.d.s3.s.s.s.s.s",
+  [111]=".s.s.s.s.sds.s.s.5sd2.3s.sd4.s.s.11s.13s7.21s3.13s7.s.sds.3s.s.s.s.s",
+  [112]=".s.s.s.s.s.s.s3.s7.s.s7.d.s11.s.d11.s27.d.d.s13.d3.d.s.s3.s3.s.s.s.s",
+  [113]=".s.s.s.s.s.s.sd3s2.d5s.7sd3s.7sds.s3.sd3s.3s.7s7.11s5.s.3sds3.5s.s3.s.s.s.3s.3s.s.s.s",
+  [114]=".s.s.s.s3.s5.s5.d.s9.d3.s7.s13.s7.s7.s9.s5.s3.d.s.d.s5.s3.s.s.s.s3.s3.s.s.s",
+  [115]=".s.s.s.3s.s2.ds.3s5.5s2.d3s3.s.7s.11sds2.d3s.7s.s.5sds.s.sd2.s.s.s.s.sds5.s3.s.s.s.s.3s.3s.s.s",
+  [116]=".s.s.s3.s.s3.s13.s9.s.d7.s11.d5.d7.s.d.s3.d3.s5.d.d.s.s3.d.d3.s3.s.s.s.s.s3.s3.s.s",
+  [117]=".s.s.3s.s.s3.11s.3s9.s6.d3s7.3s.3sd2.sds5.s.sds3.s3.3sds5.s.s.s.s.3s.s3.s.s.s.s.s.s.s3.s.s",
+  [118]=".s.s3.s.s.d15.s.s7.d.s11.d5.d.s7.s7.s.s11.d9.s.s.s3.s.s3.s.s.s.s.s.s.s3.s.s",
+  [119]=".s.3s.s.17s.s.5s3.s.s.11s5.s.s3.3s.s.s3.s.3s.7s.5s.3sds.s.s.3s.s.s.s.s.s.s.s.s.s.s3.s.s.s",
+  [120]=".s3.s.s11.s5.s7.s5.s.s5.s9.s.s.d.d3.s.s3.d11.d5.s.s.d3.s.s3.s.s3.d.s.s3.s.s.s.s3.s.s.s",
+  [121]=".3s.s.11s.sd2.3s.s2.d3s2.d3s.3s3.3s3.s3.s.5sds.s.s.sd11sd3s3.s.s.s.3s.s2.ds.3s3.s.s.3s.s.s.s3.s.s.s",
+  [122]="3.s.s11.s7.s.d5.s7.s.s.d3.d3.d3.s5.d.s.s.s.s.d15.d.s.s.s.s3.d7.s3.s.s.s5.s.s3.s.s.s",
+  [123]="3.s.9s3.s7.sd2.s3.s2.d5s.s.s7.sds.3sd2.s.s.s.s.s.s.5sd5sd2.sds.s.s.s3.5s3.s3.s.s.s.5s.s3.s.s.s",
+  [124]="3.s9.s.d.s11.s3.s11.s7.s11.d.s.s.s.s5.d11.d3.d.s7.s3.s3.d.s.s.s5.s3.s.s.s",
+  [125]="3.3s.5s.s.s.s3.13s2.d9s.7s.s2.d5s3.s.s.s.5s.s.s.3s.s.3s5.s.5sds.s.3s3.s.s.s.5s3.s.s.s",
+  [126]="5.s5.s.s.s.s3.s33.s7.s5.s.s5.s.s.s3.s.s3.s5.d.s5.d.s3.s3.s.s.s.s7.s3.s",
+  [127]="5.5s.s.s.s.s.sds2.d7s2.d17s3.3sdsd2.5s.s.s2.ds.s.s.3s.sds3.3sd2.s.s5.3s.s.s3.s.s.s.s7.s3.s",
+  [128]="9.s.s.s.s.s.s.d9.s25.d9.s3.s3.s3.s3.s3.d11.s.d3.s3.s.s3.s.s.s.s7.s3.s",
+  [129]="9.s.s.s.s.s.s.s4.ds3.s2.dsd2.9s.sd3s.3s3.3sd2.3s.3s.s3.s.s.s.s.9s.3s.s3.s.sds.s3.s.s.s.s7.s3.s",
+  [130]="9.s.s.s.s.s.s7.s3.s7.s7.s13.s7.s3.s.s.d.s.s.d.s7.s.s.d3.s.d.s.s.d.s.d.s.s.s.s7.s3.s",
+  [131]="9.s.s.s.s.s.7sds3.s.s.3sds3.3sd9s.3sds3.3s.sd2.s.s.s.s.s.s.s2.ds.sds.s3.sds.s.s.s.s.s.s.s.s.s.s7.s3.s",
+  [132]="9.s.s.s.s.s7.d5.s.d.s.d7.d9.s5.d.d3.d5.s.s3.s.s.s.s7.d.s3.s.d7.s.s.s.s.s.s9.s3.s",
+  [133]="9.s.s.s.s.s3.s2.d5sds3.s.3s.5s7.sds5.5sd7s.s.3s.s.s.5s2.ds.3s.s.s.7s.s.s.s.s.s2.d3s3.s3.s",
+  [134]="9.s.s.s.s.s.d.s7.s.d3.s.d3.d5.d.d5.d.d17.s.s3.s.s5.d7.d.s.s.s9.s3.d.d5.s3.s3.s",
+  [135]="9.s.s.s.s.s.sds5.s.s.sd2.s5.sds.s.s.s.s.3s.3s.s2.ds3.3s3.s.s.s.s.s3.sd7sd3s.s.s3.7s11.s3.s3.s",
+  [136]="9.s.s.s.s.s3.d5.d.s5.d5.s3.s.s3.s.s5.s.s5.d3.s3.s.s.d3.s3.s15.s3.s3.s13.d3.s3.s",
+  [137]="9.s.s.s.s.3s.5sd3s5.sd5s.3s.3s.s.s.3s.s.s2.ds.s.s.3s.s.s.sds.s.s.s.s3.3s4.ds.sd2.s3.11s7.s3.s",
+  [138]="9.s.s.s.s3.s5.s9.s7.s7.s.s.s.d.s.s3.d.s.d3.d.s.s.s.s.s.d.s.d.d.d3.d3.d5.d13.d7.s3.s",
+  [139]="9.s.s.s.s.s.3s3.11s7.s.7s.s.s.s.s.s.s.s.s.s3.s.s.s.s.s.sd3s3.sd3s.3sd3s3.13s.sd5s.s3.s",
+  [140]="9.s.s.s.s.s3.s21.s.s5.s.s.s5.s.s7.d3.s.s3.s15.s5.s15.s.s5.s.s3.s",
+  [141]="9.s.s.s.s.sd2.9s5.9s.s.3s.s.s.3s3.s.3s5.3s.s.3s.s.sd4.5sd2.s.sd2.7sd7s.s.5s.s.3s.s",
+  [142]="9.s.s.s.s13.s3.d11.s.s.d.s.s.s.d3.s3.d3.d3.d.s3.s.s7.s7.s.s3.d13.d9.d3.s.s",
+  [143]="9.s.s.s.11s3.s3.s.11s.s.sds.s.s.s3.s3.s3.s3.s.s3.s.s.7s7.s.s6.d5s.3sd11s.s.s.s",
+  [144]="9.s.s.s11.s3.s3.s.s3.s7.s.s3.s.s5.s5.d.s5.s3.s.d.s13.d13.s3.s3.s3.d5.s.s.s",
+  [145]="9.s.s.9s3.s3.s3.s.s3.s2.d5s.3s.s.5s.s3.s.s.s3.3s3.s.3s9.5s.3s3.s3.s.3s.s3.s.sd5s.s.s.s",
+  [146]="9.s.s9.d3.d3.d3.s.s3.d5.s3.s.s.s3.d.s.s3.d.s.d.d.d5.s13.s5.s.d3.d3.d3.d.s5.s5.s.s.s.s",
+  [147]="9.s.9s.s3.s3.s3.s.s3.s2.ds.s.3s.s.3s.s.s.3s.s.s.s.s.s.s3.7s6.ds4.ds.s3.s3.s3.s.s3.3s5.s.s.s.s",
+  [148]="9.s9.s15.s3.s5.d.s3.d3.s3.s3.s3.s3.s3.s9.s29.s3.s7.d.s.s.s",
+  [149]="9.9s.13sd2.s3.s5.s.s3.s3.s.3s.s.s.3s.3s.3s.3s.3s.7sds3.19s.3s7.sds.s.s",
+  [150]="17.s17.s9.s.s.d.s3.s.d.s.s.s.d3.s3.d3.s3.s7.s3.s3.s19.s.s7.s3.s.s",
+  [151]="17.13sd4.s2.d3sd3s.s.s.s3.s.s.s.s.s.s.3s3.s3.s.3s.5s.s3.s3.s13.7s.3s3.3s.3s.s",
+  [152]="35.s5.d.s3.s.s.s3.s3.s.s.s3.s7.d.s.s3.s5.d.d.s3.d13.d9.s3.s3.s3.s",
+  [153]="35.5s.s.s3.s.s.s.s.s.3s.s.s.3s.sd2.3s.s.s.3s.s5.s.s3.s2.ds2.d3s9.3s.5s.3s.3s",
+  [154]="39.s.s.s3.s.d.s.s.s.d.d.s.s.d3.d3.d3.s.s.s3.s.d3.s.s3.s3.s5.s9.d5.s3.s3.s",
+  [155]="33.7s.s.3s.s.sds.s.s.s3.s.s.s.s.s3.s2.ds.s.s.3s.s.3s.s3.3s.5s.3s.5sd5s.s.3s.3s",
+  [156]="33.s3.s5.s.s.s.s3.s.s7.s3.s11.s.s.s3.s.s.d.s7.s3.d3.s.s9.s.s.s3.s",
+  [157]="31.s.s3.s.5s.s.s.3s.s.7s.s3.13s.s.s.3s.s.sds5.3s7.sds9.s.s.s.3s",
+  [158]="31.s.s.d7.s.s.s5.s7.d.s17.s.s.s3.s.s.s5.s11.d9.s.s.s.s",
+  [159]="25.7s.3s.sd4.s.s.s5.s9.s.7s4.ds3.s.s.s.s.s.s.7s3.sd3sd2.3s7.3s.s.s",
+  [160]="25.s5.s.s3.s5.s.s.s5.d.d7.s17.s.s3.s.s.s.s3.s3.d5.s5.s7.s.s.s.s",
+  [161]="15.7sd3s3.s.s.3s.s2.ds.s.s.s.s2.ds.5sd3s3.11sd2.s.s.3s.s.s.s3.3s.s.5s.s3.9s.s.s.s",
+  [162]="15.s13.s.s5.d3.d.s.d.s.d5.s7.s3.s13.d.s.d3.d.s.d7.d5.s.s.d3.s7.s.s.s",
+  [163]="9.5sds13.7s.s3.s.s.s.s.s5.s.s5.s.3s.3s9.s.s.s3.s.s.s.5sd3s3.3s.5s.7s.s.s",
+  [164]="9.s5.d13.s5.s7.d3.s7.s.d7.s5.s11.s7.s3.s7.s.d3.s7.s5.s.s.s",
+  [165]="9.s5.3s11.s.3s.5s7.5s.3sd7s.s.s3.s3.9s7.5s.s5.s.3s.s.7s5.s.s.s",
+  [166]="9.s5.s.s11.s3.s5.s7.s3.s11.s.d.s3.s3.s21.s5.s.s3.s13.d.s.s",
+  [167]="9.7s.3sds3.3s.7sd2.5s.3s3.s11.s.s.s3.s3.s15.5sds5.7s7.7s.s.s",
+  [168]="21.s3.s.s11.d3.s7.d11.s.s.s3.s3.s15.s5.d19.s7.s.s",
+  [169]="18.ds.5s.s3.3s2.ds3.5s2.dsd3s3.5sds.s.s3.s3.s15.s5.s15.3sds.7s.s",
+  [170]="19.s.s5.s5.s3.d3.s11.s3.d3.d5.s3.s19.s5.s15.s3.d.s7.s",
+  [171]="19.s.s.5s4.ds3.sds.3sd2.3s.s.3s5.3s3.s3.s.15s.11sd13s.3s.s.7s",
+  [172]="19.s.s.d9.s3.s9.s3.s3.s7.s3.s3.s15.s21.s5.s3.s.s",
+  [173]="19.s.sd7sd5s.s2.ds3.3s3.s.s.s7.3sds3.15s.21s.7s.3s.s",
+  [174]="19.s15.s.s3.s.d.s.s3.s.s.s9.d19.s21.s9.s3.s",
+  [175]="19.15s.s.7s.s.s3.sds.s5.5s19.21s.11s.3s",
+  [176]="33.s.s9.s5.s.d.s5.s43.s13.s",
+  [177]="33.s.11s5.s.3s.sd3s43.15s",
+  [178]="33.s17.s5.s",
+  [179]="33.17s.7s",
+ },
+ [3]={
+  [1]="21.3dE7ds9dE13dE13dE13dE13d3.d",
+  [2]="21.d.S7.d65.S3.d",
+  [3]="19.d.t.d.dW3d.3d3.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE3.3d.d",
+  [4]="19.d3.s.d3.s3.s65.d.d",
+  [5]="19.d.5d3.d.t6d3.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs3d.d.d",
+  [6]="19.d.d15.d61.d.d",
+  [7]="17.dEd.d.d.t2d3.d5.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.d.d",
+  [8]="17.d3.d9.d.s3.s61.d.d",
+  [9]="17.d3.d3.7d.d.3d3.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs5d.d",
+  [10]="17.d9.s.d5.d61.s3.S",
+  [11]="17.d.d.t2d3.d.d.d.t2d.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE3.3d.d",
+  [12]="17.d5.s3.d.d.d67.d.d",
+  [13]="17.d3.d.3d.t.d.d.d7.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs3d.d.d",
+  [14]="17.d3.d7.s.d3.s61.d.d.d",
+  [15]="17.d.3dsdE7d3.d.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE3.d.d.d",
+  [16]="17.d.d3.d3.d9.d59.s.d.d",
+  [17]="13.dE3d.dsd.t3.d.ds2.d.t2d3.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs5d.d",
+  [18]="13.d5.d.d5.d73.d",
+  [19]="13.d.5d.d.d3.d.t4dsd3.9dE13dE13dE13dEd9.d",
+  [20]="13.d7.d5.d11.d61.d",
+  [21]="13.d.t.d3.d3.dWd.d2.sd.dE3d3.3d9.dE11d3.13dEd.d5.d7.d",
+  [22]="13.d.d.d7.d3.N5.d51.d13.d",
+  [23]="13.d.d.d3.t.3ds3d.d.t2d.dW2dt.7d.dEd3.5d3.d.t8dE3d7.d5.t.d5.d",
+  [24]="13.d.S.d3.d.d3.d.s7.d5.d3.d.d3.d9.s.S13.d13.d.d5.S",
+  [25]="13.d.d.d.3d.d3.t.d3.3d.d3.d.d3.t.3d.d5.d.t2d.d13.7d.t.5d.d5.d",
+  [26]="13.d.d.d.d3.d5.N3.d.d.d3.s.d7.d.d5.d5.d19.d.d7.d5.d",
+  [27]="13.d.d.t.d3.d3.5dWd.d.d3.d.d3.ds2.d.d5.7d3.11dEd3.dsd7.3d3.3d",
+  [28]="13.d.d3.d3.d3.s7.s.s9.d5.d5.d21.d3.S11.d5.d",
+  [29]="13.d.d.3d3.3dEd7.7d.t.d.d3.t.5dsd5.t.d3.ds2.3d3.3d.9d3.3dWd.7dEd",
+  [30]="13.N.d3.d15.N.s3.d.d.d.d3.d13.d.s9.S5.d9.d7.d9.s",
+  [31]="11.3d.d3.5ds3dE3d.3d.3d.d.d.d.d3.d7.t.d3.5d7.dsd3.3d7.3dEd3.11dW5d",
+  [32]="11.d3.d7.S9.d7.d.d.d.S3.d7.d.d15.d7.d11.d19.s",
+  [33]="11.d.dsds2dt.dsd.7dsd5.t.d.d.dsd3.d.d5.dsd7.dW7d7.3dE7d.11dE13dE3d",
+  [34]="11.d3.d7.d.S7.d5.d3.d3.d3.d.d5.d9.s25.d29.d",
+  [35]="11.d.t.d3.5d.d5.d.t5.3d.d3.d3.d.dEd3.d7.9dW7d11.d29.d",
+  [36]="11.d.d7.d3.d5.d9.d13.d3.d7.d27.d29.d",
+  [37]="11.d.3d5.d3.d5.d.d3.ds2.d.t.d3.d.t.d.d3.d6.sd.4d6W5d11.ds5d23.d",
+  [38]="11.d3.d5.d3.d5.d5.d3.d.d.s3.d.d.d5.S9.d25.d5.d23.d",
+  [39]="11.d3.d.t2d.d3.d.5d3.d.t3.d.d3.3d.d.d5.d.2d6Wd.5dE11d7.d5.d23.d",
+  [40]="21.d3.d.s7.d5.S.d7.s.d7.d9.d15.d7.S5.d23.d",
+  [41]="3.dW13dWdsd.3d3.dEd3.d.3d.d.d.d.t6d7.d3.7d3.dW4dt.d3.dE3d3.5d.d23.d",
+  [42]="3.d19.s11.d5.d.S17.d9.s3.d7.s7.d7.d.d23.d",
+  [43]="3.d.4d6W3d.d.t10d.t2d3.3d.d3.8d6Wd3.5dEd.3d.3dsd3.5d.5d3.d.d23.d",
+  [44]="3.d.d11.d.d19.d3.d29.d3.d17.d3.d.N23.S",
+  [45]="3.d.d5.d5.d.8dt.ds7d.d3.d11.dW5d11.d3.t5.5d.t4d.d3.d.3d21.d",
+  [46]="3.d.S5.d5.d13.S7.d3.d11.s17.d9.d.s7.d.d3.d3.d21.d",
+  [47]="3.d.S5.d.d.ds5dW3dsd3.d.5dsd3.d3.9dE13dEdsd3.d5.t.d7.d.dEd.d3.d21.d",
+  [48]="3.d.S5.d.d11.d5.d.d5.d3.d3.s25.d3.d19.d.d25.d",
+  [49]="3.d.S5.d.d.7d3.7d.d3.dsd3.ds8dt.6dt.5d5.d3.d5.3d.3dsd.t.d.d.d.d23.d",
+  [50]="3.d.S5.d.d.d17.d3.d5.d7.s15.d9.s7.s.d.d3.d.d.d.S.d23.d",
+  [51]="3.d.S5.d.d.d.11dW5d.3d.t.d.d7.d.3d3.dW3d3.d5.t.5d5.d.t.d3.d.d.d.d.11dEd11.d",
+  [52]="3.d.d5.N.d.d.d17.d3.d3.d7.d3.d3.s3.d3.d5.d5.d.s3.d3.S3.s.d.d.d13.d11.d",
+  [53]="3.d.3d3.d.d.d.d5.11d.d.3d3.d3.2dt.d3.2dt.d3.2dt.ds4.d3.d.t.d3.dsd.7d.d.d13.d11.d",
+  [54]="3.S3.d3.d.d.d.S15.N.d.d9.d11.d13.d.s.s3.d3.d11.s.s13.d11.d",
+  [55]="3.d3.d3.d.d.d.d5.t.6dt.3d.d5.t.dsdsds2.d.3ds9dW5d.d.3d.d3.d7.9dW7d3.3d9.d",
+  [56]="3.d3.S3.d.N.S.d5.d5.S7.d5.d3.d5.d.d19.d3.N.d7.s3.d.s13.d5.d9.d",
+  [57]="3.d.d.S3.d.d.d.d3.dsd.3d.dsd.d3.SWds3d3.d3.d.d.d6.s5d3.5d3.d.3d5.2dt.d.d3.d6E2d.5d.d9.d",
+  [58]="3.d.d.S3.d.d.d.d3.N.d.d3.d3.d.s.d3.d.s3.d3.N.d11.s5.d.s3.s.d3.S15.d7.d5.N.d9.S",
+  [59]="3.d.d.S3.d.d.d.d3.d.dsd.t.5d.d.3d.d.d3.SWdsd.d.t.d.d.d.t.d3.d.d.2dt.d.d3.11d5.d7.d5.d.d9.d",
+  [60]="3.d.S.S3.d3.d.d3.d.d3.d.s5.d3.d.d.d3.d3.d.d.d7.d7.d5.d.d19.d7.d3.s.d.d9.d",
+  [61]="3.d.d.S3.d3.d.d3.d.d.3d.d.dsdEd3.d.SWd3.d.3d.d.d4.sdWd.dsd.t.d.3d.d.ds2dt.10dt.d.3d.d3.d3.d.d.dE7d.d",
+  [62]="3.d.d.d3.d3.d.d3.d3.d3.d3.d5.S.d7.d3.d.d9.d3.d3.d3.d.d11.s5.d3.d.S3.S5.d9.d.d",
+  [63]="3.d.d.3d.3dsd.d3.d.t.d3.d3.2dW2d.d.d3.d3.d3.d.ds2dt.5d3.d3.d3.dsd3.6dt.3dsd.3d.d.3d.S.d3.2dt.5d.d.d",
+  [64]="3.d.d3.d5.d5.d.d5.d5.N3.d.s7.d.s.d.d11.s5.d3.d15.d.N3.d5.s.S.d11.d.d.d",
+  [65]="3.d.d3.5d.d5.d.d3.3d.3dsd.3d3.d.t.3d.d.d.3dsd5.t.d3.d.d.d.d3.3ds5ds2.d.3d.d7.S.3d3.5d.d.d.d",
+  [66]="3.d.d3.s3.S7.d.d5.N.d3.d.d5.d.d.d3.d13.d5.d.d.s.d9.s5.d3.d.d7.d3.d7.d.d.d.d",
+  [67]="3.d.d3.dWd.S7.d.3d3.d.SW3d.d5.d.d.d.3d3.t.d3.d3.dE3d.d.d3.dEds4.t.d3.d.3d.t.d.d5.d3.d3.d3.N.d.d.d",
+  [68]="3.S.d5.d.S.s5.d3.d3.d.d3.d.d7.d.N7.d7.s7.d.d11.d13.d.d5.d3.d7.N.d.S.d",
+  [69]=".dsd.d5.d.S.5d.d3.SWd.3d2.sd.d7.d.d.t.5d.3d.t2d3.d3.d.t.5d.d3.d2.sd.t6dEd.d.t2d.d.d.3d5.N.d.d.d.3d",
+  [70]=".d.d.d5.d.S7.d3.d.d9.d7.s.s.d7.d9.d3.N7.s.d3.S11.s7.d.d.N3.S5.N.N.d.d3.d",
+  [71]=".d.d.d5.d.S7.d3.dsd.ds2.2dW2d.4dW6d5.dsd3.d.dsd.t.3d.9d3.d.d2.s3d3.d.3dWdsd.d.3d.3d3.3d.d.d3.d",
+  [72]=".d.d.d5.d.d11.d3.S5.N3.d3.N3.s5.s3.d5.N5.d.s5.s9.d5.N3.d.s5.d5.s7.s5.S3.d",
+  [73]=".d.d.d5.d.3d9.4dE2d.3d3.dsd.ds2.d5.3d.t5.d2.sd.d.dE5d9.t5.2dt.3dEd3.d.t2d2.s7d5.d.d.d",
+  [74]=".d.d.S5.d3.d17.d5.d.d.s19.d5.d49.N5.d.d.d",
+  [75]=".d.d.d5.3d.d8E2dEd4.sd5.SWd3.2dt.d7.d3.d.t.ds3d3.11dWds3d3.ds11dW9d3.5d.d.d.d",
+  [76]=".d.d.d7.d25.d27.d25.S29.d.d.d.d",
+  [77]=".d.d.d7.dW3d5.dW13dWd7.d2.sdE11d3.2dt.11dWds8.5ds4dt.5ds2.2d6Wd.d.d.d.d",
+  [78]=".d.d.d15.s3.s75.s11.d7.d.d.d.d.S",
+  [79]=".d.d.d13.dEd3.d3.d7.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.3d.5d3W3dsd5.d.d.d.d.d",
+  [80]=".S.d.d13.d5.d3.d71.s13.N5.d.d.d.d.d",
+  [81]=".d.d.d9.5d3.5dEN3.d.d5.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs4dt.5d3.5d.d5.d.d.d.d.d",
+  [82]=".d.S.d9.d7.d5.d3.s67.s3.d7.d.d5.d.d.d.d.d",
+  [83]=".d.d.d7.3d3.dE3d5.ds3d.t4dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.d.3d.d3.d3.d.d5.N.d.d.d.d",
+  [84]=".d.d.d7.d15.d69.s5.d3.s3.S.d5.N.N.d.d.d",
+  [85]=".d.d.d7.d.9d.t2dsd4.sd5.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs8dt.3dW3d.d.d5.N.d.d.d.d",
+  [86]=".d.d.d7.N.d.s11.d75.s5.d3.d5.N.d.S.S.d",
+  [87]=".d.d.d5.3d.d.3d4.sds2.2dW2d3.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.3ds5d3.d3.3d3.N.d.d.d.d",
+  [88]=".d.d.S5.d3.d3.d5.N5.N.s71.s.d3.d5.d3.N.d.d.d.d",
+  [89]=".d.d.d3.3d.d.t.ds3dW3d.d3.d.d.d5.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs4dt.5d.d3.5d.3dWd.d.d.d.d",
+  [90]=".d.d.d3.d3.d3.d5.s.d7.d69.s3.d.s5.s3.s.d.d.d.d.d",
+  [91]=".d.d.d3.d.3d.d.7d.d.t2d3.d.t4dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.3d.d.t.d.d.ds6.d.d.d.d.d.d",
+  [92]=".d.d.d3.d.d3.s9.d5.s67.d.d3.d.d.d9.d.d.d.d.d.S",
+  [93]=".d.d.d3.d.d.7d.t2dsdsds2.d3.d5.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs3d.dsd3.d.d.d.t4dE3d.d.d.d.d.d",
+  [94]=".S.d.d3.d.d.d.s7.S.d9.d71.N5.s7.d.d.d.d.d",
+  [95]=".d.d.dsdEd.d.t.d5.3d.ds2.d.t3.d.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.d.t2d3.3d.d.5d.t.d.d.d.d.d",
+  [96]=".d.S.d5.d3.d13.d.d3.s67.s5.s.s5.N.d.s.d.d.d.d",
+  [97]=".d.d.d5.d.d.d5.3d.t.d.dWd.3d5.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs5dsd3.dE7ds2.d.3d.d.d.d.d",
+  [98]=".d.d.d5.N.d.d5.d3.d.d5.d67.d7.s.s5.d3.d.N.d.d.d",
+  [99]=".d.d.d.5d.d.d5.d.3d.d4.sd.t.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.5d.t.3d.d3.d.d3.d.d.d.d.d",
+  [100]=".d.d.d.d5.d.d5.s.d3.d.s5.d63.s5.d3.d.d3.d.d3.d.d.S.S.d",
+  [101]=".d.d.d.d.d.t2d.dW2dW2d.d3.dEd.ds.sd5.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs3d3.ds2.d3.d.N3.d.d3.d.d.d.d.d",
+  [102]=".d.d.S.d.d3.s3.d.N.d5.s81.d.N3.S.s3.S.d.d.d.d",
+  [103]=".d.d.d.d.5dW3d.d.d3.d.d.t10dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE5.d.t2d3.d.d.N3.d.5d.d.d.d.d",
+  [104]=".d.d.d.d.d3.s7.d3.d.s5.s73.s.d.N5.d3.S.d.d.d.d",
+  [105]=".d.d.d.d.d3.d7.2dW2d3.dsd.d7.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs3d3.d3.d3.d.N5.d3.S.d.d.d.dEd",
+  [106]=".d.d.d.d.d11.s.N5.d.d69.d7.N.N5.d3.S.d.d.d3.d",
+  [107]=".d.d.d.d.d3.t.d5.d.5d.d.d.t2d.3dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE2dsE7.3d.t.3d.3d.dsd3.S.d.d.d3.d",
+  [108]=".S.d.d.N.d3.d.s5.N.s5.s7.d65.s.d3.s.s.d.N.d3.d.d.d.d3.d",
+  [109]=".d.d.d.d.d.dsd.3d.t8dE5d3.d3.Ws2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs2dWs11d.5d.dsd.d.3d.d.d.dsd.d",
+  [110]=".d.S.d.d3.d.d.d11.s.s5.s.d69.d7.d3.d3.d.d.d.d.d",
+  [111]=".d.d.d.d.t.d.dsd.dE3d3.dEd.d5.d.ds5dW5d.dW11d6.sdE13dE5d3.9dE3d7.d.t.d.dEd.d.d.d.d",
+  [112]=".d.d.d.d.d.d.d3.d7.d.d9.d11.d7.s5.d31.d11.s7.d.d3.d3.d.d.d.d",
+  [113]=".d.d.d.d.dsd.d.t2d3.3dEN.7d.t2d.6dt.d.d2.sd.t2d.3d.dW5d7.9dWd5.d.2dt.d3.5d.d3.d.d.d.3d.dWd.d.d.d",
+  [114]=".d.d.d.d3.N5.d7.d7.s5.d7.d.s9.s.d7.d7.d9.d5.S.s3.d3.d5.d3.d.d.d.d3.d3.S.d.d",
+  [115]=".d.d.d.3d.d3.d.3d5.5d3.3d3.d.7d.11d.t3.3d.7d.d.4dt.dsdsd3.d.d.d.d.d.t5.d3.d.d.d.d.3d.3d.d.d",
+  [116]=".d.d.S3.d.d3.d3.s9.d9.d9.N25.N3.d7.d9.d.d9.d3.N.d.d.d.d.s.d3.d.d",
+  [117]=".d.d.3d.d.t3.dE9dsdEN9.d7.3d7.3ds3d3.t.ds4.d.t.d3.d3.2dt.d5.dsdsd.d.dWd.d3.d.d.d.d.d.d.d3.d.d",
+  [118]=".d.d3.d.d17.d.d9.S19.d7.d7.d.d.s3.s7.s7.d.d.d3.d.S.s.d.d.d.d.d.N.d3.d.S",
+  [119]=".d.3d.d.dW8dW6dsd.5ds2.dsd.6dW4d5.t.d3.3dsdsd3.ds3d.7ds5d.2dt.dsd.ds3dsdsd.d.d.d.dsd.d.d.d3.d.dsd",
+  [120]=".d3.d.d11.N3.s.d7.d5.d.d5.N9.d.d7.d.d21.d.d5.d.d3.d.d5.d.d3.d.d.d.d3.N.d.d",
+  [121]=".dEd.d.7dE3d.d3.dEN.ds2.dEN3.3d.SWd3.3d2.sd3.d.4dt.d.d.d.d.t6dE3d.t2d3.d.d.d.3d.t3.d.3d3.d.d.dEdsd.d.d3.d.d.d",
+  [122]="3.d.S11.d7.d7.d5.s.d.d13.S7.d.d.d.d9.s5.s3.d.d.d.N11.d3.d.N.d5.d.d3.d.d.S",
+  [123]="3.d.9d3.d7.d2.sd3.d3.5dsd.d7.t.ds3d3.dsd.d.d.d.dsdW2dt.5d3.d.t.d.d.d3.5d3.d3.d.d.d.5d.d3.d.d.d",
+  [124]="3.d3.s5.d3.d11.S3.d11.d7.d13.d.N.d.d7.s.s5.s3.s3.d7.d3.d5.d.d.d5.d3.d.d.d",
+  [125]="3.3d.5d.d.d.d3.8dE4d3.7dEd.7dsd3.5d2.sd.d.d.5d.d.d.3d.d.dWd5.t.5d.t.ds3d3.d.d.d.3dWd3.dsd.d",
+  [126]="5.d5.S.d.d.d3.d25.s7.N7.S5.d.d5.d.d.d3.d.d3.d7.d7.d3.N3.d.d.d.d7.d3.d",
+  [127]="5.5d.d.d.d.d.d.t3.7d3.13dE3ds2.2dt.d3.5d.d.d3.d.dsd.3d.d.t3.3d3.dsd5.3dsd.d3.d.d.d.d7.d3.d",
+  [128]="9.S.d.S.d.d.d11.d17.s5.s11.d.s.d3.d3.d.s.d.s13.d5.d3.d.d3.d.d.N.d7.d3.d",
+  [129]="9.d.d.d.d.d.d.d5.d3.d3.d3.9d.d.t2d.3d3.dEd3.3d.3d.d3.d.d.d.d.7dEd.3d.d3.d.d.t.d3.d.d.d.d7.d3.d",
+  [130]="9.d.d.d.S.d.d.s5.d3.N.s5.d7.N5.s7.d7.d3.N.d3.d.d3.d7.d.d5.d3.d.d3.d3.d.d.d.d7.d3.d",
+  [131]="9.d.d.d.d.d.6dt.d3.d.d.2dt.d3.2dt.9d.3d.t3.3d.d3.d.dsd.d.d.t.d3.d.d.t.d3.d.t.d.d.dsd.d.d.d.d.dsd7.d3.d",
+  [132]="9.d.d.d.d.S3.s5.s3.d3.d7.s9.s.d.s7.s7.d.d3.d.d.d.d3.s.s3.d3.d3.s.s3.d.d.d.d.d.d9.d3.d",
+  [133]="9.d.d.d.d.d3.d3.3dWd.t3.d.3ds5ds6.d.t5.5d.t6d.d.3d.d.d.5d3.d.3d.d.d.7d.d.d.d.d.d3.3d3.d3.d",
+  [134]="9.d.d.d.d.d3.d5.s.d5.d7.s17.s13.d.N3.d.d7.s3.s3.d.d.d7.s.d.s9.S3.N3.d",
+  [135]="9.d.d.d.d.d.d.t5.d.d.d3.d5.t.d.dsdsd.ds3d.3d.d3.ds.s3d3.d.dsd.dsd3.d.t6d.t2d.d.d3.7d11.d3.d3.d",
+  [136]="9.d.d.d.d.d11.d11.d3.d.d3.N.d5.S.N9.d3.S.d5.d3.d7.s5.s.N3.d3.S17.d3.S",
+  [137]="9.d.d.d.d.3d.5d.t2d5.t.5d.3d.3dsd.d.3d.d.d3.d.dsd.3d.d.d.t.d.d.dsdsd3.3d5.d.d3.t3.11d7.d3.d",
+  [138]="9.d.d.d.d.s.d5.d9.d7.N7.d.d.d3.d.d5.d7.d.d.d.d.d3.d15.s25.d3.d",
+  [139]="9.d.d.d.d.d.3d3.5dW5d7.d.7d.d.d.t.dsdsd.t.d.t3.t.d.d.d.d.d.t2d3.d.t2ds3d.t2d3.5dW7d.t.5d.d3.d",
+  [140]="9.d.S.d.d.d3.d21.d.N5.d.d.d5.d.d3.s7.d.d.s.d15.N5.d3.s11.d.d5.d.d3.d",
+  [141]="9.d.d.d.d.d3.dE7d4.s9d.d.3d.d.d.3d3.d.3d5.3d.d.3d.dsd5.3dEd3.d.d3.7d.t6d.d.3dEd.t.3d.d",
+  [142]="9.S.d.S.d13.d15.d.d3.d.d.d5.d13.d3.d.d7.d7.d.N13.s5.s5.s5.d.d",
+  [143]="9.d.d.d.dE9d3.d3.d.11d.d.t.d.d.d.t3.d3.t3.d3.t.d3.d.t.7d7.t.d7.5d.3d.t10dsd.d.d",
+  [144]="9.d.d.d11.d3.d3.d.d3.d7.d.d3.N.d5.d7.d5.d3.d3.d15.s5.s3.s.d3.d3.S.s7.d.d.d",
+  [145]="9.d.d.9d3.d3.d3.d.d3.t3.5d.3d.d.dW3d.d3.dsd.d3.3d3.dsdEd9.5d.3d3.d3.d.3d.d3.d.d.t4d.d.d.d",
+  [146]="9.d.d21.d.d7.s.d3.d.d.d5.d.d5.d7.s3.N13.d5.d15.d3.s.N5.d.d.N.d",
+  [147]="9.d.7dEd.t3.t3.t3.dsd3.d3.d.t.dWd.d.3d.t.d.3d.t.d.t.d.t.d3.7d7.d5.d.t3.t3.t3.t.d3.3d5.d.d.d.d",
+  [148]="9.d9.d15.S3.d7.d7.d3.d.s.N3.d3.S3.d3.s3.s.d29.d3.d9.d.d.d",
+  [149]="9.7dEd.11dEd3.d3.d5.d.d3.t3.d.3d.d.d.3d.3d.3d.3d.3d.6dt.d3.3dE13dEd.dEN7.t.d.d.d",
+  [150]="17.d17.d3.s5.d.d3.d3.d3.d.S.d5.d7.d3.N7.d3.d3.d19.d.d7.d3.d.S",
+  [151]="17.11dEd5.d3.2dt.3d.d.d.d3.d.t.d.d.d.t.3d3.t3.d.3d.5dsd3.d3.t13.7d.3d3.3d.3d.d",
+  [152]="35.d7.d3.d.d.d3.d3.d.d.d3.d9.N.d3.S.s7.d25.s.d3.d3.d3.d",
+  [153]="35.5dsd.d3.d.dsdsd.d.3d.d.d.3d.d3.3d.d.d.3d.d5.d.d3.d3.d3.3d9.3d.2dW2d.3d.3d",
+  [154]="39.d.d.d3.d3.d.d.d5.d.d3.s9.d.d.d3.d5.d.d3.d3.d5.d15.N3.d3.d",
+  [155]="33.4dW2d.d.3d.d.t.d.d.d.t3.d.d.t.d.t3.t3.d.d.d.dEd.d.3d.d3.3d.SW3d.3d.5d.t4d.d.dEd.3d",
+  [156]="33.d3.N3.s.d.d.d.d3.N.N5.s.d3.d11.d.d.d3.N.d3.d5.s.d7.d.d9.d.d.d3.d",
+  [157]="31.dsd2.sd.3dEN.d.d.3dsd.7d.d3.7dE5d.d.d.3d.d.t.d5.3d7.d.t9.d.d.d.3d",
+  [158]="31.d.d5.s3.d.d.d5.d9.d7.s5.s3.d.d.d3.d.d.d5.d21.d.d.d.S",
+  [159]="25.5dEd.SWdsd5.d.d.d5.t9.dsdE5d5.d3.d.dsd.dsd.d.dW2dW2d2.sd.t2d2.s3d7.SWd.d.d",
+  [160]="25.d5.d.d3.d5.d.d.S15.d17.d.d3.d.d.d.d3.N9.S5.d7.d.d.d.d",
+  [161]="15.7d.t2d3.dsd.3dsd3.d.d.d.dsd3.d.5d.t2d3.5dE5d3.d.d.3d.dsd.d3.3dsds5dsd3.2dW6d.d.d.d",
+  [162]="15.d13.d.d11.d3.d7.d.s5.d3.d.s13.d7.d15.d.d5.N7.d.d.d",
+  [163]="9.5d.t13.SW5d.t3.t.d.t.d.t5.d.d5.ds3d.3d9.t.d.t3.t.d.t.5d.t2d3.dEN.5d.dW5d.d.d",
+  [164]="9.N19.d5.d11.d7.N9.d.s3.d11.d7.S3.d.s5.d5.d7.d5.d.d.d",
+  [165]="9.N5.3d11.d.3d.3dEd7.5ds3d.t6d.t.d3.d3.5dE3d7.5d.d5.d.dWdsds7d5.t.d.d",
+  [166]="9.N5.d.N11.d.s.S5.d7.d3.d11.d3.d3.d3.d21.d5.d.S3.d15.d.d",
+  [167]="9.7d.2dt.d3.dWds4dE2d3.5dsdWd3.d11.d.d.d3.d3.d15.5d.t5.2dE4d7.7d.d.d",
+  [168]="21.d3.d.S3.s11.S19.d.d.d3.N3.d15.N25.d7.N.d",
+  [169]="19.d.5d.S3.3d3.d3.2dE2d3.d.t2d3.4dt.d.d.d3.d3.d15.N5.d15.3d.t.7d.d",
+  [170]="19.d.d5.S5.d7.d3.s3.s3.S11.s.d3.d3.s15.N5.d15.d5.d7.d",
+  [171]="19.d.d.5d5.d3.t.ds3d3.dEd.ds3d5.3d3.d3.ds7dE7dsdE9d.t8d3Ed.3d.d.5dWd",
+  [172]="19.S.d11.N3.d9.d3.d3.d7.d3.d3.d15.d21.S5.d3.d.d",
+  [173]="19.d.d.t6d.t4d.d3.d3.dEN3.dsd.d7.2dt.d3.9dW5d.5dE13dEd.7d.3d.d",
+  [174]="19.d15.d.d3.S3.d.d3.d.d.d29.d21.d9.N3.d",
+  [175]="19.11dE3d.d.4dE2d.dsd3.d.t.d5.5d19.7dW13d.11d.3d",
+  [176]="33.d.d9.d5.S3.d5.d43.N13.d",
+  [177]="33.d.3dE7d5.d.3d.d.t2d43.13dWd",
+  [178]="33.d17.d5.d",
+  [179]="33.7dE9ds7d",
+ },
+ [4]={
+  [1]="27.5sd4.61s",
+  [2]="27.s9.s59.s",
+  [3]="27.s9.s59.s",
+  [4]="23.d3.s.d3.d3.s59.s",
+  [5]="23.s3.s.s3.s3.s59.s",
+  [6]="23.s3.s.s3.s3.s59.s",
+  [7]="23.s3.s.3s.3s.s59.s",
+  [8]="23.s3.s3.s.d.s.d59.s",
+  [9]="19.5s3.s3.s3.s61.s",
+  [10]="19.s3.s3.d3.s3.s61.d",
+  [11]="19.s3.s7.s3.s",
+  [12]="19.s3.d7.s3.s",
+  [13]="19.s11.s3.s",
+  [14]="19.s9.d.s3.d",
+  [15]="19.s2.d3s.3s.s",
+  [16]="19.s5.s.s3.s65.d",
+  [17]="19.sd4.s.s2.ds65.s",
+  [18]="25.s.s3.s65.s",
+  [19]="25.s.s3.s2.d63s",
+  [20]="25.s.s3.s",
+  [21]="25.s.3s.sd10.27s",
+  [22]="25.s3.s.s11.s25.s",
+  [23]="25.sd2.s.s11.s.19s5.21s",
+  [24]="29.d.s11.s.s17.d25.s",
+  [25]="31.s.7s.3s.s43.s",
+  [26]="31.s.s5.s.d3.s43.s",
+  [27]="29.3s.s5.s5.s2.d37sd2.3s",
+  [28]="27.d.s3.s.d.d.s5.s45.s",
+  [29]="27.s.s3.s.s.s.3s3.s12.d5s8.d17s.s",
+  [30]="27.s.s3.s.s.d3.s3.s17.s3.d21.s.s19.d",
+  [31]="11.13sd2.s.s3.s.s5.5s17.5s3.7sd10.s.s19.s",
+  [32]="11.s15.s.s3.s.s35.s17.s.s19.s5.d",
+  [33]="11.s2.dsd5.d5s.s2.ds.s10.d13sd10.s17.s.s19.s5.s",
+  [34]="11.s11.s5.s5.s33.d.s17.s.s19.s5.s",
+  [35]="11.s9.3s5.s5.s13.21s.s17.s.9s11.s5.s",
+  [36]="11.s9.s7.s5.s13.s21.s17.s9.s11.s5.s",
+  [37]="11.s9.s7.s5.s2.d3s7.s15.sd2.3s17.7sd2.s11.s5.s",
+  [38]="11.s9.s7.s5.s5.s3.d3.s15.s3.s29.s11.s5.s",
+  [39]="11.s9.s7.s5.s5.5s3.s15.s3.s.15s13.s11.s5.s",
+  [40]="11.s9.s5.d.s5.s13.s.d13.s3.s.s13.s13.s11.s5.s",
+  [41]="11.s8.ds5.s.s5.s13.s.s11.3s3.s.s13.s13.s11.s5.s",
+  [42]="11.s11.d3.s.s5.s13.s.s11.s5.s.d11.d.s13.s11.s5.s",
+  [43]="9.3s11.s.3s.3s3.s9.5s.s11.s5.s10.d3s.7s7.s11.s5.s",
+  [44]="9.s13.s.s5.s3.s9.s5.s11.s5.s21.s7.s11.s5.s",
+  [45]="9.s.13s.s4.ds3.s9.s5.s11.s5.s11.5s5.s7.s11.s5.s",
+  [46]="9.s.s13.s5.s3.s9.s5.s3.d7.s5.s11.s3.d5.s7.s11.s5.s",
+  [47]="9.s.s4.ds7.sd4.s3.s2.d7s5.s3.s7.s5.s2.d7s.s9.5s3.s11.s5.s",
+  [48]="9.s.s5.s13.s3.s11.d3.s3.s7.s5.s9.s.s13.s3.s11.s5.s",
+  [49]="9.s.s5.s13.s3.s2.d5sd2.s3.s3.s7.s5.7s3.s.3s5.sd4.s3.5s7.s5.s",
+  [50]="9.s.s5.s13.s3.s11.s3.d3.s7.s11.s.d.s3.s.d3.s5.s7.s7.s5.s",
+  [51]="9.s.s5.s13.s3.s5.7s7.s7.s11.s.s.3s.s.s3.s5.7s.s7.s5.s",
+  [52]="9.s.s5.s13.s3.s5.s13.s3.d3.s11.s.s3.d.s.s3.s3.d7.s.s7.s5.s",
+  [53]="9.s.s5.s13.3s.s.5s13.s3.s3.s4.d5s.s.s5.s.sd2.s3.s7.s.s7.s5.s",
+  [54]="9.s.s5.s15.s.s.s17.s3.s3.s9.s.d.d5.s.s3.s3.s3.d.d.s.s7.s5.s",
+  [55]="9.s.s5.s15.s.s.s8.dsd.d5s2.ds3.3s7.s5.5s.s3.s3.s.3s.s.s.s7.s5.s",
+  [56]="9.s.s5.s15.s.s.s27.s7.s5.s5.s3.d3.s.d.s.s.s.s7.s5.s",
+  [57]="9.s.s5.s4.d7sd2.s.s.s2.d11s.9sd2.s7.s3.3s5.s7.s3.s.s.s.s7.s5.s",
+  [58]="9.s.s5.s5.s9.s.d.s5.d7.s.s11.d7.d3.d7.s7.s3.s.s.s.s7.s5.s",
+  [59]="9.s.s5.s5.sd4.5s3.s12.d3s13.5s13.s5.3s3.s.s.s.s7.s5.s",
+  [60]="9.s.s5.s11.d7.s29.s3.s13.s5.s5.s.s.s.s7.d5.s",
+  [61]="9.s.s5.s14.d5s.21sd5.ds3.9sd4.s5.s5.s.s.s.s13.s",
+  [62]="9.s.s5.s21.s45.s5.d5.s.s.s.s13.s",
+  [63]="9.s.s2.ds.s7.15s11.5sd4.7s.9sd2.5s7.sd2.s.s.s.s13.s",
+  [64]="9.s.s3.s.s7.s15.d9.d9.s5.d.s11.s11.s3.s.s.s.s.d11.s",
+  [65]="9.s.s3.s.s3.5s8.d7s16.d3s7.s7.5s2.d3s2.d3s.3s.s.s.s.3s9.s",
+  [66]="9.d.s3.s.s3.s47.s5.d.s9.d7.s3.s.s.s3.s9.s",
+  [67]="11.s3.s.s3.s.29s11.7s5.s.s2.d3s9.3s3.s.s.3s.s9.s",
+  [68]="11.s3.d.s3.s.s27.s11.d11.s.s5.s9.s5.s.s3.s.s9.s",
+  [69]="2.d9s5.s.3s.s9.sd16.3s11.7s3.s.s5.5sd4.s3.3s.s3.s.s9.s",
+  [70]="17.s.s3.s9.s11.d.d5.s11.s5.s3.s.s.d13.s3.d3.s3.s.s9.s",
+  [71]="17.s.s.3s.sd3.ds.s11.s.s5.s2.d3s4.ds5.s.3s.s.11sd2.s7.s2.ds.3s7.s",
+  [72]="17.s.s.s3.s5.s.s11.s.d5.d5.s11.d.s3.d15.s5.d.s7.s.d5.s.d",
+  [73]="17.s.s.s.3s3.11sd3.ds13.7sd6.s15.5s3.3s.s7.s.sd4.s.s",
+  [74]="17.s.s.s.s5.s13.d29.s15.s7.s3.s7.s7.s.s",
+  [75]="17.s.s.s.s.7sd2.9s22.d7s12.d3s4.d3s3.s5.3s7.s.s",
+  [76]="17.s.s.s.s.s9.s65.s5.s9.s.s",
+  [77]="17.s.s.s.s.s.9s.13sd33.d13sd2.s5.s2.ds5.s.s",
+  [78]="17.s.s.d.s.d.s9.s63.d5.s3.s5.s.s",
+  [79]="17.s.s3.s3.s9.s69.s3.3sd2.s.s",
+  [80]="17.s.s3.s3.s9.s63.d5.s9.s.s",
+  [81]="17.s.s.7s9.s63.s5.s9.s.s",
+  [82]="17.s.s.s11.d3.s63.d5.s9.s.s",
+  [83]="17.s.s.s.7sd2.s3.s69.s9.s.s",
+  [84]="17.s.s.s.s9.s3.s61.d7.s.d7.s.s",
+  [85]="17.s.s.s.s4.d5sd2.s59.3s7.s.s7.s.s",
+  [86]="17.d.s.s.s13.s59.s7.d.s.s7.s.s",
+  [87]="19.s.s.sd.d7s3.s59.s4.ds.s.s.s7.s.s",
+  [88]="19.s.s11.d3.s59.s5.s.d.s.s7.s.s",
+  [89]="18.ds.s.9s5.s59.s5.s3.s.s7.s.s",
+  [90]="21.s.d7.s5.s59.s5.d3.s.d5.d.s.d",
+  [91]="17.5s9.s5.s59.5s5.s4.ds.s.s",
+  [92]="15.d.s13.d5.s63.s5.s5.s.s.s",
+  [93]="15.s.s6.dsd.ds7.s62.d7s5.s.s.s",
+  [94]="15.d.s11.s7.s69.s5.d.s.s",
+  [95]="3.3sd10.s8.ds.s7.s69.s7.s.s",
+  [96]="3.s13.s9.s.s5.d.s65.d3.s.d.d3.s.s3.d",
+  [97]="3.s.13s.5s3.s.7s.s62.d3s3.s.s.s2.ds.s3.s",
+  [98]="3.s.s13.s3.s3.s9.s69.s.d.d5.s3.s",
+  [99]="3.s.s3.11s3.3s.s.3sd4.s69.s7.3s3.s",
+  [100]="3.s.s3.s11.d3.s.s.d7.s61.d7.s7.s5.s",
+  [101]="3.s.s3.s11.s3.s.s4.dsd2.s61.s2.d5s7.s5.s",
+  [102]="3.s.s3.s3.d7.s3.s.d5.s3.s61.s15.s.d3.s",
+  [103]="3.s.s3.s3.s7.s3.s7.3s.s61.s15.s.s3.s",
+  [104]="3.s.s3.s3.d7.s3.s.d5.d.s.s61.s7.d7.s.s3.s",
+  [105]="3.s.s3.s11.s3.s.3sd4.s.s61.s7.s5.3s.s3.s",
+  [106]="3.s.s3.s11.d3.s.s7.s.s61.s7.s5.s3.s3.s",
+  [107]="3.s.s3.s15.s.s7.s.s61.s7.s3.3s2.ds3.s",
+  [108]="3.s.s3.s5.d7.d.s.s.d5.s.s61.s3.d3.s.d.d9.s",
+  [109]="3.s.s.3s2.d3s7.s.s.s.s3.3s.s59.3s3.s3.s.s4.d13sd",
+  [110]="3.s.s.s15.s.s.d.d3.s.d.s59.s5.s3.s.s",
+  [111]="3.s.s.s3.3sd8.s.s5.3s3.sd4.9s5.13sd2.25s5.s3.s.s",
+  [112]="3.s.s.s3.s11.s.s5.s11.s7.s5.d15.s29.s3.d.s",
+  [113]="3.s.s.s2.ds5.5s.s.7s5.7s7.sd18.3s5.17s7.3s3.15s",
+  [114]="3.s.s.s9.s3.s.s9.d3.s11.d9.d11.s7.s15.d9.s17.s",
+  [115]="3.s.s.s9.s3.s.s9.5s11.11s3.9s3.5s6.dsd16.7s11.s",
+  [116]="3.s.s.s9.s.d.s.s39.s11.s3.s31.s11.d",
+  [117]="3.s.s.s9.s.s.s.s2.d33sd2.s6.d5s3.s18.dsd10.s",
+  [118]="3.s.s.s9.s.s.s.s39.s15.d3.d7.d19.d",
+  [119]="3.s.s.s9.s.s.s.3sd7.ds2.d17s5.3s2.dsd5.d3s5.3sd4.s6.d3sd3.dsd9.d13sd",
+  [120]="3.s.s.s9.s.s.s.d11.s19.s5.s15.s5.s7.s",
+  [121]="3.s.s.s9.s.s.s6.d5s.s15.sd2.7s15.s5.s5.3s11.17sd",
+  [122]="3.s.s.s9.s.s.s11.s.s3.d11.s25.s3.d.s3.d.s13.s",
+  [123]="3.s.s.s9.s.s.7sd4.s.3s.3sd2.5s.s4.ds6.d9sd2.s3.s.s.3s.s5.9s",
+  [124]="3.s.s.d9.s.s13.s.s.s7.s3.s.s5.s19.s3.d.d.s3.d3.d.s",
+  [125]="3.s.s11.s.11s3.s.s.9s3.s.3sd2.9sd8.3s7.s5.3s.s12.d21sd",
+  [126]="3.s.s11.s11.s3.s.s11.d.s25.s9.s5.s3.s",
+  [127]="3.s.15s9.s3.s.s11.s.s2.d3s19.s2.d3s3.s3.3s3.s2.d9sd",
+  [128]="3.s15.s9.s3.s.s11.s.d5.d13.d5.s5.d3.d3.s5.s",
+  [129]="3.15s.s9.s3.s.s11.s21.s5.5s7.3s5.3s",
+  [130]="17.s.s.d7.s3.d.s11.s5.d15.s9.s7.s9.s",
+  [131]="17.s.s.s7.s5.s11.s5.s15.s5.sd2.3s3.3s9.3s8.d11sd",
+  [132]="17.s.s.d5.d.s5.s7.d3.s5.d3.d7.d3.s5.s5.s3.s3.d.d7.s3.d.d3.s",
+  [133]="17.s.s7.s.s5.3s2.d3s2.ds9.s3.5s3.3s3.s5.5s.3s.s7.5s.s3.s",
+  [134]="17.s.s7.d.s7.s5.d13.s3.d9.s3.s11.s3.d3.d9.s3.s.d3.d",
+  [135]="17.s.s9.5s3.3s6.dsd3.d5s8.dsd2.s3.s.sd3.d5s7.s9.s3.s.s3.s",
+  [136]="17.s.s13.s5.s31.s3.s.s17.d5.d3.s3.s.s3.s",
+  [137]="17.s.7s7.s5.9s2.d17sd2.s3.s.s8.dsd8.5s3.s3.s.s3.s",
+  [138]="17.d7.s7.s13.s23.s3.s.s19.s5.d.s3.s.s3.s",
+  [139]="25.7s.5s9.3s7.s2.dsd2.s3.s.s.s.s.s18.ds5.s.s3.s.3s.s",
+  [140]="31.s5.s11.s17.d3.s3.s.s.d23.s.s.d.s3.s.s",
+  [141]="31.3sd2.s11.13s5.s3.s3.s.s.3sd2.19s.s.s.s3.s.s",
+  [142]="37.s23.s5.s3.s3.s.s7.s19.s.s.s3.d.s3.d5.d",
+  [143]="27.11s19.s3.3s.s.s3.s.s.s.s5.3s19.s.s.s5.s3.3s3.3sd",
+  [144]="27.s35.s3.s3.s3.s.s5.s15.d5.d.s.d5.s5.d",
+  [145]="27.s15.19s.s2.ds3.s3.s.s.sd2.s.15s7.s3.5s",
+  [146]="27.s15.d17.s.s7.s3.d.s.s3.s.s21.s3.s7.d",
+  [147]="21.s3.s.s.s4.d7s15.s3.s.s.s3.s.s.s3.s.s3.s.s15.s3.s.s.s.s.s5.s",
+  [148]="27.s13.s19.d.s7.s5.s.d3.d.s21.s3.s7.s",
+  [149]="25.3s13.9s13.5s3.s5.s7.s7.15s.3s7.s",
+  [150]="25.s13.d9.s17.s3.s5.s7.s7.s15.s9.s",
+  [151]="25.s13.s9.7s.s7.s.s3.s.s3.s7.s2.d5s5.11s9.s",
+  [152]="25.s13.s15.s11.s3.s5.s7.d13.s19.d",
+  [153]="25.s13.sd9.dsd2.9s3.s3.s5.s9.13s",
+  [154]="25.s37.s3.d3.s5.s9.s",
+  [155]="25.s31.s5.s.s3.s.s.s3.s.9s",
+  [156]="25.s15.d19.d.s7.s5.s.s19.d",
+  [157]="25.s6.d3sd4.s10.d5s3.s.7s.s5.s.s15.15s",
+  [158]="25.s13.d.s15.s3.s7.s.d5.d.s15.s13.s",
+  [159]="25.s10.d3s.s15.s3.3sd4.s9.s3.sd3.d7s.5sd6.sd",
+  [160]="25.s15.s15.s11.s9.s3.s13.s",
+  [161]="25.s4.d3s2.d11sd6.3s11.s7.3s3.s6.d5s.s2.dsd2.3sd",
+  [162]="25.s7.s21.s.d11.d7.s5.s11.s.s7.s",
+  [163]="25.s7.3s.s3.s3.s3.s5.s8.d3s7.3s3.s.s.s3.s3.s.s.s5.3s",
+  [164]="25.s9.s19.s11.d7.s7.s11.s.d5.s",
+  [165]="25.s9.13s.3sd2.s13.7s.7s11.s3.5s4.dsd",
+  [166]="25.s5.d15.s.s5.s13.s7.s17.s3.s",
+  [167]="25.s2.ds.s11.sd2.s.s5.s3.11s7.s17.s3.s",
+  [168]="25.s3.s.d11.s3.s.s5.s3.s17.s17.s3.s",
+  [169]="25.3s.s11.3s3.s.s3.3s3.s17.s17.5s",
+  [170]="27.s.s11.s3.d.s.d3.s5.s5.d9.d.s",
+  [171]="27.s.7s4.ds.s.s.s4.ds5.s5.s5.sd2.s.s9.sd",
+  [172]="27.s7.s7.s.s.s27.s.s",
+  [173]="27.3s5.9s.s.5sd14.9s.s",
+  [174]="29.s15.s21.s9.s",
+  [175]="29.15s.sd8.13s.9s",
+  [176]="43.s11.s13.s",
+  [177]="43.13s5.9s",
+  [178]="61.s",
+  [179]="50.d11s",
+ },
+ [5]={
+  [1]="27.dE3d5.11dE13dE13dE13dE7d",
+  [2]="27.d9.d59.d",
+  [3]="27.d9.d59.d",
+  [4]="27.d9.N59.d",
+  [5]="23.d3.d.d3.d3.d59.d",
+  [6]="23.d3.d.d3.S3.d59.d",
+  [7]="23.d3.d.3d.3d.d59.d",
+  [8]="23.d3.d3.d3.d61.S",
+  [9]="19.5d3.d3.d3.d61.d",
+  [10]="19.d3.d7.d3.d",
+  [11]="19.d3.d7.d3.d",
+  [12]="19.S11.N3.d",
+  [13]="19.d11.d3.d",
+  [14]="19.d11.d",
+  [15]="19.d3.dWd.dEd.d",
+  [16]="19.d5.d.d3.d",
+  [17]="19.d5.d.d3.d65.d",
+  [18]="25.d.d3.d65.d",
+  [19]="25.d.d3.d3.dE13dE13dE13dE13dE5d",
+  [20]="25.d.d3.d",
+  [21]="25.d.3d.d11.3dE13dE9d",
+  [22]="25.d3.d.d11.d25.d",
+  [23]="25.d3.d.d11.d.13dW5d5.3dE13dE3d",
+  [24]="31.d11.d.S43.d",
+  [25]="31.d.7d.3d.d43.d",
+  [26]="31.N.d5.d5.d43.d",
+  [27]="29.3d.d5.d5.d3.7dW13dW13dWd3.3d",
+  [28]="29.d3.S5.d5.d45.d",
+  [29]="27.d.d3.d.d.d.dWd3.d13.dE3d9.dW13dWd.d",
+  [30]="27.d.d3.d.d5.d3.d17.d25.d.d",
+  [31]="11.3dE9d3.d.d3.d.d5.5d17.5d3.7d11.d.d19.d",
+  [32]="11.d15.d.d3.d.d35.S17.d.S19.d",
+  [33]="11.d3.d7.dW3d.d3.d.d11.5dE7d11.d17.d.d19.d5.d",
+  [34]="11.d11.d5.d5.N35.d17.d.d19.d5.d",
+  [35]="11.d9.3d5.d5.d13.7dW13d.d17.d.9d11.d5.d",
+  [36]="11.d9.d7.d5.d13.d21.d17.d9.d11.d5.d",
+  [37]="11.d9.d7.d5.d3.dEd7.d15.d3.3d17.5dWd3.d11.d5.d",
+  [38]="11.d9.d7.N5.d5.d7.d15.S3.d29.S11.d5.d",
+  [39]="11.d9.d7.d5.d5.5d3.d15.d3.d.9dE5d13.d11.d5.d",
+  [40]="11.d9.d7.d5.d13.d15.d3.d.d13.d13.d11.d5.N",
+  [41]="11.d9.d5.d.d5.d13.d.d11.3d3.d.d13.d13.d11.d5.d",
+  [42]="11.N15.N.d5.d13.S.S11.d5.d15.d13.d11.d5.d",
+  [43]="9.3d11.d.3d.3d3.d9.5d.d11.d5.d11.3d.5dEd7.d11.d5.d",
+  [44]="9.d13.d.d5.d3.d9.d5.d11.d5.S21.d7.d11.S5.d",
+  [45]="9.d.11dWd.d5.d3.d9.d5.d11.d5.d11.5d5.d7.d11.d5.d",
+  [46]="9.d.d13.d5.d3.d9.d5.d11.d5.d11.d9.d7.d11.d5.d",
+  [47]="9.d.d5.d7.d5.d3.d3.dW5d5.d3.d7.d5.d3.7d.d9.5d3.d11.d5.d",
+  [48]="9.d.S5.d13.d3.N15.d3.d7.d5.d9.d.S13.d3.d11.d5.d",
+  [49]="9.d.d5.d13.d3.d3.dW3d3.d3.d3.d7.d5.7d3.d.3d5.d5.d3.3dEd7.d5.d",
+  [50]="9.d.d5.d13.N3.d11.d7.d7.S11.d3.d3.d5.d5.d7.d7.d5.d",
+  [51]="9.d.d5.d13.d3.d5.5dEd7.d7.d11.d.d.dEd.d.d3.d5.dE5d.d7.d5.d",
+  [52]="9.d.d5.N13.d3.d5.d13.d7.d11.S.d5.d.d3.N11.d.d7.d5.d",
+  [53]="9.d.d5.d13.3d.d.5d13.d3.d3.d5.dW3d.d.d5.d.d3.d3.d7.d.d7.d5.d",
+  [54]="9.N.d5.d15.d.d.d17.d3.d3.d9.d9.d.d3.d3.d7.d.d7.d5.N",
+  [55]="9.d.d5.d15.d.d.d9.d3.dW3d3.d3.3d7.d5.5d.d3.d3.d.dWd.d.d.d7.d5.d",
+  [56]="9.d.d5.d15.d.d.N27.d7.d5.S5.d7.d3.d.d.d.d7.d5.d",
+  [57]="9.d.d5.d5.7d3.d.d.d3.9dWd.5dW3d3.d7.d3.3d5.d7.d3.d.d.d.d7.d5.d",
+  [58]="9.d.d5.d5.d9.d3.d13.d.d31.N7.d3.d.d.d.d7.S5.d",
+  [59]="9.d.d5.d5.d5.dE3d3.d13.3d13.dW3d13.d5.3d3.d.d.d.d7.d5.d",
+  [60]="9.d.d5.d19.d29.d3.d13.d5.S5.S.d.S.d13.d",
+  [61]="9.d.d5.d15.5d.9dW11d7.d3.7dWd5.d5.d5.d.d.d.d13.d",
+  [62]="9.d.S5.d21.d45.d11.d.d.d.S13.d",
+  [63]="9.d.d3.d.d7.11dW3d11.3dWd5.7d.3dE5d3.5d7.d3.d.d.d.d13.d",
+  [64]="9.d.d3.N.d7.d35.d7.d11.d11.d3.d.S.d.d13.d",
+  [65]="9.d.d3.d.d3.3dWd9.5dWd17.dEd7.d7.dE3d3.3d3.3d.3d.d.d.d.3d9.d",
+  [66]="11.d3.d.N3.d47.d7.d17.d3.d.d.d3.d9.d",
+  [67]="11.d3.d.d3.d.13dE13dEd11.dE5d5.d.d3.3d9.3d3.d.d.3d.d9.d",
+  [68]="11.d5.d3.d.N27.d23.d.d5.d9.d5.d.d3.d.d9.N",
+  [69]="3.dW7d5.d.3d.d9.d17.3d11.7d3.d.d5.5d5.d3.3d.d3.d.d9.d",
+  [70]="17.d.d3.d9.d19.d11.d5.d3.d.d15.S7.d3.d.d9.d",
+  [71]="17.d.d.3d.d5.d.d11.d.d5.d3.dEd5.d5.d.3d.d.dW9d3.d7.d3.d.dEd7.d",
+  [72]="17.d.d.d3.d5.d.d11.d13.d13.S19.d7.d7.d7.d",
+  [73]="17.d.d.d.3d3.3dE7d5.d13.7d7.d15.5d3.3d.d7.d.d5.d.d",
+  [74]="17.d.S.d.d5.d43.d15.d7.d3.S7.d7.d.d",
+  [75]="17.d.d.d.d.dE5d3.5dW3d23.7d13.3d5.3d3.d5.3d7.d.d",
+  [76]="17.d.d.d.N.d9.d65.d5.d9.d.d",
+  [77]="17.d.d.d.d.d.dW7d.dE11d35.11dWd3.d5.d3.d5.d.d",
+  [78]="17.d.d3.d3.d9.d69.d3.d5.d.d",
+  [79]="17.d.d3.d3.d9.d69.d3.3d3.d.d",
+  [80]="17.N.d3.d3.d9.d69.d9.d.d",
+  [81]="17.d.d.7d9.d63.d5.d9.d.d",
+  [82]="17.d.d.S15.d69.S9.N.N",
+  [83]="17.d.d.d.7d3.d3.d69.d9.d.d",
+  [84]="17.d.d.d.N9.N3.d69.d9.d.d",
+  [85]="17.d.d.d.d5.5d3.d59.3d7.d.d7.d.d",
+  [86]="19.d.d.d13.d59.d9.d.d7.d.d",
+  [87]="19.d.d.d3.7d3.d59.d5.d.d.d.d7.d.d",
+  [88]="19.S.d15.d59.d5.d3.d.d7.d.d",
+  [89]="19.d.d.dE7d5.d59.d5.d3.d.d7.d.d",
+  [90]="21.d9.d5.N59.d9.d9.d",
+  [91]="17.5d9.d5.d59.dW3d5.d5.d.d.d",
+  [92]="17.S19.d63.d5.d5.d.N.d",
+  [93]="15.d.d7.d3.d7.d63.3dW3d5.d.d.d",
+  [94]="17.d11.d7.d69.d7.d.d",
+  [95]="3.3d11.d9.d.d7.d69.d7.d.d",
+  [96]="3.d13.d9.d.S7.d69.S7.d.N",
+  [97]="3.d.3dW9d.5d3.d.7d.d63.3d3.d.d.d3.d.d3.d",
+  [98]="3.d.d13.d3.d3.N9.d69.d9.d3.d",
+  [99]="3.d.d3.9dWd3.3d.d.3d5.d69.d7.3d3.d",
+  [100]="3.d.d3.d15.d.d9.d69.d7.d5.N",
+  [101]="3.d.d3.d11.d3.d.d5.d3.d61.d3.5d7.d5.d",
+  [102]="3.d.d3.d11.d3.N7.d3.d61.d15.d5.d",
+  [103]="3.d.d3.d3.d7.d3.d7.3d.d61.d15.d.d3.d",
+  [104]="3.N.d3.S11.d3.d9.d.N61.d15.d.d3.d",
+  [105]="3.d.d3.d11.d3.d.3d5.d.d61.d7.d5.3d.d3.d",
+  [106]="3.d.d3.d15.d.d7.S.d61.N7.N5.N3.d3.d",
+  [107]="3.d.d3.d15.d.d7.d.d61.d7.d3.3d3.d3.d",
+  [108]="3.d.S3.d15.d.d7.d.d61.d7.d13.d",
+  [109]="3.d.d.3d3.3d7.d.d.d.d3.3d.d59.3d3.d3.d.d5.5dW5dWd",
+  [110]="3.d.d.d15.d.d7.d3.d59.d5.d3.d.d",
+  [111]="3.d.d.d3.3d9.d.d5.3d3.d5.dE7d5.dE11d3.3dE13dE7d5.d3.d.d",
+  [112]="3.d.d.d3.N11.d.d5.d11.d7.d21.d29.d5.d",
+  [113]="3.d.d.d3.d5.5d.d.3dW3d5.7d7.d19.3d5.13dW3d7.dWd3.3dW11d",
+  [114]="3.d.d.d9.d3.d.S13.d33.d7.S25.d17.d",
+  [115]="3.d.d.d9.d3.d.d9.dE3d11.5dW5d3.3dE5d3.5d7.d17.7d11.d",
+  [116]="3.d.d.S9.N3.d.d39.d11.d3.d31.d",
+  [117]="3.d.d.d9.d.d.d.d3.3dE13dE13dEd3.d7.5d3.d19.d11.d",
+  [118]="3.N.d.d9.d.d.d.d39.d",
+  [119]="3.d.d.d9.d.d.d.3d9.d3.7dE9d5.3d3.d7.3d5.dWd5.d7.3d5.d11.3dE9d",
+  [120]="3.d.d.d9.d.S.S13.d19.d5.d15.d5.d7.d",
+  [121]="3.d.d.d9.d.d.d7.5d.d15.d3.3dE3d15.d5.d5.3d11.dW13dWd",
+  [122]="3.d.S.d9.d.d.d11.d.S15.d25.d5.d5.d13.d",
+  [123]="3.d.d.d9.d.d.7d5.d.3d.3d3.5d.d5.d7.9d3.d3.d.d.3d.d5.9d",
+  [124]="3.d.d11.d.d13.d.d.d7.N3.d.d5.d19.d7.d9.d",
+  [125]="3.d.d11.d.9dEd3.d.d.9d3.d.3d3.7dWd9.dEd7.d5.3d.d13.dW13dW5d",
+  [126]="3.d.d11.d11.d3.d.S13.d25.d9.S5.d3.S",
+  [127]="3.d.9dE3dEd9.d3.d.d11.d.d3.3d19.d3.dWd3.d3.3d3.d3.7dWd",
+  [128]="3.d15.d9.d3.S.d11.S27.d13.S5.d",
+  [129]="3.3dW11d.d9.d3.d.d11.d21.d5.5d7.3d5.3d",
+  [130]="17.d.d9.d5.d11.d21.d9.d7.d9.d",
+  [131]="17.d.d.d7.d5.d11.d5.d15.d5.d3.3d3.3d9.3d9.7dW3d",
+  [132]="17.N.d9.d5.d11.d21.d5.d5.N3.d13.d9.d",
+  [133]="17.d.d7.d.d5.3d3.dWd3.d9.d3.5d3.3d3.d5.5d.3d.d7.3dEd.d3.d",
+  [134]="17.d.d9.d7.d19.d13.d3.d11.d17.S3.S",
+  [135]="17.d.d9.3dEd3.3d7.d5.5d9.d3.d3.d.d5.3dWd7.d9.d3.d.d3.d",
+  [136]="17.d.d13.d5.S31.N3.d.d27.d3.d.d3.N",
+  [137]="17.d.3dE3d7.d5.9d3.7dE9d3.d3.d.d9.d9.5d3.d3.d.d3.d",
+  [138]="25.d7.d13.d23.d3.d.d19.N7.d3.d.d3.d",
+  [139]="25.7d.5d9.3d7.t3.d3.t3.t.d.t.d.d19.d5.d.d3.d.dWd.d",
+  [140]="31.d5.d11.S21.d3.S.d25.d.d3.d3.d.d",
+  [141]="31.dEd3.d11.13d5.d3.d3.d.d.3d3.dE13dE3d.d.d.d3.d.d",
+  [142]="37.d23.S5.d3.d3.d.d7.d19.d.d.d5.d",
+  [143]="27.9dWd19.t3.3d.t.d3.d.t.d.d5.3d19.d.d.d5.d3.3d3.3d",
+  [144]="27.d35.d3.d3.d3.d.N5.d23.d7.d",
+  [145]="27.d15.9dE9d.d3.d3.d3.d.d.d3.d.3dE11d7.d3.5d",
+  [146]="27.d33.d.d7.d5.d.d3.d.d21.d3.N",
+  [147]="21.t3.t.d.t5.dW5d15.t3.d.d.t3.t.d.t3.d.d3.d.d15.t3.t.d.t.d.t5.d",
+  [148]="27.S13.d21.d7.d5.d7.d21.S3.d7.d",
+  [149]="25.3d13.7dWd13.5d3.d5.d7.d7.dW13d.3d7.d",
+  [150]="25.d23.d17.S3.N5.d7.d7.d15.d9.d",
+  [151]="25.d13.d9.7d.t7.t.d3.d.t3.d7.d3.5d5.3dE7d9.d",
+  [152]="25.d13.d15.d11.d3.d5.d21.d",
+  [153]="25.d13.d11.d3.3dW5d3.d3.d5.d9.3dE9d",
+  [154]="25.d37.d7.d5.d9.d",
+  [155]="25.d31.t5.d.t3.t.d.t3.d.9d",
+  [156]="25.d37.d7.d5.N.N",
+  [157]="25.d7.3d5.d11.3dEd3.d.5dWd.d5.d.d15.9dW5d",
+  [158]="25.d15.N15.d3.d7.d9.d15.d13.d",
+  [159]="25.d11.3d.d15.d3.3d5.d9.d3.d5.5dWd.5d7.d",
+  [160]="25.S15.d15.d11.d9.d3.d13.d",
+  [161]="25.d5.3d3.dE9d7.3d11.d7.3d3.d7.dW3d.d3.d3.3d",
+  [162]="25.d7.d21.d21.d5.d11.d.N7.S",
+  [163]="25.d7.3d.t3.t3.t3.t5.d9.dEd7.3d3.t.d.t3.t3.t.d.d5.3d",
+  [164]="25.d9.d19.d19.d7.d11.d7.d",
+  [165]="25.d9.dW11d.3d3.d13.5dEd.5dEd11.d3.5d5.d",
+  [166]="25.d21.d.d5.d13.d7.d17.d3.d",
+  [167]="25.d3.d.d11.d3.d.d5.d3.3dE7d7.d17.d3.d",
+  [168]="25.d3.d13.d3.N.d5.S3.d17.d17.d3.d",
+  [169]="25.3d.d11.3d3.d.d3.3d3.d17.d17.3dWd",
+  [170]="27.d.d11.d5.d5.d5.d17.d",
+  [171]="27.d.5dWd5.d.d.d.d5.d5.d5.d5.d3.d.d9.d",
+  [172]="27.S7.d7.d.d.d27.d.d",
+  [173]="27.3d5.9d.d.5d15.7dEd.d",
+  [174]="29.d15.d21.d9.N",
+  [175]="29.9dE5d.d9.7dE5d.9d",
+  [176]="43.d11.d13.d",
+  [177]="43.7dE5d5.5dE3d",
+  [178]="61.d",
+  [179]="51.3dE7d",
+ },
+ [6]={
+  [135]="13.109s",
+  [136]="13.109s",
+  [137]="13.109s",
+  [138]="13.109s",
+  [139]="13.44sl7sl3sl3sl48s",
+  [140]="13.109s",
+  [141]="13.109s",
+  [142]="13.109s",
+  [143]="13.44sl7sl7sl48s",
+  [144]="13.109s",
+  [145]="13.109s",
+  [146]="13.109s",
+  [147]="13.8sl3sl3sl27sl7sl3sl3sl27sl3sl3sl3sl8s",
+  [148]="13.109s",
+  [149]="13.109s",
+  [150]="13.109s",
+  [151]="13.44sl7sl7sl48s",
+  [152]="13.109s",
+  [153]="13.109s",
+  [154]="13.109s",
+  [155]="13.44sl7sl3sl3sl48s",
+  [156]="13.109s",
+  [157]="13.109s",
+  [158]="13.109s",
+  [159]="13.109s",
+  [160]="13.109s",
+  [161]="13.109s",
+  [162]="13.109s",
+  [163]="13.24sl3sl3sl3sl31sl3sl3sl3sl28s",
+  [164]="13.109s",
+  [165]="13.109s",
+  [166]="13.109s",
+  [167]="13.109s",
+  [168]="13.109s",
+  [169]="13.109s",
+  [170]="13.109s",
+  [171]="13.109s",
+  [172]="13.109s",
+  [173]="13.109s",
+  [174]="13.109s",
+  [175]="13.109s",
+ },
+ [7]={
+  [171]="43.b15.b5.v5.b15.b",
+ },
+},
+prog={
+ {0,0,40,3,"E"},
+ {0,1,44,3,"E"},
+ {0,2,48,3,"E"},
+ {0,3,52,3,"E"},
+ {0,4,56,3,"E"},
+ {0,5,60,3,"E"},
+ {0,6,64,3,"E"},
+ {0,7,68,3,"E"},
+ {0,8,72,3,"E"},
+ {0,9,76,3,"E"},
+ {0,10,80,3,"E"},
+ {0,11,84,3,"E"},
+ {0,12,88,3,"E"},
+ {0,13,92,3,"E"},
+ {1,0,42,5,"W"},
+ {1,1,46,5,"W"},
+ {1,2,50,5,"W"},
+ {1,3,54,5,"W"},
+ {1,4,58,5,"W"},
+ {1,5,62,5,"W"},
+ {1,6,66,5,"W"},
+ {1,7,70,5,"W"},
+ {1,8,74,5,"W"},
+ {1,9,78,5,"W"},
+ {1,10,82,5,"W"},
+ {1,11,86,5,"W"},
+ {1,12,90,5,"W"},
+ {1,13,94,5,"W"},
+ {2,0,40,7,"E"},
+ {2,1,44,7,"E"},
+ {2,2,48,7,"E"},
+ {2,3,52,7,"E"},
+ {2,4,56,7,"E"},
+ {2,5,60,7,"E"},
+ {2,6,64,7,"E"},
+ {2,7,68,7,"E"},
+ {2,8,72,7,"E"},
+ {2,9,76,7,"E"},
+ {2,10,80,7,"E"},
+ {2,11,84,7,"E"},
+ {2,12,88,7,"E"},
+ {2,13,92,7,"E"},
+ {3,0,42,9,"W"},
+ {3,1,46,9,"W"},
+ {3,2,50,9,"W"},
+ {3,3,54,9,"W"},
+ {3,4,58,9,"W"},
+ {3,5,62,9,"W"},
+ {3,6,66,9,"W"},
+ {3,7,70,9,"W"},
+ {3,8,74,9,"W"},
+ {3,9,78,9,"W"},
+ {3,10,82,9,"W"},
+ {3,11,86,9,"W"},
+ {3,12,90,9,"W"},
+ {3,13,94,9,"W"},
+ {4,0,40,11,"E"},
+ {4,1,44,11,"E"},
+ {4,2,48,11,"E"},
+ {4,3,52,11,"E"},
+ {4,4,56,11,"E"},
+ {4,5,60,11,"E"},
+ {4,6,64,11,"E"},
+ {4,7,68,11,"E"},
+ {4,8,72,11,"E"},
+ {4,9,76,11,"E"},
+ {4,10,80,11,"E"},
+ {4,11,84,11,"E"},
+ {4,12,88,11,"E"},
+ {4,13,92,11,"E"},
+ {5,0,42,13,"W"},
+ {5,1,46,13,"W"},
+ {5,2,50,13,"W"},
+ {5,3,54,13,"W"},
+ {5,4,58,13,"W"},
+ {5,5,62,13,"W"},
+ {5,6,66,13,"W"},
+ {5,7,70,13,"W"},
+ {5,8,74,13,"W"},
+ {5,9,78,13,"W"},
+ {5,10,82,13,"W"},
+ {5,11,86,13,"W"},
+ {5,12,90,13,"W"},
+ {5,13,94,13,"W"},
+ {6,0,40,15,"E"},
+ {6,1,44,15,"E"},
+ {6,2,48,15,"E"},
+ {6,3,52,15,"E"},
+ {6,4,56,15,"E"},
+ {6,5,60,15,"E"},
+ {6,6,64,15,"E"},
+ {6,7,68,15,"E"},
+ {6,8,72,15,"E"},
+ {6,9,76,15,"E"},
+ {6,10,80,15,"E"},
+ {6,11,84,15,"E"},
+ {6,12,88,15,"E"},
+ {6,13,92,15,"E"},
+ {7,0,42,17,"W"},
+ {7,1,46,17,"W"},
+ {7,2,50,17,"W"},
+ {7,3,54,17,"W"},
+ {7,4,58,17,"W"},
+ {7,5,62,17,"W"},
+ {7,6,66,17,"W"},
+ {7,7,70,17,"W"},
+ {7,8,74,17,"W"},
+ {7,9,78,17,"W"},
+ {7,10,82,17,"W"},
+ {7,11,86,17,"W"},
+ {7,12,90,17,"W"},
+ {7,13,94,17,"W"},
+},
+lamps={
+ ["A0"]={113,147},
+ ["A1"]={109,147},
+ ["A2"]={105,147},
+ ["A3"]={101,147},
+ ["E0_0"]={65,139},
+ ["E0_1"]={69,139},
+ ["E0_2"]={73,139},
+ ["E1_0"]={65,143},
+ ["E1_2"]={73,143},
+ ["E2_0"]={65,147},
+ ["E2_1"]={69,147},
+ ["E2_2"]={73,147},
+ ["E3_0"]={65,151},
+ ["E3_2"]={73,151},
+ ["E4_0"]={65,155},
+ ["E4_1"]={69,155},
+ ["E4_2"]={73,155},
+ ["P0"]={29,147},
+ ["P1"]={25,147},
+ ["P2"]={21,147},
+ ["X0"]={49,163},
+ ["X1"]={45,163},
+ ["X2"]={41,163},
+ ["X3"]={37,163},
+ ["Y0"]={93,163},
+ ["Y1"]={89,163},
+ ["Y2"]={85,163},
+ ["Y3"]={81,163},
+ ["Z0_2"]={57,139},
+ ["Z1_2"]={57,143},
+ ["Z2_2"]={57,147},
+ ["Z3_2"]={57,151},
+ ["Z4_2"]={57,155},
+},
+buttons={
+ ["Lauf"]={65,171},
+ ["Reset"]={71,171},
+ ["Takt"]={59,171},
+ ["X"]={43,171},
+ ["Y"]={87,171},
+},
+stats={floor=24435,button=4,dust=15171,lamp=33,lever=1,repeater=1643,solid=17007,torch=266},
+}
+]======]
 FILES["toast_gps.lua"]=[======[
 -- Toast Control: GPS-Sender. Beantwortet GPS-Anfragen (gps locate) von Turtles,
 -- Pockets und Computern mit den eigenen Koordinaten. Man braucht mindestens 4
@@ -9172,7 +10973,7 @@ local function uiLoop()
 end
 parallel.waitForAny(scanLoop,beaconLoop,uiLoop)
 ]======]
--- TOAST CONTROL 3.17.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.18.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -9187,7 +10988,7 @@ for _,a in ipairs(args) do
     if a=="auto" then auto=true;clean=false
     elseif a=="intern" then internal=true
     elseif a=="clean" or a=="neu" then clean=true
-    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="dig" or a=="build" or a=="repeater" then requested=a
+    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="dig" or a=="build" or a=="cpu" or a=="repeater" then requested=a
     else error("Optional: farm / mining / repeater / clean / auto",0) end
 end
 local code=FILES
@@ -9311,6 +11112,7 @@ local function chooseJob()
     fg(colors.yellow);write("4 ");fg(colors.white);print("Mobs      (Schwert)")
     fg(colors.yellow);write("5 ");fg(colors.white);print("Aushub    (Raum/Schacht/Kugel, Spitzh.)")
     fg(colors.yellow);write("6 ");fg(colors.white);print("Mobfarm   (baut Creeper-Farm, Spitzh.)")
+    fg(colors.yellow);write("7 ");fg(colors.white);print("CPU       (baut Redstone-Computer)")
     print("")
     while true do
         write("Aufgabe: ")
@@ -9321,6 +11123,7 @@ local function chooseJob()
         if answer=="4" or answer=="mob" or answer=="mobs" then return "mob" end
         if answer=="5" or answer=="dig" or answer=="aushub" or answer=="a" then return "dig" end
         if answer=="6" or answer=="build" or answer=="mobfarm" or answer=="bau" then return "build" end
+        if answer=="7" or answer=="cpu" or answer=="computer" or answer=="redstone" then return "cpu" end
     end
 end
 local job
@@ -9412,7 +11215,9 @@ elseif role=="storage" then names[#names+1]="toast_storage.lua";names[#names+1]=
 elseif role=="turtle" then
     -- Alle Turtle-Programme: Aufgabe spaeter ohne Neuinstallation wechselbar
     for _,n in ipairs({"farm_turtle.lua","farm_common.lua","mine_turtle.lua","mine_common.lua",
-        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","build_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
+        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","build_turtle.lua","cpu_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
+    -- Bauplan der Redstone-CPU (ca. 60 KB): immer dabei, damit ein Aufgabenwechsel ohne Neuinstallation geht
+    names[#names+1]="cpu_plan.lua"
 else names[#names+1]="repeater.lua" end
 for _,name in ipairs(names)do assert(code[name] and load(code[name],"@"..name),"Installer beschaedigt: "..name) end
 if role=="turtle" and (job=="farm" or job=="mining") then

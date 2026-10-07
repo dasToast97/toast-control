@@ -1,7 +1,7 @@
 local M={
-    version="3.17.7",
+    version="3.18.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
-    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1"},
+    workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1",cpu="toast.cpu.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
     actions={start=true,stop=true,once=true,reset=true,update=true},
     updateUrl="https://raw.githubusercontent.com/dasToast97/toast-control/main/install.lua",
@@ -19,10 +19,10 @@ function M.serial(n) return M.integer(n,1,9007199254740991) end
 function M.number(n) return type(n)=="number" and n==n and n>-math.huge and n<math.huge and n or 0 end
 function M.contains(list,id) for _,v in ipairs(list or {}) do if v==id then return true end end;return false end
 -- Aufgaben einer Turtle. JOBS: Reihenfolge in Menues und Anzeigen.
-M.JOBS={"farm","mining","tree","mob","dig","build"}
-M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub",build="Mobfarm-Bau"}
+M.JOBS={"farm","mining","tree","mob","dig","build","cpu"}
+M.JOB_NAMES={farm="Farm",mining="Mine",tree="Holz",mob="Mobs",dig="Aushub",build="Mobfarm-Bau",cpu="Redstone-CPU"}
 -- Config-Abschnitt und Programmdatei je Aufgabe
-M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig",build="build"}
+M.JOB_SECTION={farm="farm",mining="mine",tree="tree",mob="mob",dig="dig",build="build",cpu="cpu"}
 function M.job(j) return M.JOB_NAMES[j]~=nil end
 function M.label(v)
     return type(v)=="string" and v:gsub("[%c]"," "):sub(1,48) or ""
@@ -60,13 +60,14 @@ M.DEFAULTS={
         wallBlock="",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
     build={floors=2,drop=22,creeperOnly=true,inTerrain=false,becomeMob=true,fuelTarget=2000,radioTimeout=0},
+    cpu={program="LDX; ADDY; OUT; JMP 0",clear=true,fuelTarget=5000,radioTimeout=0},
 }
 local function copy(v)
     if type(v)~="table" then return v end
     local t={};for k,x in pairs(v) do t[k]=copy(x) end;return t
 end
 M.copy=copy
-local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,build=true,storage=true,base=true,gps=true}
+local SECTIONS={display=true,network=true,recovery=true,chunkload=true,farm=true,mine=true,tree=true,mob=true,dig=true,build=true,cpu=true,storage=true,base=true,gps=true}
 function M.withDefaults(c)
     c=type(c)=="table" and c or {}
     for k,v in pairs(M.DEFAULTS) do
@@ -181,6 +182,12 @@ function M.configText(c,cap)
             {"becomeMob","true = danach selbst Mob-Turtle (Schwert ins Inventar)"},
             {"fuelTarget","an der Basis mindestens bis hierhin tanken"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.build)
+    elseif role=="turtle" and job=="cpu" then
+        section("cpu","Redstone-CPU: Flaeche VOR der Turtle (Plan siehe Anleitung)",{
+            {"program","Programm, Befehle mit ; trennen (LDX, ADDY, OUT, JMP 0 ...)"},
+            {"clear","true = Flaeche erst begradigen (8 hoch frei), false = nur Boden"},
+            {"fuelTarget","an der Basis mindestens bis hierhin tanken"},
+            {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.cpu)
     elseif role=="turtle" and job=="dig" then
         section("dig","Aushub: Form direkt VOR der Basis ausheben",{
             {"shape","\"room\" Quader/Schacht, \"cylinder\", \"sphere\" Kugel, \"dome\" Halbkugel"},
@@ -280,7 +287,7 @@ function M.load(c)
     if c.role=="controller" then assert(os.getComputerID()==c.controllerId,"controllerId stimmt nicht mit Zentralen-ID ueberein.") end
     if c.role=="turtle" then
         assert(turtle and M.job(c.job),"Turtle: job=farm, mining, tree, mob, dig oder build einstellen.")
-        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) elseif c.job=="build" then M.checkBuild(c.build) end
+        if c.job=="tree" then M.checkTree(c.tree) elseif c.job=="mob" then M.checkMob(c.mob) elseif c.job=="dig" then M.checkDig(c.dig) elseif c.job=="build" then M.checkBuild(c.build) elseif c.job=="cpu" then M.checkCpu(c.cpu) end
         assert(os.getComputerID()~=c.controllerId,"Turtle und Zentrale duerfen nicht dieselbe ID haben.")
     end
     if c.role=="pocket" then assert(pocket and os.getComputerID()~=c.controllerId,"Pocket/Zentralen-ID ungueltig.") end
@@ -659,6 +666,34 @@ function M.checkBuild(b)
     assert(b.radioTimeout==0 or M.integer(b.radioTimeout,10,300),"build.radioTimeout: 0 oder 10 bis 300.")
     return b
 end
+-- Redstone-CPU: Programm pruefen (gleicher Assembler wie die Turtle)
+M.CPU_OPS={LDI=true,LDX=true,LDY=true,ADDI=true,ADDX=true,ADDY=true,SUBI=true,SUBX=true,SUBY=true,OUT=true,JMP=true,JZ=true,NOP=true}
+function M.cpuProgram(text)
+    local n=0
+    for line in (tostring(text or "").."\n"):gmatch("([^;\n]*)[;\n]") do
+        line=line:gsub("%-%-.*$",""):gsub("^%s+",""):gsub("%s+$","")
+        if line~="" then
+            local ops,arg=line:match("^(%a+)%s*(%-?%d*)$")
+            if not ops then return nil,"Zeile unklar: "..line end
+            if not M.CPU_OPS[ops:upper()] then return nil,"Unbekannter Befehl: "..ops end
+            if arg~="" and (tonumber(arg)<0 or tonumber(arg)>15) then return nil,"Zahl 0 bis 15: "..line end
+            n=n+1
+        end
+    end
+    if n==0 then return nil,"Programm ist leer" end
+    if n>8 then return nil,"Hoechstens 8 Befehle (sind "..n..")" end
+    return n
+end
+function M.checkCpu(c)
+    assert(type(c)=="table","cpu fehlt.")
+    assert(type(c.program)=="string","cpu.program: Text.")
+    local ok,why=M.cpuProgram(c.program)
+    assert(ok,"cpu.program: "..tostring(why))
+    assert(type(c.clear)=="boolean","cpu.clear: true oder false.")
+    assert(M.integer(c.fuelTarget,100,100000),"cpu.fuelTarget: 100 bis 100000.")
+    assert(c.radioTimeout==0 or M.integer(c.radioTimeout,10,300),"cpu.radioTimeout: 0 oder 10 bis 300.")
+    return c
+end
 M.DIG_SHAPES={room="Quader",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
 function M.checkDig(d)
     assert(type(d)=="table","dig fehlt.")
@@ -922,9 +957,9 @@ M.FIELD_OPTIONS={side={"right","left"},crop={"wheat","carrots","potatoes","beetr
 -- Felder, die die Form/den Auftrag aendern (dann nur an der Basis + Fortschritt neu)
 M.LAYOUT_FIELDS={mining={"length","height","tunnels","gap","side","sideDig"},farm={"length","width","side","crop"},
     tree={"length","width","side"},mob={"mode","length","width","side"},dig={"shape","width","length","height","side","direction"},
-    build={"floors","drop","creeperOnly","inTerrain"}}
+    build={"floors","drop","creeperOnly","inTerrain"},cpu={"clear"}}
 M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",
-    dig="/toast_dig_state",build="/toast_build_state"}
+    dig="/toast_dig_state",build="/toast_build_state",cpu="/toast_cpu_state"}
 -- Einstellungen einer Turtle fuer die Anzeige: Abschnitte mit Feld, Text, Wert, Auswahl
 function M.remoteConfig(c)
     local cap={}

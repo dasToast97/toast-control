@@ -1,3 +1,34 @@
+# Toast Control 3.18.0
+
+- **Neu: Redstone-CPU bauen** (Turtle-Aufgabe „Redstone-CPU“, Menüpunkt 7 im
+  Installer). Eine Turtle begradigt eine Fläche und baut darauf einen
+  funktionierenden Mini-Computer aus reinem Vanilla-Redstone:
+  - **4 Bit**, Akkumulator A, **8 Befehle** Programmspeicher (ROM aus Repeatern).
+  - **Eingaben X und Y** (0–15): je ein Knopf zählt +1, Lampen zeigen den Wert.
+  - **2-stellige 7-Segment-Anzeige** (00–15) für den Befehl OUT, dazu Lampen für
+    A und den Programmzähler.
+  - **Bedienpult:** Knöpfe X+1, Y+1, Takt, Reset und ein Hebel Lauf (eigener Takt,
+    ca. 12 s pro Befehl).
+  - **Befehle:** LDI n, LDX, LDY, ADDI n, ADDX, ADDY, SUBI n, SUBX, SUBY, OUT,
+    JMP n, JZ n, NOP. Rechnen modulo 16.
+  - **Vorlagen:** Rechner X+Y, Rechner X−Y, Zähler 0..15, Countdown ab X.
+    Eigene Programme im Setup (Punkt „CPU“) eingeben.
+  - **Programm später ändern:** Nach dem Bau wird beim neuen Programm nur der
+    Programmspeicher umgebaut (wenige Minuten).
+- **Fläche:** 135 × 181 Blöcke, 7 hoch. Vor dem Bau begradigt die Turtle
+  (Hügel abtragen, Löcher und Wasser füllen, darüber 8 Blöcke frei).
+  - „Ohne Begradigen“ ist möglich, wenn der Boden schon flach und frei ist.
+- **Material (ohne Begradigen):** ca. 15.200 Redstone, 1.650 Repeater,
+  270 Redstone-Fackeln, 33 Redstone-Lampen, 4 Knöpfe, 1 Hebel,
+  ca. 17.000 Bruchstein (oder andere feste Blöcke).
+  - Gesamt mit Repeatern und Fackeln ca. 20.000 Redstone.
+  - Begradigen: zusätzlich Füllblöcke für Löcher, Abraum geht in die Kiste darunter.
+- **Geprüft:** Der Bauplan wurde in einem eigenen Redstone-Simulator (Regeln aus
+  dem Minecraft-Code: Staub, Fackeln mit Burnout, Repeater mit Sperre, Lampen,
+  Knöpfe) Block für Block getestet: Rechnen, Zähler, Countdown, Einzelschritt,
+  Eingabe während des Laufs, Überlauf, zufällige Tick-Reihenfolgen.
+  Nicht in einer echten Welt getestet.
+
 # Toast Control 3.17.7
 
 - **Creeper-Farm: rund die Hälfte weniger Bruchstein**, ohne Abstriche bei der

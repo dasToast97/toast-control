@@ -1,4 +1,4 @@
--- TOAST CONTROL 3.17.7 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
+-- TOAST CONTROL 3.18.0 – Ein-Datei-Installer (alle Programme sind hier eingebaut).
 -- Start: wget run <link>            -> Update oder Komplett neu
 --        wget run <link> clean      -> Komplett neu
 --        wget run <link> farm|mining|tree|mob|repeater
@@ -13,7 +13,7 @@ for _,a in ipairs(args) do
     if a=="auto" then auto=true;clean=false
     elseif a=="intern" then internal=true
     elseif a=="clean" or a=="neu" then clean=true
-    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="dig" or a=="build" or a=="repeater" then requested=a
+    elseif a=="farm" or a=="mining" or a=="tree" or a=="mob" or a=="dig" or a=="build" or a=="cpu" or a=="repeater" then requested=a
     else error("Optional: farm / mining / repeater / clean / auto",0) end
 end
 local code=FILES
@@ -137,6 +137,7 @@ local function chooseJob()
     fg(colors.yellow);write("4 ");fg(colors.white);print("Mobs      (Schwert)")
     fg(colors.yellow);write("5 ");fg(colors.white);print("Aushub    (Raum/Schacht/Kugel, Spitzh.)")
     fg(colors.yellow);write("6 ");fg(colors.white);print("Mobfarm   (baut Creeper-Farm, Spitzh.)")
+    fg(colors.yellow);write("7 ");fg(colors.white);print("CPU       (baut Redstone-Computer)")
     print("")
     while true do
         write("Aufgabe: ")
@@ -147,6 +148,7 @@ local function chooseJob()
         if answer=="4" or answer=="mob" or answer=="mobs" then return "mob" end
         if answer=="5" or answer=="dig" or answer=="aushub" or answer=="a" then return "dig" end
         if answer=="6" or answer=="build" or answer=="mobfarm" or answer=="bau" then return "build" end
+        if answer=="7" or answer=="cpu" or answer=="computer" or answer=="redstone" then return "cpu" end
     end
 end
 local job
@@ -238,7 +240,9 @@ elseif role=="storage" then names[#names+1]="toast_storage.lua";names[#names+1]=
 elseif role=="turtle" then
     -- Alle Turtle-Programme: Aufgabe spaeter ohne Neuinstallation wechselbar
     for _,n in ipairs({"farm_turtle.lua","farm_common.lua","mine_turtle.lua","mine_common.lua",
-        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","build_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
+        "tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","build_turtle.lua","cpu_turtle.lua","toast_worker.lua"}) do names[#names+1]=n end
+    -- Bauplan der Redstone-CPU (ca. 60 KB): immer dabei, damit ein Aufgabenwechsel ohne Neuinstallation geht
+    names[#names+1]="cpu_plan.lua"
 else names[#names+1]="repeater.lua" end
 for _,name in ipairs(names)do assert(code[name] and load(code[name],"@"..name),"Installer beschaedigt: "..name) end
 if role=="turtle" and (job=="farm" or job=="mining") then

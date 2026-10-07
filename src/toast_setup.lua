@@ -48,7 +48,7 @@ function S.new(common)
         end
     end
     local function sideName(s) return s=="left" and "links" or "rechts" end
-    local showText,editShow
+    local showText,editShow,cpuText,editCpu
     -- ---- Zusammenfassungen ----
     local function mineText(m)
         return m.length.."x"..m.height.."x"..m.tunnels.." Abst."..m.gap.." "..sideName(m.side)
@@ -219,6 +219,43 @@ function S.new(common)
         hint((b.creeperOnly and n*172+32 or n*12).." Falltueren, "..n*12 .." Redstonebl.")
         hint("(Redstone macht die Kanal-Falltueren auf)")
         sleep(2)
+    end
+    local CPU_PRESETS={
+        {"Rechner X+Y","LDX; ADDY; OUT; JMP 0"},
+        {"Rechner X-Y","LDX; SUBY; OUT; JMP 0"},
+        {"Zaehler 0..15","LDI 0; ADDI 1; OUT; JMP 1"},
+        {"Countdown ab X","LDX; OUT; SUBI 1; JZ 5; JMP 1; OUT; JMP 6"},
+    }
+    function cpuText(p)
+        for _,pr in ipairs(CPU_PRESETS) do if pr[2]==p.program then return pr[1]..(p.clear and "" or " +ohne Begradigen") end end
+        return "eigenes Programm"..(p.clear and "" or " +ohne Begradigen")
+    end
+    function editCpu(c)
+        local p=c.cpu
+        header("Redstone-CPU bauen")
+        hint("Baut VOR der Turtle (ab 2 Bloecke davor).")
+        hint("Kiste HINTER ihr = Material + Kohle,")
+        hint("Kiste UNTER ihr = Abraum.")
+        hint("Programm (8 Befehle Speicher):")
+        for i,pr in ipairs(CPU_PRESETS) do hint(i.." "..pr[1]) end
+        hint((#CPU_PRESETS+1).." eigenes Programm eingeben")
+        local cur=#CPU_PRESETS+1
+        for i,pr in ipairs(CPU_PRESETS) do if pr[2]==p.program then cur=i end end
+        local n=ask("Auswahl",cur,1,#CPU_PRESETS+1)
+        if n<=#CPU_PRESETS then p.program=CPU_PRESETS[n][2]
+        else
+            hint("Befehle mit ; trennen, z.B.")
+            hint("LDX; ADDY; OUT; JMP 0")
+            while true do
+                local t=askText("Programm",p.program)
+                local ok,why=common.cpuProgram(t)
+                if ok then p.program=t;break end
+                fg(colors.orange);print("  "..tostring(why));fg(colors.white)
+            end
+        end
+        hint("Begradigen: raeumt 8 Bloecke hoch frei")
+        hint("(im Freien mit Baeumen/Huegeln noetig).")
+        p.clear=yesno("Flaeche begradigen?",p.clear~=false)
     end
     local SHAPES={"room","cylinder","sphere","dome"}
     local SHAPE_TEXT={room="Quader/Schacht",cylinder="Zylinder",sphere="Kugel",dome="Halbkugel"}
@@ -429,12 +466,12 @@ function S.new(common)
     end
     function showText(v)
         if type(v)=="number" then return "Turtle #"..v end
-        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",build="Alle Mobfarm-Bauer",storage="Lager (Kisten)"})[v] or tostring(v)
+        return ({all="Alle Turtles",farm="Alle Farmen",mining="Alle Minen",tree="Alle Holzfarmen",mob="Alle Mob-Turtles",dig="Alle Aushub-Turtles",build="Alle Mobfarm-Bauer",cpu="Alle CPU-Bauer",storage="Lager (Kisten)"})[v] or tostring(v)
     end
     function editShow(c)
         header("Was soll der Infoscreen zeigen?")
         print("")
-        local opts={"all","farm","mining","tree","mob","dig","build","storage"}
+        local opts={"all","farm","mining","tree","mob","dig","build","cpu","storage"}
         for i,v in ipairs(opts) do hint(i.." "..showText(v)) end
         local nT=#opts+1
         hint(nT.." Eine bestimmte Turtle")
@@ -471,7 +508,7 @@ function S.new(common)
     local function editJob(c,info)
         header("Aufgabe wechseln")
         hint("Jetzt: "..(common.JOB_NAMES[c.job] or "?"))
-        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke",build="Spitzhacke"}
+        local TOOL={farm="Hacke",mining="Spitzhacke",tree="Axt",mob="Schwert",dig="Spitzhacke",build="Spitzhacke",cpu="Spitzhacke"}
         for i,j in ipairs(common.JOBS) do
             fg(colors.yellow);write(i.." ");fg(colors.white);print(cut(string.format("%-7s",common.JOB_NAMES[j]).." ("..TOOL[j]..")"))
         end
@@ -506,6 +543,8 @@ function S.new(common)
             list[#list+1]={"Mobs",function() return mobText(c.mob) end,function() editMob(c) end}
         elseif role=="turtle" and job=="build" then
             list[#list+1]={"Mobfarm",function() return buildText(c.build) end,function() editBuild(c) end}
+        elseif role=="turtle" and job=="cpu" then
+            list[#list+1]={"CPU",function() return cpuText(c.cpu) end,function() editCpu(c) end}
         elseif role=="turtle" and job=="dig" then
             list[#list+1]={"Aushub",function() return digText(c.dig) end,function() editDig(c) end}
         elseif role=="turtle" then
@@ -592,10 +631,11 @@ function S.new(common)
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         if job=="dig" then local d=c.dig return table.concat({d.shape,d.width,d.length,d.height,d.side,d.direction},":") end
         if job=="build" then local b=c.build return table.concat({b.floors,b.drop,tostring(b.creeperOnly),tostring(b.inTerrain==true)},":") end
+        if job=="cpu" then return tostring(c.cpu.clear~=false) end
         return ""
     end
     -- Neuer Auftrag: Fortschritt der Aufgabe loeschen (Turtle muss an der Basis stehen)
-    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",dig="/toast_dig_state",build="/toast_build_state"}
+    M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",dig="/toast_dig_state",build="/toast_build_state",cpu="/toast_cpu_state"}
     function M.newJob(job)
         local file=M.STATE_FILES[job];if not file then return false end
         header("Neuer Auftrag")
@@ -629,7 +669,7 @@ function S.new(common)
         return false
     end
     function M.confirmReset(job)
-        if job~="mining" and job~="tree" and job~="mob" and job~="dig" and job~="build" then return end
+        if job~="mining" and job~="tree" and job~="mob" and job~="dig" and job~="build" and job~="cpu" then return end
         local file="/toast_"..job.."_state"
         if not (fs.exists(file) or fs.exists(file..".tmp")) then return end
         header(job=="mining" and "Neue Minenmasse" or "Neue Masse")

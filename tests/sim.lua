@@ -28,7 +28,7 @@ function Sim.new(opts)
     end
     -- Dateien
     for _,n in ipairs({"toast.lua"})do S.files["/"..n]=readReal(SRC..n)end
-    for _,n in ipairs({"toast_common.lua","mine_turtle.lua","farm_turtle.lua","toast_worker.lua","tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","build_turtle.lua"})do S.files["/toast/"..n]=readReal(SRC..n)end
+    for _,n in ipairs({"toast_common.lua","mine_turtle.lua","farm_turtle.lua","toast_worker.lua","tree_turtle.lua","mob_turtle.lua","dig_turtle.lua","build_turtle.lua","cpu_turtle.lua"})do S.files["/toast/"..n]=readReal(SRC..n)end
     if opts.mineFile then S.files["/toast/mine_turtle.lua"]=readReal(opts.mineFile) end
     S.files["/toast/mine_common.lua"]=readReal(SRC.."test/mine_common.lua")
     S.files["/toast/farm_common.lua"]=readReal(SRC.."test/farm_common.lua")
