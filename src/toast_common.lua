@@ -1,5 +1,5 @@
 local M={
-    version="3.18.0",
+    version="3.19.0",
     protocol="toast.control.v1", remoteProtocol="toast.control.remote.v1",
     workerProtocols={farm="toast.farm.v2",mining="toast.mine.v1",tree="toast.tree.v1",mob="toast.mob.v1",dig="toast.dig.v1",build="toast.build.v1",cpu="toast.cpu.v1"},
     legacyRemote={farm="toast.farm.remote.v2",mining="toast.mine.remote.v1"},
@@ -59,7 +59,7 @@ M.DEFAULTS={
     dig={shape="room",direction="down",width=5,length=5,height=8,side="right",seal="liquids",drain=false,keepOres="",
         wallBlock="",lineWalls=true,lineFloor=true,lineCeiling=true,wallStock=256,
         useCoal=true,fuelTarget=2000,freeSlots=2,radioTimeout=60,protectedBlocks={}},
-    build={floors=2,drop=22,creeperOnly=true,inTerrain=false,becomeMob=true,fuelTarget=2000,radioTimeout=0},
+    build={floors=2,height=128,creeperOnly=true,inTerrain=false,afk=true,fuelTarget=3000,radioTimeout=0},
     cpu={program="LDX; ADDY; OUT; JMP 0",clear=true,fuelTarget=5000,radioTimeout=0},
 }
 local function copy(v)
@@ -176,10 +176,10 @@ function M.configText(c,cap)
             {"fuelTarget","Waechter: so voll tanken (= so lange unterwegs)"},{"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.mob)
     elseif role=="turtle" and job=="build" then
         section("build","Mobfarm-Bau: Schacht + dunkle Etagen UEBER der Turtle",{
-            {"floors","Spawn-Etagen (1-6, je 17x17 innen)"},{"drop","Schachthoehe bis zur Turtle (22 = Mobs fast tot)"},
+            {"floors","Spawn-Etagen (1-6, je 18x18 innen)"},{"height","Fallhoehe = Abstand Basis -> Farm (32-250, Mobs sterben unten)"},
             {"creeperOnly","true = Falltueren an die Decke: nur Creeper"},
             {"inTerrain","true = im Berg/Gelaende (alles freiraeumen), false = 3D-Drucker"},
-            {"becomeMob","true = danach selbst Mob-Turtle (Schwert ins Inventar)"},
+            {"afk","true = Leiter + AFK-Platz 30 unter der Farm"},
             {"fuelTarget","an der Basis mindestens bis hierhin tanken"},
             {"radioTimeout","s ohne Zentrale bis Stopp (0 = weiter)"}},c.build)
     elseif role=="turtle" and job=="cpu" then
@@ -660,8 +660,8 @@ end
 function M.checkBuild(b)
     assert(type(b)=="table","build fehlt.")
     assert(M.integer(b.floors,1,6),"build.floors: 1 bis 6 Etagen.")
-    assert(M.integer(b.drop,4,60),"build.drop: Schachthoehe 4 bis 60.")
-    assert(type(b.creeperOnly)=="boolean" and type(b.becomeMob)=="boolean" and type(b.inTerrain)=="boolean","build.creeperOnly/inTerrain/becomeMob: true oder false.")
+    assert(M.integer(b.height,32,250),"build.height: Fallhoehe 32 bis 250.")
+    assert(type(b.creeperOnly)=="boolean" and type(b.afk)=="boolean" and type(b.inTerrain)=="boolean","build.creeperOnly/inTerrain/afk: true oder false.")
     assert(M.integer(b.fuelTarget,100,100000),"build.fuelTarget: 100 bis 100000.")
     assert(b.radioTimeout==0 or M.integer(b.radioTimeout,10,300),"build.radioTimeout: 0 oder 10 bis 300.")
     return b
@@ -957,7 +957,7 @@ M.FIELD_OPTIONS={side={"right","left"},crop={"wheat","carrots","potatoes","beetr
 -- Felder, die die Form/den Auftrag aendern (dann nur an der Basis + Fortschritt neu)
 M.LAYOUT_FIELDS={mining={"length","height","tunnels","gap","side","sideDig"},farm={"length","width","side","crop"},
     tree={"length","width","side"},mob={"mode","length","width","side"},dig={"shape","width","length","height","side","direction"},
-    build={"floors","drop","creeperOnly","inTerrain"},cpu={"clear"}}
+    build={"floors","height","creeperOnly","inTerrain","afk"},cpu={"clear"}}
 M.STATE_FILES={farm="/toast_farm_state",mining="/toast_mining_state",tree="/toast_tree_state",mob="/toast_mob_state",
     dig="/toast_dig_state",build="/toast_build_state",cpu="/toast_cpu_state"}
 -- Einstellungen einer Turtle fuer die Anzeige: Abschnitte mit Feld, Text, Wert, Auswahl

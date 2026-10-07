@@ -1,3 +1,51 @@
+# Toast Control 3.19.0
+
+- **Mobfarm-Bau als Himmels-Farm:** Die Etagen beginnen jetzt **128 Blöcke über
+  der Basis** (einstellbar 32–250, „Höhe“). Oben in der Luft gibt es im Umkreis
+  keine anderen Spawnflächen, alle Mobs spawnen in der Farm.
+  - Bei Basis auf Höhe 64 und 5 Etagen liegt das Dach auf ca. 210. Die Grenze
+    der Welt ist 319.
+- **Tod durch Aufprall, Sammeln mit Trichtern:** Die Mobs fallen durch einen
+  **2×2-Schacht** ganz nach unten und sterben beim Aufprall. Creeper explodieren
+  dabei nicht.
+  - Unten setzt die Turtle **4 Trichter**. Sie führen in die Kiste unter der
+    alten Basis.
+  - Die Turtle baut nur noch. Mob-Turtle-Umstellung und Schwert sind entfallen.
+  - Am Ende parkt sie 2 Blöcke rechts neben dem Schacht. Dort ist dann ihre Basis.
+- **Wassergänge 2 breit**, Fallloch 2×2. Die Etagen sind jetzt innen 18×18
+  groß, die Drehung der Etagen bleibt.
+  - Je Spur gibt es 2 Wasserquellen, also 4 je Etage.
+  - Die offenen Kanal-Falltüren zeigen mit der Klappe zur Kanalmitte. So kommen
+    die Mobs von **beiden** Seiten ungehindert drauf. Vorher stand die Klappe
+    auf einer Seite im Weg.
+  - Neben jeder Spur liegen Redstoneblöcke, die halten die Falltüren offen.
+- **Dach aus Stufen:** Auf dem Dach spawnt nichts mehr.
+- **AFK-Platz** (Option „afk“, Standard an):
+  - Eine Leiter führt außen am Schacht hoch zu einer Plattform **30 Blöcke unter
+    der untersten Etage**. Sie besteht aus 3×3 Stufen mit Geländer und 2 Fackeln.
+  - **Wichtig:** Mobs spawnen nur bis 128 Blöcke um den Spieler. Mobs, die weiter
+    als 128 Blöcke weg sind, verschwinden sofort, auch im Fallen. Von der Basis
+    aus ist die Farm zu weit weg, darum dort oben AFK stehen.
+- **Material** (n Etagen, Höhe h, nur Creeper, mit AFK-Platz):
+
+  | Material | Menge |
+  |---|---|
+  | Bruchstein | ca. 476·n + 8·h + 15 |
+  | Stufen | 64·n + 446 |
+  | Falltüren | 184·n + 32 |
+  | Wassereimer | 4·n |
+  | Redstoneblöcke | 24·n |
+  | Leitern | h − 29 |
+  | Fackeln | 2 |
+  | Trichter | 4 |
+
+  - Beispiel 5 Etagen bei 128: ca. 3.420 Bruchstein, 766 Stufen, 952 Falltüren,
+    20 Wassereimer, 120 Redstoneblöcke, 99 Leitern, 2 Fackeln, 4 Trichter.
+  - **Fuel:** ca. 6.400 Züge (2 Etagen) bis 12.000 Züge (5 Etagen).
+- **Geprüft:** im Simulator Block für Block, mit Trichter- und
+  Leiterausrichtung. Getestet wurden im Freien, im Gelände, ohne AFK-Platz,
+  128 hoch sowie 45 Abstürze in allen Bauabschnitten.
+
 # Toast Control 3.18.0
 
 - **Neu: Redstone-CPU bauen** (Turtle-Aufgabe „Redstone-CPU“, Menüpunkt 7 im

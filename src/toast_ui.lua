@@ -110,7 +110,7 @@ local JOB={
             r[#r+1]={"Freie Slots",short(d.freeSlots)};return r end},
     build={name="Mobfarm-Bau",plural="Mobfarm-Bauer",metric="Verbaut",unit="Bl.",once="Bauen",
         value=function(d) return num(d.placed) end,aux={"Fortschritt",function(d) return num(d.cells)>0 and math.floor(num(d.scanned)/num(d.cells)*100) or 0 end,"%"},
-        rows=function(d) local r={{"Farm",short(d.floors).." Etage(n), Schacht "..short(d.drop)..(d.creeperOnly and ", Creeper" or "")},
+        rows=function(d) local r={{"Farm",short(d.floors).." Etage(n), "..short(d.height).." hoch"..(d.creeperOnly and ", Creeper" or "")},
             {"Abschnitt",(d.done and "FERTIG" or tostring(d.phase or "-"))},
             {"Fortschritt",short(d.scanned).." / "..short(d.cells)},{"Verbaut",short(d.placed).." Bloecke"},
             {"Dabei",short(d.fill).." Stein, "..short(d.slabs).." Stufen"}}
@@ -121,6 +121,7 @@ local JOB={
             if d.missing then r[#r+1]={"Fehlt",tostring(d.missing)} end
             r[#r+1]={"Gesamt",short(d.need).." Stein, "..short(d.needSlab).." Stufen"}
             r[#r+1]={"Dazu",short(d.needTrap).." Falltueren, "..short(d.needRed).." Redstone"}
+            r[#r+1]={"Und",short(d.needHopper).." Trichter"..(d.afk and (", "..short(d.needLadder).." Leitern, "..short(d.needTorch).." Fackeln") or "")}
             return r end},
     cpu={name="Redstone-CPU",plural="CPU-Bauer",metric="Verbaut",unit="Teile",once="Bauen",
         value=function(d) return num(d.placed) end,aux={"Fortschritt",function(d) return num(d.cells)>0 and math.floor(num(d.scanned)/num(d.cells)*100) or 0 end,"%"},

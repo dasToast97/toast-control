@@ -193,18 +193,19 @@ function S.new(common)
         fg(colors.white);sleep(1.5)
     end
     local function buildText(b)
-        return b.floors.." Etage(n), Schacht "..b.drop..(b.creeperOnly and " +nur Creeper" or "")..(b.inTerrain and " +im Berg" or " +frei")..(b.becomeMob and " +danach Mobs" or "")
+        return b.floors.." Etage(n), "..b.height.." hoch"..(b.creeperOnly and " +nur Creeper" or "")..(b.inTerrain and " +im Berg" or " +frei")..(b.afk and " +AFK-Platz" or "")
     end
     local function editBuild(c)
         local b=c.build
-        header("Mobfarm bauen (ueber der Turtle)")
-        hint("Turtle steht dort, wo spaeter die Mobs")
+        header("Mobfarm bauen (hoch ueber der Turtle)")
+        hint("Turtle steht dort, wo die Drops")
         hint("ankommen. Kiste UNTER ihr = Drops,")
         hint("Kiste HINTER ihr = Material + Kohle.")
         b.floors=ask("Spawn-Etagen (1-6)",b.floors,1,6)
-        hint("Schacht 22: Mobs fallen fast tot an,")
-        hint("die Turtle gibt den Rest.")
-        b.drop=ask("Schachthoehe (4-60)",b.drop,4,60)
+        hint("Farm so hoch ueber der Turtle: in der")
+        hint("Luft spawnt drumherum nichts, unten")
+        hint("sterben die Mobs am Aufprall.")
+        b.height=ask("Hoehe (32-250)",b.height or 128,32,250)
         hint("Falltueren an der Decke: nur Creeper")
         hint("passen (viel Schwarzpulver).")
         b.creeperOnly=yesno("Nur Creeper?",b.creeperOnly~=false)
@@ -212,12 +213,15 @@ function S.new(common)
         hint("Im Freien: nur Bahnen mit Bloecken")
         hint("(wie ein 3D-Drucker, spart viel Fuel).")
         b.inTerrain=yesno("Im Berg/Gelaende bauen?",b.inTerrain==true)
-        b.becomeMob=yesno("Danach selbst Mob-Turtle?",b.becomeMob~=false)
-        local n=b.floors
-        hint("Material ca.: "..(n*446+295+4*(b.drop-1)).." Bruchstein,")
-        hint(n*64+16 .." Stufen, "..n*2 .." Wassereimer,")
-        hint((b.creeperOnly and n*172+32 or n*12).." Falltueren, "..n*12 .." Redstonebl.")
-        hint("(Redstone macht die Kanal-Falltueren auf)")
+        hint("Mobs spawnen nur bis 128 Bloecke um")
+        hint("dich: Leiter + AFK-Platz 30 unter")
+        hint("der Farm (dort stehen bleiben).")
+        b.afk=yesno("AFK-Platz bauen?",b.afk~=false)
+        local n,h=b.floors,b.height
+        hint("Material ca.: "..(n*476+8*h+15-(b.afk and 0 or 11)).." Bruchstein,")
+        hint(n*64+437+(b.afk and 9 or 0).." Stufen, "..n*4 .." Wassereimer,")
+        hint((b.creeperOnly and n*184+32 or n*24).." Falltueren, "..n*24 .." Redstonebl.,")
+        hint("4 Trichter"..(b.afk and (", "..(h-29).." Leitern, 2 Fackeln") or ""))
         sleep(2)
     end
     local CPU_PRESETS={
@@ -630,7 +634,7 @@ function S.new(common)
         if job=="tree" then local t=c.tree return table.concat({t.length,t.width,t.side},":") end
         if job=="mob" then local m=c.mob return table.concat({m.mode,m.length,m.width,m.side},":") end
         if job=="dig" then local d=c.dig return table.concat({d.shape,d.width,d.length,d.height,d.side,d.direction},":") end
-        if job=="build" then local b=c.build return table.concat({b.floors,b.drop,tostring(b.creeperOnly),tostring(b.inTerrain==true)},":") end
+        if job=="build" then local b=c.build return table.concat({b.floors,b.height,tostring(b.creeperOnly),tostring(b.inTerrain==true),tostring(b.afk~=false)},":") end
         if job=="cpu" then return tostring(c.cpu.clear~=false) end
         return ""
     end
